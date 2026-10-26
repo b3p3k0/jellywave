@@ -17,6 +17,7 @@ PLUGROOT="${PLUGROOT:-/var/lib/jellyfin/plugins}"
 LOGDIR="${LOGDIR:-/var/log/jellyfin}"
 BACKUP_PREFIX="$HOME/jellywave-plugin-backup"
 SERVICE="jellyfin"
+STARTUP_WAIT_SECONDS=8   # time for Jellyfin to load plugins before we read the log
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -29,7 +30,7 @@ if [ "${1:-}" = "--rollback" ]; then
     LATEST="$(ls -1t "$BACKUP_PREFIX"-*.tar.gz 2>/dev/null | head -1 || true)"
     [ -n "$LATEST" ] || die "no backup matching $BACKUP_PREFIX-*.tar.gz"
     say "Rolling back from $LATEST"
-    read -rp "Stop $SERVICE and restore? [y/N] " a; [ "$a" = y ] || die "aborted"
+    read -rp "Stop $SERVICE and restore? [y/N] " a; [ "$a" = y ] || [ "$a" = Y ] || die "aborted"
     sudo systemctl stop "$SERVICE"
     sudo rm -rf "$PLUGROOT"/Jellywave_*
     sudo tar -xzf "$LATEST" -C "$PLUGROOT"
@@ -38,7 +39,7 @@ if [ "${1:-}" = "--rollback" ]; then
     exit 0
 fi
 
-STAGE="$(ls -d "$HERE"/Jellywave_*/ 2>/dev/null | head -1 || true)"
+STAGE="$(ls -d "$HERE"/Jellywave_*/ 2>/dev/null | sort -V | tail -1 || true)"   # newest version wins
 [ -n "$STAGE" ] || die "no Jellywave_<version>/ folder next to this script ($HERE)"
 STAGE="${STAGE%/}"
 [ -f "$STAGE/Jellyfin.Plugin.Jellywave.dll" ] && [ -f "$STAGE/meta.json" ] || die "$STAGE is missing the dll or meta.json"
@@ -53,7 +54,7 @@ echo "  install to     : $NEWDIR"
 echo "  existing       : ${EXISTING:-none}"
 echo "  backup to      : $BACKUP_PREFIX-<timestamp>.tar.gz (only if an existing folder is found)"
 echo
-read -rp "Stop $SERVICE, back up, install, restart? [y/N] " a; [ "$a" = y ] || die "aborted"
+read -rp "Stop $SERVICE, back up, install, restart? [y/N] " a; [ "$a" = y ] || [ "$a" = Y ] || die "aborted"
 
 say "Stopping $SERVICE"
 sudo systemctl stop "$SERVICE"
@@ -69,17 +70,18 @@ fi
 say "Installing $NEWDIR"
 sudo cp -r "$STAGE" "$NEWDIR"
 sudo chown -R "$OWNER:$OWNER" "$NEWDIR"
-sudo chmod 755 "$NEWDIR"; sudo chmod 644 "$NEWDIR"/*
+sudo chmod 755 "$NEWDIR"; sudo find "$NEWDIR" -type f -exec chmod 644 {} +
 
 say "Starting $SERVICE"
 sudo systemctl start "$SERVICE"
-sleep 8
+sleep "$STARTUP_WAIT_SECONDS"
 
-say "Log lines mentioning Jellywave (last 30 s)"
-LOG="$LOGDIR/jellyfin$(date +%Y%m%d).log"
-if [ -r "$LOG" ]; then
+say "Log lines mentioning Jellywave"
+# Jellyfin's default logging writes log_<date>.log; the Debian package writes jellyfin<date>.log.
+LOG="$(ls -t "$LOGDIR"/log_*.log "$LOGDIR"/jellyfin*.log 2>/dev/null | head -1 || true)"
+if [ -n "$LOG" ] && [ -r "$LOG" ]; then
     grep -i 'jellywave' "$LOG" | tail -20 || echo "  (none yet; try: grep -i jellywave $LOG)"
 else
-    echo "  cannot read $LOG; try: sudo journalctl -u $SERVICE --since '1 min ago' | grep -i jellywave"
+    echo "  no readable log in $LOGDIR; try: sudo journalctl -u $SERVICE --since '1 min ago' | grep -i jellywave"
 fi
 say "Done. Dashboard > Plugins should list Jellywave; set the station base URL there, then refresh My Media."

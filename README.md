@@ -9,6 +9,20 @@ press play, hear the station.
 
 Status: in development. See `docs/PLAN.md`.
 
+## How it works, and what users can see
+
+- **Relay** (default): Jellyfin fetches the station's MP3 stream and transcodes it
+  to the client with ffmpeg. Clients only need to reach Jellyfin. Users need the
+  "Allow audio playback that requires transcoding" permission (on by default).
+- **Direct**: clients fetch the stream URL themselves. Every client must reach the
+  station host, or the URL you put in *Client stream URL*.
+- In both modes the station URL you configure is visible to any signed-in user
+  who opens the item (it is part of Jellyfin's playback info). SUB/WAVE streams
+  are public by design, so this is a hostname disclosure, not a credential one.
+  Do not point the plugin at a private station until listener auth is supported.
+- Users see the channel only if their policy allows all channels or lists this one
+  (Dashboard → Users → user → Access).
+
 ## Install (once released)
 
 Dashboard → Plugins → Repositories → add

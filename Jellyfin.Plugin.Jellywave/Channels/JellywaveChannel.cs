@@ -30,6 +30,7 @@ public class JellywaveChannel : IChannel
 
     private const string FallbackStationName = "SUB/WAVE";
     private const string LogoResourceName = "Jellyfin.Plugin.Jellywave.Assets.logo.png";
+    private const string ListenPagePath = "listen";
     private const string StreamContainer = "mp3";
     private const int DefaultBitrate = 192000;
     private const int DefaultSampleRate = 44100;
@@ -58,7 +59,7 @@ public class JellywaveChannel : IChannel
     /// <inheritdoc />
     public string HomePageUrl
         => StationUrls.TryGetBaseUrl(Config, out var baseUrl) && baseUrl is not null
-            ? new Uri(baseUrl, "listen").ToString()
+            ? new Uri(baseUrl, ListenPagePath).ToString()
             : string.Empty;
 
     /// <inheritdoc />
@@ -89,11 +90,11 @@ public class JellywaveChannel : IChannel
 
         if (!StationUrls.TryGetServerStreamUrl(config, out var serverUrl) || serverUrl is null)
         {
-            _logger.LogWarning("Jellywave: station base URL is not configured or not an http(s) URL; the channel has no items until it is set in Dashboard > Plugins > Jellywave");
+            _logger.LogWarning("Station base URL or stream path is not configured, not http(s), or the path escapes the base URL; the channel has no items until Dashboard > Plugins > Jellywave is set");
             return Task.FromResult(new ChannelItemResult { Items = [], TotalRecordCount = 0 });
         }
 
-        var item = BuildLiveItem(config, serverUrl);
+        var item = BuildLiveItem(config, serverUrl, ResolveClientUrl(config, serverUrl));
         return Task.FromResult(new ChannelItemResult { Items = [item], TotalRecordCount = 1 });
     }
 
@@ -108,7 +109,7 @@ public class JellywaveChannel : IChannel
         var stream = typeof(JellywaveChannel).Assembly.GetManifestResourceStream(LogoResourceName);
         if (stream is null)
         {
-            _logger.LogError("Jellywave: embedded logo resource {Resource} is missing from the assembly", LogoResourceName);
+            _logger.LogError("Embedded logo resource {Resource} is missing from the assembly", LogoResourceName);
             return Task.FromResult(new DynamicImageResponse { HasImage = false });
         }
 
@@ -141,11 +142,30 @@ public class JellywaveChannel : IChannel
         return Convert.ToHexString(hash.AsSpan(0, 8));
     }
 
-    private static ChannelItemInfo BuildLiveItem(PluginConfiguration config, Uri serverUrl)
+    private Uri ResolveClientUrl(PluginConfiguration config, Uri serverUrl)
+    {
+        if (config.Delivery != DeliveryMode.Direct)
+        {
+            return serverUrl;
+        }
+
+        if (StationUrls.TryGetClientStreamUrl(config, out var clientUrl) && clientUrl is not null)
+        {
+            return clientUrl;
+        }
+
+        if (StationUrls.HasClientStreamUrl(config))
+        {
+            _logger.LogWarning("Client stream URL {Value} is not an absolute http(s) URL; Direct mode is using the server URL instead", config.ClientStreamUrl);
+        }
+
+        return serverUrl;
+    }
+
+    private static ChannelItemInfo BuildLiveItem(PluginConfiguration config, Uri serverUrl, Uri clientUrl)
     {
         var name = StationName(config);
         var direct = config.Delivery == DeliveryMode.Direct;
-        var clientUrl = direct ? StationUrls.GetClientStreamUrl(config, serverUrl) : serverUrl;
 
         var mediaSource = new MediaSourceInfo
         {
