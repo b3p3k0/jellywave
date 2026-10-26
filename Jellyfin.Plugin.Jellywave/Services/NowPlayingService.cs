@@ -7,10 +7,10 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Jellywave.Channels;
 using Jellyfin.Plugin.Jellywave.Configuration;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +20,7 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// Polls the station's now-playing feed and writes a one-line description onto the live item.
 /// Only <see cref="BaseItem.Overview"/> is written: setting Artists on an Audio item would make
 /// Jellyfin create a Music-library artist entry for every track the station plays.
+/// Jellyfin does not push updates of channel items to clients; the text shows on the next list load.
 /// </summary>
 public sealed class NowPlayingService : IHostedService, IDisposable
 {
@@ -29,14 +30,21 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// Wait between checks of <see cref="IServerApplicationHost.CoreStartupHasCompleted"/> before the first poll,
+    /// so the poller does not race Jellyfin's own channel refresh at startup.
+    /// </summary>
+    private static readonly TimeSpan StartupProbeDelay = TimeSpan.FromSeconds(2);
+
+    /// <summary>
     /// How long StopAsync waits for the loop to finish.
     /// </summary>
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     private readonly StationClient _stationClient;
     private readonly NowPlayingState _state;
-    private readonly IChannelManager _channelManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly IServerApplicationHost _applicationHost;
+    private readonly Func<PluginConfiguration?> _configuration;
     private readonly ILogger<NowPlayingService> _logger;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _loop;
@@ -47,21 +55,42 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
-    /// <param name="channelManager">The channel manager.</param>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
     public NowPlayingService(
         StationClient stationClient,
         NowPlayingState state,
-        IChannelManager channelManager,
         ILibraryManager libraryManager,
+        IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger)
+        : this(stationClient, state, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NowPlayingService"/> class with an explicit configuration source (tests).
+    /// </summary>
+    /// <param name="stationClient">The station client.</param>
+    /// <param name="state">The shared now-playing state.</param>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <param name="applicationHost">The application host, for startup completion.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configuration">Returns the current configuration, or null when the plugin is not ready.</param>
+    public NowPlayingService(
+        StationClient stationClient,
+        NowPlayingState state,
+        ILibraryManager libraryManager,
+        IServerApplicationHost applicationHost,
+        ILogger<NowPlayingService> logger,
+        Func<PluginConfiguration?> configuration)
     {
         _stationClient = stationClient;
         _state = state;
-        _channelManager = channelManager;
         _libraryManager = libraryManager;
+        _applicationHost = applicationHost;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <inheritdoc />
@@ -87,8 +116,80 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _stopping.Dispose();
     }
 
+    /// <summary>
+    /// Runs one poll and returns how long to wait before the next. Public for tests.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The delay before the next poll.</returns>
+    public async Task<TimeSpan> PollOnceAsync(CancellationToken cancellationToken)
+    {
+        var config = _configuration();
+        if (config is null || !config.NowPlayingEnabled || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
+        {
+            if (_state.Clear())
+            {
+                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
+            }
+
+            return IdleDelay;
+        }
+
+        NowPlayingFeed? feed;
+        try
+        {
+            feed = await _stationClient.GetNowPlayingAsync(baseUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
+        {
+            if (_stationReachable)
+            {
+                _logger.LogWarning("Station {Host} is unreachable or not answering with JSON: {Message}", baseUrl.Host, ex.Message);
+                _stationReachable = false;
+            }
+
+            if (_state.Clear())
+            {
+                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
+            }
+
+            return TimeSpan.FromSeconds(config.EffectivePollSeconds);
+        }
+
+        if (!_stationReachable)
+        {
+            _logger.LogInformation("Station {Host} is answering again", baseUrl.Host);
+            _stationReachable = true;
+        }
+
+        if (feed is not null && _state.Update(feed, DateTime.UtcNow))
+        {
+            await WriteOverviewAsync(config, _state.Description(), cancellationToken).ConfigureAwait(false);
+        }
+
+        return TimeSpan.FromSeconds(config.EffectivePollSeconds);
+    }
+
+    /// <summary>
+    /// Exceptions that mean "the station did not give us a feed", as opposed to bugs.
+    /// NotSupportedException is what ReadFromJsonAsync throws for a non-JSON content type (a proxy error page).
+    /// </summary>
+    private static bool IsStationFailure(Exception ex)
+        => ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException;
+
     private async Task LoopAsync(CancellationToken cancellationToken)
     {
+        try
+        {
+            while (!_applicationHost.CoreStartupHasCompleted)
+            {
+                await Task.Delay(StartupProbeDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         _logger.LogInformation("Now-playing poller started");
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -120,62 +221,12 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _logger.LogInformation("Now-playing poller stopped");
     }
 
-    /// <summary>
-    /// Runs one poll and returns how long to wait before the next.
-    /// </summary>
-    private async Task<TimeSpan> PollOnceAsync(CancellationToken cancellationToken)
-    {
-        var config = Plugin.Instance?.Configuration;
-        if (config is null || !config.NowPlayingEnabled || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
-        {
-            if (_state.Clear())
-            {
-                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
-            }
-
-            return IdleDelay;
-        }
-
-        NowPlayingFeed? feed;
-        try
-        {
-            feed = await _stationClient.GetNowPlayingAsync(baseUrl, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            if (_stationReachable)
-            {
-                _logger.LogWarning("Station {Host} is unreachable or not answering with JSON: {Message}", baseUrl.Host, ex.Message);
-                _stationReachable = false;
-            }
-
-            if (_state.Clear())
-            {
-                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
-            }
-
-            return TimeSpan.FromSeconds(config.EffectivePollSeconds);
-        }
-
-        if (!_stationReachable)
-        {
-            _logger.LogInformation("Station {Host} is answering again", baseUrl.Host);
-            _stationReachable = true;
-        }
-
-        if (feed is not null && _state.Update(feed, DateTime.UtcNow))
-        {
-            await WriteOverviewAsync(config, _state.Description(), cancellationToken).ConfigureAwait(false);
-        }
-
-        return TimeSpan.FromSeconds(config.EffectivePollSeconds);
-    }
-
     private async Task WriteOverviewAsync(PluginConfiguration? config, string? description, CancellationToken cancellationToken)
     {
-        var channel = await FindChannelAsync(config).ConfigureAwait(false);
+        var channel = FindChannel(config);
         if (channel is null)
         {
+            _logger.LogDebug("Channel entity not created yet; nothing to update");
             return;
         }
 
@@ -204,10 +255,14 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _logger.LogDebug("Live item overview updated: {Overview}", overview);
     }
 
-    private async Task<Channel?> FindChannelAsync(PluginConfiguration? config)
+    /// <summary>
+    /// Finds the channel entity by name without creating it (unlike IChannelManager.GetChannelsInternalAsync).
+    /// </summary>
+    private Channel? FindChannel(PluginConfiguration? config)
     {
         var name = JellywaveChannel.StationName(config ?? new PluginConfiguration());
-        var channels = await _channelManager.GetChannelsInternalAsync(new ChannelQuery()).ConfigureAwait(false);
-        return channels.Items.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        return _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Channel] })
+            .OfType<Channel>()
+            .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 }

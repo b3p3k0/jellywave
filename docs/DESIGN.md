@@ -80,8 +80,11 @@ proper fix is an `Audio/{id}/live.m3u8` route upstream; not pursued yet.
 `Now playing: Artist – Title (Album) · DJ Name · Show`, and reports whether it changed.
 On change the service finds the live item (`InternalItemsQuery` by channel id and
 external id `live`) and writes the line into `Overview` with
-`ILibraryManager.UpdateItemAsync(..., ItemUpdateType.MetadataEdit)`, which raises the
-library-changed event clients listen to.
+`ILibraryManager.UpdateItemAsync(..., ItemUpdateType.MetadataEdit)`. Jellyfin does not raise
+the library-changed event for channel items, so nothing is pushed; clients show the new
+text on their next list load or playback start. The channel entity is looked up with a
+plain item query, not through the channel manager, because the latter creates channel
+entities on demand and the poller must not race Jellyfin's startup channel refresh.
 
 Only `Overview` is written. Setting `Artists` on an `Audio` item would make Jellyfin's
 artists validator create a Music-library artist for every track the station plays.

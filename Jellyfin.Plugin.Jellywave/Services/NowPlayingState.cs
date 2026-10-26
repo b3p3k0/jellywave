@@ -9,6 +9,11 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// </summary>
 public sealed class NowPlayingState
 {
+    /// <summary>
+    /// Longest station-supplied field kept in the description (the rest is cut with an ellipsis).
+    /// </summary>
+    public const int MaxFieldLength = 120;
+
     private readonly object _gate = new();
     private NowPlayingFeed? _feed;
     private DateTime _fetchedUtc;
@@ -79,37 +84,58 @@ public sealed class NowPlayingState
         }
 
         var sb = new StringBuilder();
-        var track = feed.NowPlaying;
-        if (track is not null && (!string.IsNullOrWhiteSpace(track.Title) || !string.IsNullOrWhiteSpace(track.Artist)))
-        {
-            sb.Append("Now playing: ");
-            if (!string.IsNullOrWhiteSpace(track.Artist))
-            {
-                sb.Append(track.Artist.Trim()).Append(" – ");
-            }
+        var artist = Clean(feed.NowPlaying?.Artist);
+        var title = Clean(feed.NowPlaying?.Title);
+        var album = Clean(feed.NowPlaying?.Album);
+        var dj = Clean(feed.Dj?.Name);
+        var show = Clean(feed.ActiveShow?.Name);
 
-            sb.Append(string.IsNullOrWhiteSpace(track.Title) ? "untitled" : track.Title.Trim());
-            if (!string.IsNullOrWhiteSpace(track.Album))
-            {
-                sb.Append(CultureInfo.InvariantCulture, $" ({track.Album.Trim()})");
-            }
-        }
-        else if (!feed.StreamOnline)
+        if (!feed.StreamOnline)
         {
+            // A stale track may still be reported while the mount is down; the listener hears nothing.
             sb.Append("Off air");
         }
-
-        if (!string.IsNullOrWhiteSpace(feed.Dj?.Name))
+        else if (artist.Length > 0 || title.Length > 0)
         {
-            AppendSeparated(sb, "DJ " + feed.Dj.Name.Trim());
+            sb.Append("Now playing: ");
+            if (artist.Length > 0)
+            {
+                sb.Append(artist).Append(" – ");
+            }
+
+            sb.Append(title.Length > 0 ? title : "untitled");
+            if (album.Length > 0)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $" ({album})");
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(feed.ActiveShow?.Name))
+        if (dj.Length > 0)
         {
-            AppendSeparated(sb, feed.ActiveShow.Name.Trim());
+            AppendSeparated(sb, "DJ " + dj);
+        }
+
+        if (show.Length > 0)
+        {
+            AppendSeparated(sb, show);
         }
 
         return sb.Length == 0 ? null : sb.ToString();
+    }
+
+    /// <summary>
+    /// Collapses whitespace (including line breaks) to single spaces, trims, and caps the length.
+    /// Station text lands in a database column and in client UIs; it must stay one short line.
+    /// </summary>
+    private static string Clean(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var collapsed = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return collapsed.Length <= MaxFieldLength ? collapsed : collapsed[..(MaxFieldLength - 1)] + "…";
     }
 
     private static void AppendSeparated(StringBuilder sb, string text)
