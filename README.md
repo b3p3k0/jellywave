@@ -20,8 +20,15 @@ Status: v0.1 in test. See `docs/PLAN.md` and `docs/DESIGN.md`.
   who opens the item (it is part of Jellyfin's playback info). SUB/WAVE streams
   are public by design, so this is a hostname disclosure, not a credential one.
   Do not point the plugin at a private station until listener auth is supported.
-- Users see the channel only if their policy allows all channels or lists this one
-  (Dashboard → Users → user → Access).
+- Users see the channel only if their policy allows all channels or lists this one:
+  Dashboard → Users → user → Access → **Channel access** (the section appears once a
+  channel exists). Users created from a template or by a provisioning tool often have
+  neither. To grant everyone access in one go, with an administrator API key:
+
+  ```bash
+  JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=... scripts/grant-channel-access.sh          # dry run
+  JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=... scripts/grant-channel-access.sh --apply  # write
+  ```
 
 ## Configuration
 
