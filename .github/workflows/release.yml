@@ -1,0 +1,45 @@
+name: Release
+
+# Tag v<version> (e.g. v0.1.0.0) to build, attach the zip to a GitHub release,
+# and commit the refreshed manifest.json back to main.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and stage
+        run: VERSION="${GITHUB_REF_NAME#v}" scripts/build.sh
+
+      - name: Check metadata agreement
+        run: scripts/check-manifest.sh
+
+      - name: Create GitHub release with zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" "dist/Jellywave_${VERSION}.zip" \
+            --title "Jellywave $VERSION" --notes "$(awk -F': ' '$1=="changelog"{gsub(/"/,"",$2); print $2}' build.yaml)"
+
+      - name: Commit manifest.json to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git diff --cached --quiet || git commit -m "chore: manifest for ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Jellywave</title>
+</head>
+<body>
+    <div id="JellywaveConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="JellywaveConfigForm">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
+                        <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
+                        <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://mimir:7700. No trailing slash.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
+                        <input id="StationName" name="StationName" type="text" is="emby-input" required />
+                        <div class="fieldDescription">Shown in My Media. Renaming creates a new channel entry.</div>
+                    </div>
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            var JellywaveConfig = {
+                pluginUniqueId: '6ca437a0-5b11-41c6-8fe7-92e5de66e2fe'
+            };
+
+            document.querySelector('#JellywaveConfigPage')
+                .addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(JellywaveConfig.pluginUniqueId).then(function (config) {
+                        document.querySelector('#StationBaseUrl').value = config.StationBaseUrl;
+                        document.querySelector('#StationName').value = config.StationName;
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            document.querySelector('#JellywaveConfigForm')
+                .addEventListener('submit', function (e) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(JellywaveConfig.pluginUniqueId).then(function (config) {
+                        config.StationBaseUrl = document.querySelector('#StationBaseUrl').value.replace(/\/+$/, '');
+                        config.StationName = document.querySelector('#StationName').value;
+                        config.LastChangedUtc = new Date().toISOString();
+                        ApiClient.updatePluginConfiguration(JellywaveConfig.pluginUniqueId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                    e.preventDefault();
+                    return false;
+                });
+        </script>
+    </div>
+</body>
+</html>
