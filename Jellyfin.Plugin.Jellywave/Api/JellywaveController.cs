@@ -90,5 +90,4 @@ public class JellywaveController : ControllerBase
             JsonException or NotSupportedException or InvalidOperationException => "did not answer with the expected JSON (is this a SUB/WAVE base URL?)",
             _ => "unexpected error"
         };
-
 }
