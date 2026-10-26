@@ -7,7 +7,7 @@ your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
 Jellyfin shows beside your libraries and Live TV on every client. Open it,
 press play, hear the station.
 
-Status: in development. See `docs/PLAN.md`.
+Status: v0.1 in test. See `docs/PLAN.md` and `docs/DESIGN.md`.
 
 ## How it works, and what users can see
 
@@ -23,13 +23,30 @@ Status: in development. See `docs/PLAN.md`.
 - Users see the channel only if their policy allows all channels or lists this one
   (Dashboard → Users → user → Access).
 
+## Configuration
+
+Dashboard → Plugins → Jellywave.
+
+| Setting | Meaning |
+|---|---|
+| Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700` |
+| Fetch from station | Reads the name, tagline and stream format from the station's public API |
+| Tile name | Shown in My Media; renaming creates a new channel entry |
+| Stream path | Mount under the base URL, normally `/stream.mp3` |
+| Delivery | Relay through Jellyfin (default) or Direct |
+| Client stream URL | Direct only: the URL clients use when it differs from the server's |
+| Now playing | Poll the station and show the current track on the live item |
+
+After saving, the tile updates on the next reload. If you renamed it, run the
+"Refresh Internet Channels" scheduled task to drop the old entry.
+
 ## Known limitations
 
 - **Do not seek.** In Relay mode Jellyfin's audio HLS path has no live mode, so the
   plugin advertises a nominal 6-hour runtime to get a working playlist. The player
   therefore shows a timeline; dragging it restarts the transcode with a seek on a
   live input. Play, pause and stop are fine. After 6 hours press play again.
-- Track titles are not shown yet (planned: polling the station's now-playing API).
+- Track titles appear in the item's description and refresh when clients reload the list or start playback; the playing bar does not update mid-track.
 
 ## Install (once released)
 
