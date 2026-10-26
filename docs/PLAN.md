@@ -15,6 +15,8 @@ Decisions already made by HI (2026-10-26):
 | v1 scope | Stream tile only. Embedded web player page is phase 2. |
 | Repo / name | `~/DEV/jellywave`, plugin "Jellywave", assembly `Jellyfin.Plugin.Jellywave`. `git init` now, commits on `main`, HI owns push and any GitHub remote. |
 | Now playing | Best effort in v1: poll the station and update the item's metadata. |
+| URL visibility | Accepted: signed-in users can see the station URL in playback info (README documents it). |
+| Phase 2 | Custom in-Jellyfin station page (top-bar tab with a mini-player). No upstream Jellyfin PR for now. Decided after v1 cards 3–5 close. |
 
 ## Verified facts the design rests on
 
@@ -56,7 +58,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 ├── scripts/
 │   ├── build.sh                           # dotnet publish -c Release → dist/Jellywave_<ver>/{dll, meta.json, thumb.png} + zip
 │   ├── update-manifest.sh                 # writes the version entry (checksum, sourceUrl, timestamp) into manifest.json
-│   └── local/deploy-the Jellyfin test host.sh                 # HI runs with sudo on the Jellyfin test host: backup, install, restart, verify (dev path)
+│   └── (untracked) local/deploy-jellyfin.sh  # dev helper HI runs on the test host; local/ is gitignored, not a deliverable
 └── docs/
     ├── PLAN.md                            # this plan, committed to the repo on approval
     └── DESIGN.md                          # behaviour doc, closed out with the code (Charter: docs in same wave)
@@ -134,7 +136,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 
 `scripts/build.sh` (run here): `dotnet publish Jellyfin.Plugin.Jellywave -c Release -o dist/stage`, then assemble `dist/Jellywave_<version>/` with `Jellyfin.Plugin.Jellywave.dll`, `meta.json` (generated from `build.yaml` + version + timestamp, same field set as SeerrFin's), `thumb.png`, and zip it as `dist/Jellywave_<version>.zip`. Then runs `update-manifest.sh` so `manifest.json` always matches the last build.
 
-`local/local/deploy-the Jellyfin test host.sh (untracked dev helper, see `local/` in .gitignore)` (HI runs on the Jellyfin test host): modeled on `~/DEV/seerrfin-teststack/deploy/setup.sh`. Steps: confirm systemd Jellyfin is active; show what it found; `sudo systemctl stop jellyfin`; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/local/deploy-the Jellyfin test host.sh`.
+`local/deploy-jellyfin.sh` (untracked dev helper; HI runs it on the Jellyfin test host): modeled on `~/DEV/seerrfin-teststack/deploy/setup.sh`. Steps: confirm systemd Jellyfin is active; show what it found; `sudo systemctl stop jellyfin`; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`.
 
 ## Task cards (DA implements one at a time; RA accepts each)
 
@@ -142,7 +144,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 2. **Channel + stream.** `JellywaveChannel`, embedded logo, config class with defaults (no page yet). Exit: deployed on the Jellyfin test host; `GET /Channels` lists it; `GET /UserViews` includes it; web My Media shows the tile with logo; click → one item → play → audio in browser, Relay mode (ffmpeg job visible in dashboard / log).
 3. **Config page.** `configPage.html` with the fields above and "Fetch from station"; `LastChangedUtc` on save. Exit: switching Delivery to Direct and back changes `PlaybackInfo` output (`SupportsDirectPlay`, `TranscodingUrl`) after cache bust.
 4. **Now-playing service.** `StationClient`, `NowPlayingService`, registrator. Exit: after a track change on the station host, reopening the tile shows the new "Now playing" overview within one poll interval; log shows no errors over 30 min.
-5. **Deploy script, docs, closeout.** `local/local/deploy-the Jellyfin test host.sh` with rollback, `README.md` (including the repository URL and install steps), `docs/DESIGN.md`, `docs/PLAN.md`. Exit: HI runs the script end to end on the Jellyfin test host; docs match behaviour. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the the Jellyfin test host dashboard works (this last check is after push, so it closes when HI reports it).
+5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
 
 Cross-client checks after card 4 (HI performs, MI supplies the checklist): Android app (web wrapper) plays; Roku and Android TV open the tile and play. Roku/Android TV are bonus and may need a follow-up card.
 
@@ -152,9 +154,9 @@ Cross-client checks after card 4 (HI performs, MI supplies the checklist): Andro
 # build
 cd ~/DEV/jellywave && scripts/build.sh && ls dist/Jellywave_0.1.0.0/
 # ship
-scp -r dist/Jellywave_0.1.0.0 local/local/deploy-the Jellyfin test host.sh (untracked dev helper, see `local/` in .gitignore) <jellyfin-host>:~/jellywave-dist/
+scp -r dist/Jellywave_0.1.0.0 local/deploy-jellyfin.sh <jellyfin-host>:~/jellywave-dist/   # deploy helper is untracked
 # HI on the Jellyfin test host
-bash ~/jellywave-dist/local/deploy-the Jellyfin test host.sh
+bash ~/jellywave-dist/deploy-jellyfin.sh
 # API checks (token from a browser session or an API key HI creates)
 curl -s -H "Authorization: MediaBrowser Token=$TOKEN" http://<jellyfin-host>:8096/Channels | jq '.Items[].Name'
 curl -s -H "Authorization: MediaBrowser Token=$TOKEN" "http://<jellyfin-host>:8096/UserViews?userId=$USERID" | jq '.Items[] | {Name, Type}'
