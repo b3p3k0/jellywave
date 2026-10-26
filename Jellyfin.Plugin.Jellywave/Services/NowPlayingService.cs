@@ -52,6 +52,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NowPlayingService"/> class.
+    /// DI resolves this constructor (the other one needs a <see cref="Func{T}"/> that is not registered).
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
@@ -106,7 +107,14 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_loop is not null)
         {
-            await Task.WhenAny(_loop, Task.Delay(StopTimeout, cancellationToken)).ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAny(_loop, Task.Delay(StopTimeout, cancellationToken)).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Host gave up waiting; the loop observes _stopping and ends on its own.
+            }
         }
     }
 
@@ -252,7 +260,8 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
         item.Overview = overview;
         await _libraryManager.UpdateItemAsync(item, channel, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-        _logger.LogDebug("Live item overview updated: {Overview}", overview);
+        // Information on purpose: one line per track change is the runtime evidence that the poller works.
+        _logger.LogInformation("Live item overview updated: {Overview}", overview);
     }
 
     /// <summary>

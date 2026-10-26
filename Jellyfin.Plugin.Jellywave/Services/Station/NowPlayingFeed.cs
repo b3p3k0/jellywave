@@ -15,9 +15,9 @@ public sealed class NowPlayingFeed
     [JsonPropertyName("stream")]
     public StationStreamInfo? Stream { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether the stream is online.</summary>
+    /// <summary>Gets or sets a value indicating whether the stream is online. Null when the feed did not say.</summary>
     [JsonPropertyName("streamOnline")]
-    public bool StreamOnline { get; set; }
+    public bool? StreamOnline { get; set; }
 
     /// <summary>Gets or sets the DJ on air.</summary>
     [JsonPropertyName("dj")]

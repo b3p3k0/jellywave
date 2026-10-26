@@ -90,9 +90,10 @@ public sealed class NowPlayingState
         var dj = Clean(feed.Dj?.Name);
         var show = Clean(feed.ActiveShow?.Name);
 
-        if (!feed.StreamOnline)
+        if (feed.StreamOnline == false)
         {
             // A stale track may still be reported while the mount is down; the listener hears nothing.
+            // Only an explicit false counts: a missing flag must never hide the track.
             sb.Append("Off air");
         }
         else if (artist.Length > 0 || title.Length > 0)
