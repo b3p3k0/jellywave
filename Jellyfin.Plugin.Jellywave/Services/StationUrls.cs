@@ -18,9 +18,20 @@ public static class StationUrls
     public static bool TryGetBaseUrl(PluginConfiguration config, out Uri? baseUrl)
     {
         ArgumentNullException.ThrowIfNull(config);
+        return TryParseBaseUrl(config.StationBaseUrl, out baseUrl);
+    }
+
+    /// <summary>
+    /// Parses a station base URL string the way <see cref="TryGetBaseUrl"/> does.
+    /// </summary>
+    /// <param name="rawBaseUrl">The raw value, possibly null or padded.</param>
+    /// <param name="baseUrl">The base URL with a trailing slash, or null.</param>
+    /// <returns>True when the value is an absolute http(s) URL.</returns>
+    public static bool TryParseBaseUrl(string? rawBaseUrl, out Uri? baseUrl)
+    {
         baseUrl = null;
 
-        var raw = config.StationBaseUrl?.Trim().TrimEnd('/');
+        var raw = rawBaseUrl?.Trim().TrimEnd('/');
         if (string.IsNullOrEmpty(raw))
         {
             return false;

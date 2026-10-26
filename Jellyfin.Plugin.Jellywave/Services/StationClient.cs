@@ -14,6 +14,14 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// </summary>
 public class StationClient
 {
+    /// <summary>
+    /// Largest body accepted. The feeds are a few KB; anything bigger is not a SUB/WAVE answer.
+    /// </summary>
+    private const long MaxResponseBytes = 256 * 1024;
+
+    /// <summary>
+    /// Whole-request budget (connect, headers and body) per call.
+    /// </summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -55,7 +63,11 @@ public class StationClient
     {
         using var client = _httpClientFactory.CreateClient(NamedClient.Default);
         client.Timeout = RequestTimeout;
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+
+        // ResponseContentRead (the default) makes Timeout cover the body as well as the headers,
+        // and MaxResponseContentBufferSize rejects oversized bodies before they are buffered.
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken).ConfigureAwait(false);
     }

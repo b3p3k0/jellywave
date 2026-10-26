@@ -52,7 +52,9 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 │   ├── Configuration/PluginConfiguration.cs
 │   ├── Configuration/configPage.html
 │   ├── Channels/JellywaveChannel.cs       # IChannel
-│   ├── Services/StationClient.cs          # typed HTTP client for /api/state, /api/now-playing, /api/health
+│   ├── Services/StationClient.cs          # typed HTTP client for /api/state and /api/now-playing (landed in card 3 for the probe)
+│   ├── Services/Station/*.cs              # one DTO per file (StyleCop SA1402)
+│   ├── Api/JellywaveController.cs         # admin-only GET /Jellywave/Station?baseUrl= used by the config page
 │   ├── Services/NowPlayingService.cs      # IHostedService poller
 │   └── Assets/logo.png                    # embedded; channel Primary image (temporary mark; swap for station art later)
 ├── scripts/
@@ -74,7 +76,9 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 | `StationName` | `SUB/WAVE` | Tile and channel name. Config page has a "Fetch from station" button that reads `/api/state`. Changing the name changes the internal channel id (server derives it from the name), so the doc warns that renaming creates a new tile. |
 | `Delivery` | `Relay` | `Relay` sets `SupportsDirectPlay=false` (server ffmpeg). `Direct` sets it true (client fetches the URL). |
 | `NowPlayingEnabled` | `true` | |
-| `NowPlayingPollSeconds` | `20` | Clamp 5..300. |
+| `NowPlayingPollSeconds` | `20` | Clamp 5..300 (`EffectivePollSeconds`). |
+| `StationTagline` | empty | Channel description; filled by "Fetch from station" from the on-air DJ tagline. (Added in card 3.) |
+| `StreamBitrateKbps` / `StreamSampleRate` / `StreamChannels` | 192 / 44100 / 2 | Describe the stream to clients; filled by "Fetch from station" from `/api/now-playing`'s `stream` block. (Added in card 3.) |
 | `LastChangedUtc` | Unix epoch until first save | Drives `ChannelItemInfo.DateModified` and `DataVersion`, so config edits re-save media sources and bust the 3 h cache. |
 
 ### `JellywaveChannel : IChannel`
@@ -86,7 +90,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
   - `Id="live"`, `Type=Media`, `MediaType=Audio`, `ContentType=Song`, `IsLiveStream=true`
   - `Name=$"{StationName} — Live"`, `Overview` = current now-playing line if the poller has one, `Artists`/`AlbumArtists` likewise
   - `DateModified=LastChangedUtc`, `ImageUrl` null (inherits channel image)
-  - one `MediaSourceInfo`: `Path`=stream URL (base+path, or `ClientStreamUrl` in Direct mode), `Protocol=Http`, `IsRemote=true`, `IsInfiniteStream=true`, `Container="mp3"`, `Bitrate=192000`, `SupportsDirectPlay=(Delivery==Direct)`, `SupportsDirectStream=false`, `SupportsTranscoding=true`, `SupportsProbing=false`, `RunTimeTicks=null`, `MediaStreams=[audio: Codec "mp3", Channels 2, SampleRate 44100, BitRate 192000, Index 0]`. Bitrate and sample rate come from `/api/state` if present, else these defaults.
+  - one `MediaSourceInfo`: `Path`=stream URL (base+path, or `ClientStreamUrl` in Direct mode), `Protocol=Http`, `IsRemote=true`, `IsInfiniteStream=true`, `Container="mp3"`, `Bitrate=192000`, `SupportsDirectPlay=(Delivery==Direct)`, `SupportsDirectStream=false`, `SupportsTranscoding=true`, `SupportsProbing=false`, `RunTimeTicks=null`, `MediaStreams=[audio: Codec "mp3", Channels 2, SampleRate 44100, BitRate 192000, Index 0]`. Bitrate, sample rate and channels come from the config (filled from `/api/now-playing`'s `stream` block by the config page), else these defaults.
 - `GetChannelImage(Primary)`: returns the embedded PNG as a `DynamicImageResponse` (`HasImage=true`, `Format=Png`, `Stream`). `GetSupportedChannelImages` = `[Primary]`.
 
 ### `NowPlayingService : IHostedService`
@@ -143,7 +147,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 1. **Scaffold + build + manifest.** Copy the template, rename to Jellywave, bump to net10.0 / 12.3.0, new GUID, `git init`, first `wip:` commit. Add `manifest.json`, `build.yaml`, `scripts/build.sh`, `scripts/update-manifest.sh`, `scripts/check-manifest.sh`, and `.github/workflows/release.yml`. Exit: `dotnet build -c Release` clean with warnings-as-errors; `scripts/build.sh` produces `dist/Jellywave_0.1.0.0/` and `dist/Jellywave_0.1.0.0.zip`; `manifest.json` carries the zip's MD5; `check-manifest.sh` passes.
 2. **Channel + stream.** `JellywaveChannel`, embedded logo, config class with defaults (no page yet). Exit: deployed on the Jellyfin test host; `GET /Channels` lists it; `GET /UserViews` includes it; web My Media shows the tile with logo; click → one item → play → audio in browser, Relay mode (ffmpeg job visible in dashboard / log).
 3. **Config page.** `configPage.html` with the fields above and "Fetch from station"; `LastChangedUtc` on save. Exit: switching Delivery to Direct and back changes `PlaybackInfo` output (`SupportsDirectPlay`, `TranscodingUrl`) after cache bust.
-4. **Now-playing service.** `StationClient`, `NowPlayingService`, registrator. Exit: after a track change on the station host, reopening the tile shows the new "Now playing" overview within one poll interval; log shows no errors over 30 min.
+4. **Now-playing service.** `NowPlayingState`, `NowPlayingService`, registrator (`StationClient` already landed with card 3). Exit: after a track change on the station host, reopening the tile shows the new "Now playing" overview within one poll interval; log shows no errors over 30 min.
 5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
 
 Cross-client checks after card 4 (HI performs, MI supplies the checklist): Android app (web wrapper) plays; Roku and Android TV open the tile and play. Roku/Android TV are bonus and may need a follow-up card.

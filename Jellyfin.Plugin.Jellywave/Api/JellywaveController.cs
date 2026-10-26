@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.Jellywave.Configuration;
 using Jellyfin.Plugin.Jellywave.Services;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
@@ -48,8 +47,7 @@ public class JellywaveController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<StationProbeResult>> ProbeStation([FromQuery, Required] string baseUrl, CancellationToken cancellationToken)
     {
-        var probeConfig = new PluginConfiguration { StationBaseUrl = baseUrl };
-        if (!StationUrls.TryGetBaseUrl(probeConfig, out var uri) || uri is null)
+        if (!StationUrls.TryParseBaseUrl(baseUrl, out var uri) || uri is null)
         {
             return BadRequest("baseUrl must be an absolute http(s) URL");
         }
@@ -75,10 +73,22 @@ public class JellywaveController : ControllerBase
                 NowPlaying = feed?.NowPlaying is { } track ? $"{track.Artist} – {track.Title}" : null
             };
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or NotSupportedException or InvalidOperationException)
         {
+            // Detail stays in the server log; the page gets a category it can act on.
             _logger.LogWarning(ex, "Station probe of {Host} failed", uri.Host);
-            return new StationProbeResult { Ok = false, Error = ex.Message };
+            return new StationProbeResult { Ok = false, Error = Categorise(ex) };
         }
     }
+
+    private static string Categorise(Exception ex)
+        => ex switch
+        {
+            OperationCanceledException => "timed out",
+            HttpRequestException { StatusCode: { } status } => $"HTTP {(int)status}",
+            HttpRequestException => "could not connect",
+            JsonException or NotSupportedException or InvalidOperationException => "did not answer with the expected JSON (is this a SUB/WAVE base URL?)",
+            _ => "unexpected error"
+        };
+
 }

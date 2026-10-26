@@ -113,9 +113,10 @@
                     config.StreamPath = el('StreamPath').value.trim() || '/stream.mp3';
                     config.Delivery = el('Delivery').value;
                     config.ClientStreamUrl = el('ClientStreamUrl').value.trim();
-                    config.StreamBitrateKbps = parseInt(el('StreamBitrateKbps').value, 10) || 0;
-                    config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 0;
-                    config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 0;
+                    // Blank means "default", never 0 (0 would fail the inputs' min on the next load).
+                    config.StreamBitrateKbps = parseInt(el('StreamBitrateKbps').value, 10) || 192;
+                    config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 44100;
+                    config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
                     config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
                     config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
                     config.LastChangedUtc = new Date().toISOString();

@@ -163,7 +163,7 @@ public class JellywaveChannel : IChannel
     private static DateTime ItemDateModified(PluginConfiguration config)
         => config.LastChangedUtc > MediaSourceSchemaDate ? config.LastChangedUtc : MediaSourceSchemaDate;
 
-    private static string ComputeDataVersion(PluginConfiguration config)
+    internal static string ComputeDataVersion(PluginConfiguration config)
     {
         var material = string.Join(
             '|',

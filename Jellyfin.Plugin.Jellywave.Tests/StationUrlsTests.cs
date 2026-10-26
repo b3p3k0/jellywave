@@ -101,3 +101,16 @@ public class StationUrlsTests
         Assert.Equal(expected, config.EffectivePollSeconds);
     }
 }
+
+public class StationUrlsQueryAndFragmentTests
+{
+    [Theory]
+    [InlineData("stream.mp3?auth=x")]
+    [InlineData("stream.mp3#frag")]
+    public void Query_and_fragment_are_kept_but_stay_under_the_base(string path)
+    {
+        var config = new PluginConfiguration { StationBaseUrl = "http://radio.example/prefix", StreamPath = path };
+        Assert.True(StationUrls.TryGetServerStreamUrl(config, out var url));
+        Assert.StartsWith("http://radio.example/prefix/stream.mp3", url!.ToString(), StringComparison.Ordinal);
+    }
+}
