@@ -32,9 +32,11 @@ Dashboard → Plugins → Jellywave.
 | Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700` |
 | Fetch from station | Reads the name, tagline and stream format from the station's public API |
 | Tile name | Shown in My Media; renaming creates a new channel entry |
+| Description | Optional channel description; "Fetch from station" fills it with the on-air DJ's tagline |
 | Stream path | Mount under the base URL, normally `/stream.mp3` |
 | Delivery | Relay through Jellyfin (default) or Direct |
 | Client stream URL | Direct only: the URL clients use when it differs from the server's |
+| Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
 | Now playing | Poll the station and show the current track on the live item |
 
 After saving, the tile updates on the next reload. If you renamed it, run the

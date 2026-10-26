@@ -41,7 +41,8 @@ public class DataVersionTests
     {
         var changed = Base();
         mutate(changed);
-        Assert.NotEqual(JellywaveChannel.ComputeDataVersion(Base()), JellywaveChannel.ComputeDataVersion(changed));
-        Assert.NotEmpty(field);
+        Assert.True(
+            JellywaveChannel.ComputeDataVersion(Base()) != JellywaveChannel.ComputeDataVersion(changed),
+            $"changing {field} did not change the data version");
     }
 }
