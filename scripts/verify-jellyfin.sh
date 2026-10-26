@@ -2,7 +2,7 @@
 # Verify Jellywave against a running Jellyfin through its API (read-only except PlaybackInfo,
 # which only computes a playback plan and opens no stream).
 #
-#   JELLYFIN_URL=http://nordflix:8096 JELLYFIN_TOKEN=<api key> scripts/verify-jellyfin.sh [username]
+#   JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=<api key> scripts/verify-jellyfin.sh [username]
 #
 # Checks, in order: server version; the plugin is listed and Active; the channel is in
 # GET /Channels; the channel is a user view (My Media) for the chosen user; the channel
@@ -10,7 +10,7 @@
 # expected delivery (Relay: TranscodingUrl present and no direct play; Direct: direct play).
 set -euo pipefail
 
-: "${JELLYFIN_URL:?set JELLYFIN_URL, e.g. http://nordflix:8096}"
+: "${JELLYFIN_URL:?set JELLYFIN_URL, e.g. http://your.jellyfin:8096}"
 : "${JELLYFIN_TOKEN:?set JELLYFIN_TOKEN to an API key (Dashboard > API Keys) or a session token}"
 USERNAME="${1:-}"
 AUTH="Authorization: MediaBrowser Token=${JELLYFIN_TOKEN}, Client=\"jellywave-verify\", Device=\"cli\", DeviceId=\"jellywave-verify\", Version=\"1\""

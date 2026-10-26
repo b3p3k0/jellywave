@@ -23,6 +23,14 @@ Status: in development. See `docs/PLAN.md`.
 - Users see the channel only if their policy allows all channels or lists this one
   (Dashboard → Users → user → Access).
 
+## Known limitations
+
+- **Do not seek.** In Relay mode Jellyfin's audio HLS path has no live mode, so the
+  plugin advertises a nominal 6-hour runtime to get a working playlist. The player
+  therefore shows a timeline; dragging it restarts the transcode with a seek on a
+  live input. Play, pause and stop are fine. After 6 hours press play again.
+- Track titles are not shown yet (planned: polling the station's now-playing API).
+
 ## Install (once released)
 
 Dashboard → Plugins → Repositories → add
