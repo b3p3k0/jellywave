@@ -65,14 +65,14 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 
 | Field | Default | Notes |
 |---|---|---|
-| `StationBaseUrl` | `http://mimir.banjo-tiaki.ts.net:7700` | Used by the server for API calls and, in Relay mode, as the stream origin. |
+| `StationBaseUrl` | empty | Used by the server for API calls and, in Relay mode, as the stream origin. Empty means the channel publishes no items (Development SOP: no hostnames in source; the test value lives in the deploy notes). |
 | `StreamPath` | `/stream.mp3` | Appended to the base URL. |
 | `ClientStreamUrl` | empty | Direct mode only: URL as clients see it. Empty means base + path. |
 | `StationName` | `SUB/WAVE` | Tile and channel name. Config page has a "Fetch from station" button that reads `/api/state`. Changing the name changes the internal channel id (server derives it from the name), so the doc warns that renaming creates a new tile. |
 | `Delivery` | `Relay` | `Relay` sets `SupportsDirectPlay=false` (server ffmpeg). `Direct` sets it true (client fetches the URL). |
 | `NowPlayingEnabled` | `true` | |
 | `NowPlayingPollSeconds` | `20` | Clamp 5..300. |
-| `LastChangedUtc` | set on save | Drives `ChannelItemInfo.DateModified` and `DataVersion`, so config edits re-save media sources and bust the 3 h cache. |
+| `LastChangedUtc` | Unix epoch until first save | Drives `ChannelItemInfo.DateModified` and `DataVersion`, so config edits re-save media sources and bust the 3 h cache. |
 
 ### `JellywaveChannel : IChannel`
 

@@ -46,11 +46,13 @@ jobs:
         run: |
           V="${VERSION#v}"
           CHANGELOG="$(. scripts/lib.sh; yaml_get changelog)"
+          # Reuse the build's timestamp so meta.json inside the zip and the manifest entry agree.
+          TIMESTAMP="$(jq -r .timestamp "dist/Jellywave_${V}/meta.json")"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout -B main origin/main          # dist/ is untracked, so the zip survives
-          scripts/update-manifest.sh "$V" "$CHANGELOG"
+          scripts/update-manifest.sh "$V" "$CHANGELOG" "$TIMESTAMP"
           git add manifest.json
           git diff --cached --quiet && { echo "manifest already current"; exit 0; }
           git commit -m "chore: manifest for ${VERSION}"
