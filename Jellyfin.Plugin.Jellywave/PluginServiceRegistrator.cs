@@ -17,6 +17,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<StationClient>();
+        serviceCollection.AddSingleton<NowPlayingState>();
         serviceCollection.AddSingleton<IChannel, JellywaveChannel>();
+        serviceCollection.AddHostedService<NowPlayingService>();
     }
 }

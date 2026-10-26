@@ -28,6 +28,11 @@ public class JellywaveChannel : IChannel
     /// </summary>
     public const string LiveItemId = "live";
 
+    /// <summary>
+    /// Overview of the live item when nothing is known about what is on air.
+    /// </summary>
+    public const string DefaultOverview = "Live broadcast. One shared stream; everyone hears the same thing at the same time.";
+
     private const string FallbackStationName = "SUB/WAVE";
     private const string LogoResourceName = "Jellyfin.Plugin.Jellywave.Assets.logo.png";
     private const string ListenPagePath = "listen";
@@ -51,14 +56,17 @@ public class JellywaveChannel : IChannel
     private static readonly DateTime MediaSourceSchemaDate = new(2026, 10, 26, 21, 0, 0, DateTimeKind.Utc);
 
     private readonly ILogger<JellywaveChannel> _logger;
+    private readonly NowPlayingState _nowPlaying;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JellywaveChannel"/> class.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    public JellywaveChannel(ILogger<JellywaveChannel> logger)
+    /// <param name="nowPlaying">The shared now-playing state.</param>
+    public JellywaveChannel(ILogger<JellywaveChannel> logger, NowPlayingState nowPlaying)
     {
         _logger = logger;
+        _nowPlaying = nowPlaying;
     }
 
     /// <inheritdoc />
@@ -109,7 +117,7 @@ public class JellywaveChannel : IChannel
             return Task.FromResult(new ChannelItemResult { Items = [], TotalRecordCount = 0 });
         }
 
-        var item = BuildLiveItem(config, serverUrl, ResolveClientUrl(config, serverUrl));
+        var item = BuildLiveItem(config, serverUrl, ResolveClientUrl(config, serverUrl), _nowPlaying.Description());
         return Task.FromResult(new ChannelItemResult { Items = [item], TotalRecordCount = 1 });
     }
 
@@ -141,8 +149,16 @@ public class JellywaveChannel : IChannel
 
     private static int PositiveOr(int value, int fallback) => value > 0 ? value : fallback;
 
-    private static string StationName(PluginConfiguration config)
-        => string.IsNullOrWhiteSpace(config.StationName) ? FallbackStationName : config.StationName.Trim();
+    /// <summary>
+    /// Gets the effective station name: the configured one, or a fallback when blank.
+    /// </summary>
+    /// <param name="config">The plugin configuration.</param>
+    /// <returns>The name used for the channel.</returns>
+    public static string StationName(PluginConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return string.IsNullOrWhiteSpace(config.StationName) ? FallbackStationName : config.StationName.Trim();
+    }
 
     private static DateTime ItemDateModified(PluginConfiguration config)
         => config.LastChangedUtc > MediaSourceSchemaDate ? config.LastChangedUtc : MediaSourceSchemaDate;
@@ -186,7 +202,7 @@ public class JellywaveChannel : IChannel
         return serverUrl;
     }
 
-    private static ChannelItemInfo BuildLiveItem(PluginConfiguration config, Uri serverUrl, Uri clientUrl)
+    private static ChannelItemInfo BuildLiveItem(PluginConfiguration config, Uri serverUrl, Uri clientUrl, string? overview)
     {
         var name = StationName(config);
         var direct = config.Delivery == DeliveryMode.Direct;
@@ -231,7 +247,7 @@ public class JellywaveChannel : IChannel
         {
             Id = LiveItemId,
             Name = string.Format(CultureInfo.InvariantCulture, "{0} — Live", name),
-            Overview = "Live broadcast. One shared stream; everyone hears the same thing at the same time.",
+            Overview = overview ?? DefaultOverview,
             Type = ChannelItemType.Media,
             MediaType = ChannelMediaType.Audio,
             ContentType = ChannelMediaContentType.Song,
