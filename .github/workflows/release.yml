@@ -1,7 +1,8 @@
 name: Release
 
-# Tag v<version> (e.g. v0.1.0.0) to build, attach the zip to a GitHub release,
-# and commit the refreshed manifest.json back to main.
+# Tag v<version> (e.g. v0.1.0.0, matching Directory.Build.props) to build that
+# tagged commit, attach the zip to a GitHub release, and commit the refreshed
+# manifest.json to main. Safe to re-run: release and asset uploads are idempotent.
 on:
   push:
     tags: ['v*']
@@ -12,34 +13,49 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Build and stage
-        run: VERSION="${GITHUB_REF_NAME#v}" scripts/build.sh
+      - name: Build and stage the tagged commit
+        run: VERSION="${VERSION#v}" scripts/build.sh
 
       - name: Check metadata agreement
         run: scripts/check-manifest.sh
 
-      - name: Create GitHub release with zip
+      - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" "dist/Jellywave_${VERSION}.zip" \
-            --title "Jellywave $VERSION" --notes "$(awk -F': ' '$1=="changelog"{gsub(/"/,"",$2); print $2}' build.yaml)"
+          V="${VERSION#v}"
+          NOTES="$(. scripts/lib.sh; yaml_get changelog)"
+          gh release view "$VERSION" >/dev/null 2>&1 \
+            || gh release create "$VERSION" --title "Jellywave $V" --notes "$NOTES"
+          gh release upload "$VERSION" "dist/Jellywave_${V}.zip" --clobber
 
       - name: Commit manifest.json to main
         run: |
+          V="${VERSION#v}"
+          CHANGELOG="$(. scripts/lib.sh; yaml_get changelog)"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main          # dist/ is untracked, so the zip survives
+          scripts/update-manifest.sh "$V" "$CHANGELOG"
           git add manifest.json
-          git diff --cached --quiet || git commit -m "chore: manifest for ${GITHUB_REF_NAME}"
-          git push origin HEAD:main
+          git diff --cached --quiet && { echo "manifest already current"; exit 0; }
+          git commit -m "chore: manifest for ${VERSION}"
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          echo "could not push manifest after 3 attempts" >&2; exit 1

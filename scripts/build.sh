@@ -7,18 +7,19 @@
 #   scripts/build.sh                 # version from Directory.Build.props
 #   VERSION=0.2.0.0 scripts/build.sh # override (release workflow passes the tag)
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJ="$ROOT/Jellyfin.Plugin.Jellywave"
 DIST="$ROOT/dist"
 
-yaml_get() { awk -F': ' -v k="$1" '$1==k {sub(/^"/,"",$2); sub(/"$/,"",$2); print $2}' "$ROOT/build.yaml"; }
-
-VERSION="${VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$ROOT/Directory.Build.props")}"
+VERSION="${VERSION:-$(props_version)}"
 NAME="$(yaml_get name)"
 GUID="$(yaml_get guid)"
 TARGET_ABI="$(yaml_get targetAbi)"
 ARTIFACT="$(yaml_get artifacts)"
+CHANGELOG="$(yaml_get changelog)"
+require VERSION "$VERSION"; require NAME "$NAME"; require GUID "$GUID"
+require TARGET_ABI "$TARGET_ABI"; require ARTIFACT "$ARTIFACT"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")"
 STAGE="$DIST/${NAME}_${VERSION}"
 
@@ -34,7 +35,7 @@ cp "$PROJ/Assets/logo.png" "$STAGE/thumb.png"
 
 jq -n \
   --arg category "$(yaml_get category)" \
-  --arg changelog "$(yaml_get changelog)" \
+  --arg changelog "$CHANGELOG" \
   --arg description "$(yaml_get description)" \
   --arg guid "$GUID" \
   --arg name "$NAME" \
@@ -51,7 +52,7 @@ jq -n \
 (cd "$STAGE" && zip -q -j "$STAGE.zip" "$ARTIFACT" meta.json thumb.png)
 
 echo "== Updating manifest.json =="
-"$ROOT/scripts/update-manifest.sh" "$VERSION" "$(yaml_get changelog)" "$TIMESTAMP"
+"$ROOT/scripts/update-manifest.sh" "$VERSION" "$CHANGELOG" "$TIMESTAMP"
 
 echo "== Done =="
 ls -la "$STAGE" "$STAGE.zip"

@@ -30,18 +30,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
-        StationBaseUrl = "http://mimir.banjo-tiaki.ts.net:7700";
+        StationBaseUrl = string.Empty;
         StreamPath = "/stream.mp3";
         ClientStreamUrl = string.Empty;
         StationName = "SUB/WAVE";
         Delivery = DeliveryMode.Relay;
         NowPlayingEnabled = true;
         NowPlayingPollSeconds = 20;
-        LastChangedUtc = DateTime.UtcNow;
+        LastChangedUtc = DateTime.UnixEpoch;
     }
 
     /// <summary>
     /// Gets or sets the SUB/WAVE base URL as seen from the Jellyfin server (scheme, host, port; no trailing slash).
+    /// Empty until configured; the channel publishes no items while it is empty.
     /// </summary>
     public string StationBaseUrl { get; set; }
 
@@ -78,6 +79,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the UTC time the configuration last changed. Drives channel cache invalidation.
+    /// Defaults to the Unix epoch so an unsaved configuration is stable across restarts.
     /// </summary>
     public DateTime LastChangedUtc { get; set; }
 }
