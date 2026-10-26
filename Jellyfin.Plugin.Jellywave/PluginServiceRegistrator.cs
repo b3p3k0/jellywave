@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.Jellywave.Channels;
+using Jellyfin.Plugin.Jellywave.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Plugins;
@@ -15,6 +16,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        serviceCollection.AddSingleton<StationClient>();
         serviceCollection.AddSingleton<IChannel, JellywaveChannel>();
     }
 }

@@ -55,7 +55,7 @@ public static class StationUrls
 
         // Relative to the base: "/stream.mp3", "stream.mp3" and "//stream.mp3" all mean <base>/stream.mp3.
         var relative = (config.StreamPath ?? string.Empty).Trim().TrimStart('/');
-        if (relative.Length == 0 || relative.Contains("..", StringComparison.Ordinal))
+        if (relative.Length == 0 || Array.Exists(relative.Split('/'), segment => segment == ".."))
         {
             return false;
         }

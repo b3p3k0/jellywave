@@ -42,6 +42,7 @@ then install **Jellywave** from the catalog and restart Jellyfin.
 ```bash
 scripts/build.sh          # dist/Jellywave_<version>/ and .zip, refreshes manifest.json
 scripts/check-manifest.sh # GUID and version agree across all declarations
+dotnet test               # unit tests (URL handling, config clamps)
 ```
 
 Requires the .NET 10 SDK, `jq`, and `zip`.

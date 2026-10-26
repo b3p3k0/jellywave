@@ -26,6 +26,31 @@ public enum DeliveryMode
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
+    /// Smallest allowed now-playing poll interval, in seconds.
+    /// </summary>
+    public const int MinPollSeconds = 5;
+
+    /// <summary>
+    /// Largest allowed now-playing poll interval, in seconds.
+    /// </summary>
+    public const int MaxPollSeconds = 300;
+
+    /// <summary>
+    /// Default stream bitrate in kbit/s when the station has not been queried (SUB/WAVE's default MP3 mount).
+    /// </summary>
+    public const int DefaultStreamBitrateKbps = 192;
+
+    /// <summary>
+    /// Default stream sample rate in Hz.
+    /// </summary>
+    public const int DefaultStreamSampleRate = 44100;
+
+    /// <summary>
+    /// Default stream channel count.
+    /// </summary>
+    public const int DefaultStreamChannels = 2;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
     public PluginConfiguration()
@@ -34,20 +59,24 @@ public class PluginConfiguration : BasePluginConfiguration
         StreamPath = "/stream.mp3";
         ClientStreamUrl = string.Empty;
         StationName = "SUB/WAVE";
+        StationTagline = string.Empty;
         Delivery = DeliveryMode.Relay;
         NowPlayingEnabled = true;
         NowPlayingPollSeconds = 20;
+        StreamBitrateKbps = DefaultStreamBitrateKbps;
+        StreamSampleRate = DefaultStreamSampleRate;
+        StreamChannels = DefaultStreamChannels;
         LastChangedUtc = DateTime.UnixEpoch;
     }
 
     /// <summary>
-    /// Gets or sets the SUB/WAVE base URL as seen from the Jellyfin server (scheme, host, port; no trailing slash).
+    /// Gets or sets the SUB/WAVE base URL as seen from the Jellyfin server (scheme, host, port, optional path prefix; no trailing slash).
     /// Empty until configured; the channel publishes no items while it is empty.
     /// </summary>
     public string StationBaseUrl { get; set; }
 
     /// <summary>
-    /// Gets or sets the stream mount path appended to <see cref="StationBaseUrl"/>.
+    /// Gets or sets the stream mount path, resolved under <see cref="StationBaseUrl"/>.
     /// </summary>
     public string StreamPath { get; set; }
 
@@ -63,6 +92,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string StationName { get; set; }
 
     /// <summary>
+    /// Gets or sets the station tagline shown as the channel description.
+    /// </summary>
+    public string StationTagline { get; set; }
+
+    /// <summary>
     /// Gets or sets how the audio is delivered to clients.
     /// </summary>
     public DeliveryMode Delivery { get; set; }
@@ -73,13 +107,33 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool NowPlayingEnabled { get; set; }
 
     /// <summary>
-    /// Gets or sets the now-playing poll interval in seconds (5..300).
+    /// Gets or sets the now-playing poll interval in seconds. Read through <see cref="EffectivePollSeconds"/>.
     /// </summary>
     public int NowPlayingPollSeconds { get; set; }
+
+    /// <summary>
+    /// Gets or sets the stream bitrate in kbit/s, as reported by the station (fetch button) or left at the default.
+    /// </summary>
+    public int StreamBitrateKbps { get; set; }
+
+    /// <summary>
+    /// Gets or sets the stream sample rate in Hz.
+    /// </summary>
+    public int StreamSampleRate { get; set; }
+
+    /// <summary>
+    /// Gets or sets the stream channel count.
+    /// </summary>
+    public int StreamChannels { get; set; }
 
     /// <summary>
     /// Gets or sets the UTC time the configuration last changed. Drives channel cache invalidation.
     /// Defaults to the Unix epoch so an unsaved configuration is stable across restarts.
     /// </summary>
     public DateTime LastChangedUtc { get; set; }
+
+    /// <summary>
+    /// Gets the poll interval clamped to the allowed range.
+    /// </summary>
+    public int EffectivePollSeconds => Math.Clamp(NowPlayingPollSeconds, MinPollSeconds, MaxPollSeconds);
 }

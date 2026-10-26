@@ -32,9 +32,7 @@ public class JellywaveChannel : IChannel
     private const string LogoResourceName = "Jellyfin.Plugin.Jellywave.Assets.logo.png";
     private const string ListenPagePath = "listen";
     private const string StreamContainer = "mp3";
-    private const int DefaultBitrate = 192000;
-    private const int DefaultSampleRate = 44100;
-    private const int DefaultChannels = 2;
+    private const int BitsPerKilobit = 1000;
 
     /// <summary>
     /// Nominal runtime advertised on the media source. Jellyfin's audio HLS path has no live mode:
@@ -67,7 +65,8 @@ public class JellywaveChannel : IChannel
     public string Name => StationName(Config);
 
     /// <inheritdoc />
-    public string Description => "Live internet radio from a SUB/WAVE station.";
+    public string Description
+        => string.IsNullOrWhiteSpace(Config.StationTagline) ? "Live internet radio from a SUB/WAVE station." : Config.StationTagline.Trim();
 
     /// <inheritdoc />
     public string DataVersion => ComputeDataVersion(Config);
@@ -140,6 +139,8 @@ public class JellywaveChannel : IChannel
     /// <inheritdoc />
     public IEnumerable<ImageType> GetSupportedChannelImages() => [ImageType.Primary];
 
+    private static int PositiveOr(int value, int fallback) => value > 0 ? value : fallback;
+
     private static string StationName(PluginConfiguration config)
         => string.IsNullOrWhiteSpace(config.StationName) ? FallbackStationName : config.StationName.Trim();
 
@@ -155,6 +156,10 @@ public class JellywaveChannel : IChannel
             config.ClientStreamUrl,
             config.Delivery.ToString(),
             StationName(config),
+            config.StationTagline,
+            config.StreamBitrateKbps.ToString(CultureInfo.InvariantCulture),
+            config.StreamSampleRate.ToString(CultureInfo.InvariantCulture),
+            config.StreamChannels.ToString(CultureInfo.InvariantCulture),
             ItemDateModified(config).ToString("O", CultureInfo.InvariantCulture));
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(material));
@@ -175,7 +180,7 @@ public class JellywaveChannel : IChannel
 
         if (StationUrls.HasClientStreamUrl(config))
         {
-            _logger.LogWarning("Client stream URL {Value} is not an absolute http(s) URL; Direct mode is using the server URL instead", config.ClientStreamUrl);
+            _logger.LogWarning("Client stream URL is set but is not an absolute http(s) URL; Direct mode is using the server URL instead");
         }
 
         return serverUrl;
@@ -185,6 +190,10 @@ public class JellywaveChannel : IChannel
     {
         var name = StationName(config);
         var direct = config.Delivery == DeliveryMode.Direct;
+
+        var bitrate = PositiveOr(config.StreamBitrateKbps, PluginConfiguration.DefaultStreamBitrateKbps) * BitsPerKilobit;
+        var sampleRate = PositiveOr(config.StreamSampleRate, PluginConfiguration.DefaultStreamSampleRate);
+        var channels = PositiveOr(config.StreamChannels, PluginConfiguration.DefaultStreamChannels);
 
         var mediaSource = new MediaSourceInfo
         {
@@ -197,7 +206,7 @@ public class JellywaveChannel : IChannel
             IsRemote = true,
             IsInfiniteStream = true,
             Container = StreamContainer,
-            Bitrate = DefaultBitrate,
+            Bitrate = bitrate,
             RunTimeTicks = NominalRuntime.Ticks,
             SupportsDirectPlay = direct,
             SupportsDirectStream = false,
@@ -211,9 +220,9 @@ public class JellywaveChannel : IChannel
                     Codec = StreamContainer,
                     Index = 0,
                     IsDefault = true,
-                    Channels = DefaultChannels,
-                    SampleRate = DefaultSampleRate,
-                    BitRate = DefaultBitrate
+                    Channels = channels,
+                    SampleRate = sampleRate,
+                    BitRate = bitrate
                 }
             ]
         };

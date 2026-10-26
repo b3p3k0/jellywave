@@ -26,6 +26,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Unit tests
+        run: dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release --nologo
+
       - name: Build and stage the tagged commit
         run: VERSION="${VERSION#v}" scripts/build.sh
 

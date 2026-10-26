@@ -9,16 +9,80 @@
         <div data-role="content">
             <div class="content-primary">
                 <form id="JellywaveConfigForm">
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
-                        <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
-                        <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash.</div>
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Station</h2>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
+                            <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
+                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <button is="emby-button" type="button" id="btnProbe" class="raised block emby-button"><span>Fetch from station</span></button>
+                            <div class="fieldDescription" id="probeResult">Reads the station name, tagline and stream format from the station's public API and fills the fields below.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
+                            <input id="StationName" name="StationName" type="text" is="emby-input" required />
+                            <div class="fieldDescription">Shown in My Media. Renaming creates a new channel entry; the old one is cleaned up by the "Refresh Internet Channels" task.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StationTagline">Description</label>
+                            <input id="StationTagline" name="StationTagline" type="text" is="emby-input" />
+                            <div class="fieldDescription">Optional channel description.</div>
+                        </div>
                     </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
-                        <input id="StationName" name="StationName" type="text" is="emby-input" required />
-                        <div class="fieldDescription">Shown in My Media. Renaming creates a new channel entry.</div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Stream</h2>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StreamPath">Stream path</label>
+                            <input id="StreamPath" name="StreamPath" type="text" is="emby-input" required />
+                            <div class="fieldDescription">Mount under the base URL, normally /stream.mp3.</div>
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="Delivery">Delivery</label>
+                            <select is="emby-select" id="Delivery" name="Delivery" class="emby-select-withcolor emby-select">
+                                <option value="Relay">Relay through Jellyfin (default)</option>
+                                <option value="Direct">Direct: clients fetch the stream themselves</option>
+                            </select>
+                            <div class="fieldDescription">Relay works for every client that can reach Jellyfin and uses ffmpeg. Direct needs every client to reach the station.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ClientStreamUrl">Client stream URL (Direct only)</label>
+                            <input id="ClientStreamUrl" name="ClientStreamUrl" type="url" is="emby-input" />
+                            <div class="fieldDescription">Stream URL as clients see it. Leave empty to use the base URL and stream path.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StreamBitrateKbps">Bitrate (kbit/s)</label>
+                            <input id="StreamBitrateKbps" name="StreamBitrateKbps" type="number" is="emby-input" min="8" max="1536" />
+                            <div class="fieldDescription">Filled by "Fetch from station". Used to describe the stream to clients, not to transcode.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StreamSampleRate">Sample rate (Hz)</label>
+                            <input id="StreamSampleRate" name="StreamSampleRate" type="number" is="emby-input" min="8000" max="192000" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="StreamChannels">Channels</label>
+                            <input id="StreamChannels" name="StreamChannels" type="number" is="emby-input" min="1" max="8" />
+                        </div>
                     </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Now playing</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Show the current track on the live item</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and updates the item's description and artist.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="NowPlayingPollSeconds">Poll interval (seconds)</label>
+                            <input id="NowPlayingPollSeconds" name="NowPlayingPollSeconds" type="number" is="emby-input" min="5" max="300" step="1" />
+                            <div class="fieldDescription">5 to 300. Tracks change every few minutes, so 20 is plenty.</div>
+                        </div>
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -28,34 +92,79 @@
             </div>
         </div>
         <script type="text/javascript">
-            var JellywaveConfig = {
-                pluginUniqueId: '6ca437a0-5b11-41c6-8fe7-92e5de66e2fe'
-            };
+            (function () {
+                var pluginId = '6ca437a0-5b11-41c6-8fe7-92e5de66e2fe';
+                var page = document.querySelector('#JellywaveConfigPage');
+                var fields = ['StationBaseUrl', 'StationName', 'StationTagline', 'StreamPath', 'Delivery', 'ClientStreamUrl',
+                    'StreamBitrateKbps', 'StreamSampleRate', 'StreamChannels', 'NowPlayingPollSeconds'];
 
-            document.querySelector('#JellywaveConfigPage')
-                .addEventListener('pageshow', function () {
+                function el(id) { return page.querySelector('#' + id); }
+                function trimSlashes(value) { return (value || '').trim().replace(/\/+$/, ''); }
+
+                function load(config) {
+                    fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
+                    el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
+                }
+
+                function collect(config) {
+                    config.StationBaseUrl = trimSlashes(el('StationBaseUrl').value);
+                    config.StationName = el('StationName').value.trim();
+                    config.StationTagline = el('StationTagline').value.trim();
+                    config.StreamPath = el('StreamPath').value.trim() || '/stream.mp3';
+                    config.Delivery = el('Delivery').value;
+                    config.ClientStreamUrl = el('ClientStreamUrl').value.trim();
+                    config.StreamBitrateKbps = parseInt(el('StreamBitrateKbps').value, 10) || 0;
+                    config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 0;
+                    config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 0;
+                    config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
+                    config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
+                    config.LastChangedUtc = new Date().toISOString();
+                    return config;
+                }
+
+                page.addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(JellywaveConfig.pluginUniqueId).then(function (config) {
-                        document.querySelector('#StationBaseUrl').value = config.StationBaseUrl;
-                        document.querySelector('#StationName').value = config.StationName;
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        load(config);
                         Dashboard.hideLoadingMsg();
                     });
                 });
 
-            document.querySelector('#JellywaveConfigForm')
-                .addEventListener('submit', function (e) {
+                el('btnProbe').addEventListener('click', function () {
+                    var baseUrl = trimSlashes(el('StationBaseUrl').value);
+                    var out = el('probeResult');
+                    if (!baseUrl) { out.textContent = 'Enter the station base URL first.'; return; }
+                    out.textContent = 'Contacting the station from the server…';
+                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/Station', { baseUrl: baseUrl })).then(function (r) {
+                        if (!r.Ok) { out.textContent = 'Station did not answer: ' + (r.Error || 'unknown error'); return; }
+                        if (r.Name) { el('StationName').value = r.Name; }
+                        if (r.Tagline) { el('StationTagline').value = r.Tagline; }
+                        if (r.StreamMount) { el('StreamPath').value = r.StreamMount; }
+                        if (r.StreamBitrateKbps) { el('StreamBitrateKbps').value = r.StreamBitrateKbps; }
+                        if (r.StreamSampleRate) { el('StreamSampleRate').value = r.StreamSampleRate; }
+                        if (r.StreamChannels) { el('StreamChannels').value = r.StreamChannels; }
+                        var notes = [];
+                        notes.push(r.StreamOnline === false ? 'stream offline' : 'stream online');
+                        if (r.StreamFormat && r.StreamFormat !== 'mp3') { notes.push('format ' + r.StreamFormat + ' (plugin expects mp3)'); }
+                        if (r.ListenerAuth) { notes.push('listener auth is ON: this plugin cannot play a private stream yet'); }
+                        if (r.NowPlaying) { notes.push('now playing: ' + r.NowPlaying); }
+                        out.textContent = 'Fetched "' + (r.Name || '?') + '": ' + notes.join('; ') + '. Save to apply.';
+                    }).catch(function (e) {
+                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : e);
+                    });
+                });
+
+                page.querySelector('#JellywaveConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(JellywaveConfig.pluginUniqueId).then(function (config) {
-                        config.StationBaseUrl = document.querySelector('#StationBaseUrl').value.replace(/\/+$/, '');
-                        config.StationName = document.querySelector('#StationName').value;
-                        config.LastChangedUtc = new Date().toISOString();
-                        ApiClient.updatePluginConfiguration(JellywaveConfig.pluginUniqueId, config).then(function (result) {
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        ApiClient.updatePluginConfiguration(pluginId, collect(config)).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
                         });
                     });
-                    e.preventDefault();
                     return false;
                 });
+            })();
         </script>
     </div>
 </body>
