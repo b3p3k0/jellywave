@@ -179,7 +179,8 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
     /// <summary>
     /// Exceptions that mean "the station did not give us a feed", as opposed to bugs.
-    /// NotSupportedException is what ReadFromJsonAsync throws for a non-JSON content type (a proxy error page).
+    /// A non-JSON 200 (a proxy error page) surfaces as JsonException on .NET 10 and as
+    /// NotSupportedException on runtimes that validate the content type; catch the family.
     /// </summary>
     private static bool IsStationFailure(Exception ex)
         => ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException;

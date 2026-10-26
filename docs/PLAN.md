@@ -1,6 +1,6 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: plan for HI approval. Role: PA. Track: full process (new public interface, multi-module).
+Status: v1 implemented and accepted (cards 1–4: 3ebcd03, c63aa14, b096685, 9953caf); card 5 closeout in progress. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
@@ -189,6 +189,18 @@ Manual: web My Media → tile → item → play; confirm audio, pause/stop work,
 
 None expected in code. Restarting Jellyfin on the Jellyfin test host is done by HI via the script. No auth, schema, or credential changes. `git push`, GitHub remote creation, and tagging the first release remain HI's; the manifest's `sourceUrl` and `imageUrl` assume the slug `b3p3k0/jellywave` until HI says otherwise.
 
+## v1 closeout status (2026-10-27)
+
+| Card | Accepted | Runtime evidence |
+|---|---|---|
+| 1 scaffold, build, manifest | 3ebcd03 | plugin loads on Jellyfin 12.3.0 |
+| 2 channel + stream | c63aa14 | tile in My Media, Relay playback in web; "fatal playback error" fixed by the nominal runtime |
+| 3 config page + probe | b096685 | "Fetch from station" filled tagline and stream format on the test host |
+| 4 now-playing poller | 9953caf | 24 overview updates in 64 min, 0 errors |
+| 5 docs, release | pending | release needs HI: GitHub remote, push, tag v0.1.0.0, install from manifest |
+
+Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. `scripts/grant-channel-access.sh` grants it in bulk; a plugin-side "visible to all users" control is a phase-2 candidate (it would write user policies, so HI decides).
+
 ## Post-approval housekeeping (MI)
 
 - Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit.
@@ -196,6 +208,7 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 
 ## Phase 2 candidates (not in this plan)
 
-- Embedded SUB/WAVE web player page served by the plugin, linked from a top-bar tab (web/Android).
+- Custom in-Jellyfin station page (HI's pick): top-bar tab with a mini-player, cover, now playing, requests; likely via the File Transformation plugin as SeerrFin does. SUB/WAVE sends X-Frame-Options SAMEORIGIN, so no iframe; its API has CORS * so the page can read now-playing directly.
+- Plugin-side "make visible to all users" control, and a hook for newly created users (authorization change; HI decision).
 - Plugin-hosted byte-for-byte stream proxy endpoint (keeps ICY, avoids ffmpeg).
 - Multi-station support (SUB/WAVE profiles) as multiple channels.
