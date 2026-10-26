@@ -22,3 +22,5 @@ scripts/check-manifest.sh   # must print only "ok" lines
 - One type per file (StyleCop SA1402). Named constants for timeouts and thresholds.
 - `build.yaml` values are single-line; `scripts/lib.sh` is the only YAML parser.
 - The deploy helper is untracked on purpose; users install through the plugin repository.
+- When piping `dotnet build` or `dotnet test` output through `grep`, run with `set -o pipefail`
+  (or check the exit code first). A masked build failure got committed once (e8dea54).
