@@ -36,6 +36,22 @@ public class JellywaveChannel : IChannel
     private const int DefaultSampleRate = 44100;
     private const int DefaultChannels = 2;
 
+    /// <summary>
+    /// Nominal runtime advertised on the media source. Jellyfin's audio HLS path has no live mode:
+    /// a source without a runtime makes the master playlist point at Audio/{id}/live.m3u8, a route that
+    /// only exists for video, so the web client fails before ffmpeg starts. With a runtime the server emits
+    /// a normal segmented playlist and transcodes on demand, which works for a live input as long as the
+    /// listener does not seek. The item itself still carries no runtime (IsLiveStream), so lists show "Live".
+    /// </summary>
+    private static readonly TimeSpan NominalRuntime = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Bump this date whenever the shape of the media source changes. Jellyfin only re-saves a channel
+    /// item's media sources when the item's DateModified advances, so without it an upgraded plugin would
+    /// keep serving the sources saved by the previous build until the admin re-saved the configuration.
+    /// </summary>
+    private static readonly DateTime MediaSourceSchemaDate = new(2026, 10, 26, 21, 0, 0, DateTimeKind.Utc);
+
     private readonly ILogger<JellywaveChannel> _logger;
 
     /// <summary>
@@ -127,6 +143,9 @@ public class JellywaveChannel : IChannel
     private static string StationName(PluginConfiguration config)
         => string.IsNullOrWhiteSpace(config.StationName) ? FallbackStationName : config.StationName.Trim();
 
+    private static DateTime ItemDateModified(PluginConfiguration config)
+        => config.LastChangedUtc > MediaSourceSchemaDate ? config.LastChangedUtc : MediaSourceSchemaDate;
+
     private static string ComputeDataVersion(PluginConfiguration config)
     {
         var material = string.Join(
@@ -136,7 +155,7 @@ public class JellywaveChannel : IChannel
             config.ClientStreamUrl,
             config.Delivery.ToString(),
             StationName(config),
-            config.LastChangedUtc.ToString("O", CultureInfo.InvariantCulture));
+            ItemDateModified(config).ToString("O", CultureInfo.InvariantCulture));
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(material));
         return Convert.ToHexString(hash.AsSpan(0, 8));
@@ -179,7 +198,7 @@ public class JellywaveChannel : IChannel
             IsInfiniteStream = true,
             Container = StreamContainer,
             Bitrate = DefaultBitrate,
-            RunTimeTicks = null,
+            RunTimeTicks = NominalRuntime.Ticks,
             SupportsDirectPlay = direct,
             SupportsDirectStream = false,
             SupportsTranscoding = true,
@@ -208,8 +227,8 @@ public class JellywaveChannel : IChannel
             MediaType = ChannelMediaType.Audio,
             ContentType = ChannelMediaContentType.Song,
             IsLiveStream = true,
-            DateModified = config.LastChangedUtc,
-            DateCreated = config.LastChangedUtc,
+            DateModified = ItemDateModified(config),
+            DateCreated = ItemDateModified(config),
             MediaSources = [mediaSource]
         };
     }
