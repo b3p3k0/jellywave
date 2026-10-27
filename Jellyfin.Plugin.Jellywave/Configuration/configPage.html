@@ -97,21 +97,16 @@
 
                     <div class="verticalSection">
                         <h2 class="sectionTitle">Who can see it</h2>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="GrantAccessToAllUsers" name="GrantAccessToAllUsers" type="checkbox" is="emby-checkbox" />
-                                <span>Make the station visible to every user</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                Jellyfin shows a channel only to users whose policy allows all channels or lists this one.
-                                With this on, the plugin adds this channel to each user's channel list: now, at startup, and whenever a user is created or a user's policy is saved.
-                                It never changes anything else in a user's policy, and users with an explicit block list stay blocked.
-                                Turning it off stops future grants and removes nothing. While it is on, un-ticking this channel on one user's policy is undone on save; to exclude a user, put the channel in that user's block list.
-                            </div>
+                        <div class="fieldDescription">
+                            Jellyfin's own Channel Access setting on each user (Dashboard → Users → user → Access) decides who sees the station.
+                            The button below adds the station once to every user who cannot see it yet, and never removes it from anyone; nothing else in a user's policy changes, and users whose block list names the station stay blocked.
+                            Users whose policy allows all channels (Jellyfin's default for new users) see it automatically.
+                            Users created later by a provisioning tool need the station in that tool's template, or another press of the button.
+                            To hide the station from one user, untick it on their Access page; the plugin will not undo that.
                         </div>
                         <div class="inputContainer">
-                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Run now</span></button>
-                            <div class="fieldDescription" id="grantResult">Save first; the pass also runs automatically after saving with the box ticked.</div>
+                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Add the station to every user now</span></button>
+                            <div class="fieldDescription" id="grantResult">Save the station settings first.</div>
                         </div>
                     </div>
 
@@ -148,13 +143,11 @@
                     fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
                     el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
                     el('CoverArtEnabled').checked = config.CoverArtEnabled !== false;
-                    el('GrantAccessToAllUsers').checked = !!config.GrantAccessToAllUsers;
                 }
 
                 function describeGrant(r) {
                     if (r.Error) { return 'Nothing done: ' + r.Error + '.'; }
-                    if (!r.Enabled) { return 'Nothing done: the setting is off, or the channel does not exist yet (set the station URL and save).'; }
-                    return 'Granted to ' + r.Granted + ' user(s) just now; ' + r.AlreadyVisible + ' could already see it; ' + r.Blocked + ' blocked by an explicit block list.';
+                    return 'Done: granted ' + r.Granted + ', already visible ' + r.AlreadyVisible + ', blocked by a block list ' + r.Blocked + '.';
                 }
 
                 function runGrant(out) {
@@ -179,7 +172,6 @@
                     config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
                     config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
                     config.CoverArtEnabled = el('CoverArtEnabled').checked;
-                    config.GrantAccessToAllUsers = el('GrantAccessToAllUsers').checked;
                     config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
                     config.LastChangedUtc = new Date().toISOString();
                     return config;
@@ -262,7 +254,6 @@
                         ApiClient.updatePluginConfiguration(pluginId, updated).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
                             loadHealth();   // shows a refused URL right after saving; the save itself is never blocked
-                            if (updated.GrantAccessToAllUsers) { runGrant(el('grantResult')); }
                         });
                     });
                     return false;
