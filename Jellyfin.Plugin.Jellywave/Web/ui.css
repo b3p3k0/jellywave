@@ -14,8 +14,10 @@
 .jellywave-status{font-size:.85em;opacity:.6;margin-top:.5em}
 @media (max-width:60em){.jellywave-header{grid-template-columns:11em minmax(0,1fr);grid-template-areas:"cover body" "request request" "panels panels"}}
 @media (max-width:40em){.jellywave-header{grid-template-columns:1fr;grid-template-areas:"cover" "body" "request" "panels"}.jellywave-cover{width:100%;height:auto;aspect-ratio:1/1}}
-.jellywave-request{display:grid;grid-template-columns:1fr;gap:.5em;margin-top:1em;align-items:center}
-.jellywave-request-name{width:auto}
+.jellywave-request{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5em;margin-top:1em;align-items:center}
+.jellywave-request-text{grid-column:1/-1}
+.jellywave-request-name{width:auto;min-width:0}
+.jellywave-request-send{white-space:nowrap}
 .jellywave-request input{min-width:0;padding:.55em .7em;border-radius:.3em;border:1px solid rgba(128,128,128,.4);background:rgba(0,0,0,.25);color:inherit;font:inherit}
 .jellywave-request-name{width:9em}
 .jellywave-request-result{grid-column:1/-1;font-size:.95em;min-height:1.2em}
