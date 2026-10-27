@@ -8,7 +8,7 @@ anything. `docs/LESSONS_LEARNED.md` records what each card taught; append, do no
 ```bash
 dotnet build Jellyfin.Plugin.Jellywave.slnx -c Release   # warnings are errors (StyleCop, analyzers)
 dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release
-scripts/build.sh            # dist/Jellywave_<version>/ + zip, refreshes manifest.json
+scripts/build.sh            # dist/Jellywave_<version>/ + zip; manifest.json is owned by the release workflow
 scripts/check-manifest.sh   # must print only "ok" lines
 ```
 

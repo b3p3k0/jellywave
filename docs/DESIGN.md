@@ -128,8 +128,9 @@ and the channel publishes no items while it is empty.
 ## Packaging
 
 `build.yaml` is the single source of plugin metadata; `scripts/build.sh` publishes the
-assembly, writes `meta.json`, zips the three artifacts, and updates `manifest.json`
-with the zip's MD5. `scripts/check-manifest.sh` asserts the GUID, version and ABI agree
+assembly, writes `meta.json` and zips the three artifacts. `manifest.json` is written
+only by the release workflow, from the zip it publishes (`UPDATE_MANIFEST=1 scripts/build.sh`
+refreshes it locally on purpose). `scripts/check-manifest.sh` asserts the GUID, version and ABI agree
 across `Plugin.cs`, the config page, `build.yaml`, `manifest.json`,
 `Directory.Build.props` and the staged `meta.json`. The release workflow builds the
 tagged commit and commits the manifest to `main`.

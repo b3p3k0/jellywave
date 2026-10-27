@@ -2,7 +2,9 @@
 # Build Jellywave and stage a release layout:
 #   dist/Jellywave_<version>/{Jellyfin.Plugin.Jellywave.dll, meta.json, thumb.png}
 #   dist/Jellywave_<version>.zip   (flat zip of the same three files)
-# then refresh manifest.json via scripts/update-manifest.sh.
+# manifest.json is NOT touched: the release workflow writes the entry for the zip it
+# publishes, so a local build can never overwrite a published checksum. To refresh it
+# on purpose (first entry for a new version, dev-only repository): UPDATE_MANIFEST=1.
 #
 #   scripts/build.sh                 # version from Directory.Build.props
 #   VERSION=0.2.0.0 scripts/build.sh # override (release workflow passes the tag)
@@ -54,8 +56,12 @@ jq -n \
 
 (cd "$STAGE" && zip -q -j "$STAGE.zip" "$ARTIFACT" meta.json thumb.png)
 
-echo "== Updating manifest.json =="
-"$ROOT/scripts/update-manifest.sh" "$VERSION" "$CHANGELOG" "$TIMESTAMP"
+if [ "${UPDATE_MANIFEST:-0}" = "1" ]; then
+  echo "== Updating manifest.json (UPDATE_MANIFEST=1) =="
+  "$ROOT/scripts/update-manifest.sh" "$VERSION" "$CHANGELOG" "$TIMESTAMP"
+else
+  echo "== manifest.json left alone (release workflow owns it; UPDATE_MANIFEST=1 to refresh) =="
+fi
 
 echo "== Done =="
 ls -la "$STAGE" "$STAGE.zip"

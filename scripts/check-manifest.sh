@@ -30,8 +30,16 @@ if [ -f "$STAGE/meta.json" ] && [ -f "$STAGE.zip" ]; then
     check "dist meta.json guid"       "$(jq -r .guid "$STAGE/meta.json")"      "$G_YAML"
     check "dist meta.json version"    "$(jq -r .version "$STAGE/meta.json")"   "$V_PROPS"
     check "dist meta.json targetAbi"  "$(jq -r .targetAbi "$STAGE/meta.json")" "$ABI_YAML"
-    check "dist zip md5 == manifest"  "$(md5sum "$STAGE.zip" | awk '{print toupper($1)}')" \
-          "$(jq -r --arg v "$V_PROPS" '.[0].versions[] | select(.version == $v) | .checksum' "$ROOT/manifest.json")"
+    # The zip checksum is only comparable when the manifest entry came from this build
+    # (same timestamp). Entries written by the release workflow describe the CI zip.
+    T_DIST="$(jq -r .timestamp "$STAGE/meta.json")"
+    T_MAN="$(jq -r --arg v "$V_PROPS" '.[0].versions[] | select(.version == $v) | .timestamp' "$ROOT/manifest.json")"
+    if [ "$T_DIST" = "$T_MAN" ]; then
+        check "dist zip md5 == manifest"  "$(md5sum "$STAGE.zip" | awk '{print toupper($1)}')" \
+              "$(jq -r --arg v "$V_PROPS" '.[0].versions[] | select(.version == $v) | .checksum' "$ROOT/manifest.json")"
+    else
+        echo "ok   dist zip is a different build than the manifest entry (release workflow owns the checksum)"
+    fi
 else
     echo "skip dist checks (no dist/${NAME}_${V_PROPS}); run scripts/build.sh to include them"
 fi
