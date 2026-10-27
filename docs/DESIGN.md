@@ -213,7 +213,7 @@ Extras (card 8d), each a signed-in endpoint on `JellywaveWebController` and a bl
 
 | Feature | Server side | Page |
 |---|---|---|
-| DJ portrait | `GET /Jellywave/Avatar/{id}` proxies the station's `/api/persona-avatar/{id}` (id validated, 4 MB cap, one hour private cache); the id comes from the feed's `dj.avatar` path | `<img>` next to the DJ line, loaded with the session token as `api_key` |
+| DJ portrait | `GET /Jellywave/Avatar/{id}` proxies the station's `/api/persona-avatar/{id}` (id validated, 4 MB cap, one hour private cache); the id comes from the feed's `dj.avatar` path | `<img>` next to the DJ line; the bytes are fetched with the session through `ApiClient.ajax` and shown as a blob URL (revoked on change), because Jellyfin honours `?api_key=` only under `EnableLegacyAuthorization` and an `<img>` cannot send the header |
 | Up next, recently played | the poller also fetches `/api/state` each cycle; `Feed` carries `UpNext` and up to 8 `Recent` lines ("· requested by X") | one line and a collapsible list |
 | Like | `GET`/`POST /Jellywave/Like` map the station's `/api/like` (403 off, 409 track ended, 429 too fast) into `LikeOutcome` | heart with the count, per track |
 | Lyrics | `GET /Jellywave/Lyrics?songId=` maps `/api/lyrics/current` (403 off, 401 private station, 409 ended, 503 music server) into `ok/none/pending/off/unavailable/ended`; shown only when `state.lyrics.enabled` | collapsible panel, one fetch per track while open, plain lines (no timing-based highlight: the stream's buffering makes a client-side clock unreliable) |
