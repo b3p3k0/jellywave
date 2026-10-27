@@ -601,6 +601,8 @@ Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the
 
 #### 18. Web client (T2, T3, D2 browser) — v0.4.2.0
 
+**Accepted 2026-10-27** (89ef5a0, cd901b2, 0327e66; review follow-ups b6fced9, 9df922c). RA: ACCEPT with four Suggested (header after an in-flight fetch, request poll across a session change, GET like reply for another song, cached header re-point); all fixed and re-checked against Node timing simulations: ACCEPT, 320/320 C# tests. Host check pending (log out and in as another user, a blocked user, playback in another library).
+
 - From the card 13 review: when the feed starts answering 404 or 403 while a header is rendered (station renamed, access revoked), remove the header and the drawer link instead of leaving them stale.
 
 - `ui.js`:

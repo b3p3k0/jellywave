@@ -172,3 +172,9 @@ An external review of v0.3.4.0 (main de8d8dd) found that the trust model had not
 - A negative cache needs the same key as the positive one: the missing-cover memory is (origin, cover id) with a 30-minute TTL on an injected clock, so another station's identical id, a new track, or time each lift it.
 - Grep for the sibling of a bug before closing it: the duplicate-id 500 in `BuildToday` had two cousins (a null history entry in Feed, a null lyric line in Lyrics), all from trusting upstream collections.
 - A source-text tripwire must be probed with real code, not comments: the scan deliberately skips comment lines, so a commented probe "passed" and looked like a hole. Probe with a code line, then delete it.
+
+## Card 18: web client (89ef5a0, cd901b2, 0327e66; review follow-ups b6fced9, 9df922c)
+
+- Use the host app's own navigation signal before watching the whole DOM: jellyfin-web 12.3 dispatches a bubbling `viewshow` for legacy and React views alike, after the list controller has set `data-parentid`, so it can place the header for the shown view. The MutationObserver stays only as a debounced fallback whose callback arms one timer and queries nothing.
+- An async reply must prove it still belongs to the moment that asked: a captured song id for likes (both directions), a session key (`serverId|userId`, null without a token) plus an epoch for every request, and the request poll checks the session before each send. The RA's timing simulation found the one poll that slipped through between a token change and the next session check; a plain Node stub of `window`, `document` and `ApiClient` was enough to reproduce each race without a browser or a framework.
+- SPAs keep cached views in the document: a document-wide search must skip jellyfin-web's hidden `.mainAnimatedPage.hide` views or it re-points at, or writes into, a page the user is not looking at.
