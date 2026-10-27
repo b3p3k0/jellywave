@@ -1,6 +1,6 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: cards 1–6 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24, 2026-10-27). Release v0.1.0.0 is published; the install-from-manifest check on the test host is the one open item of card 5. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–7 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Phase 2 continues with card 8s. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
@@ -198,8 +198,9 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 | 2 channel + stream | c63aa14 | tile in My Media, Relay playback in web; "fatal playback error" fixed by the nominal runtime |
 | 3 config page + probe | b096685 | "Fetch from station" filled tagline and stream format on the test host |
 | 4 now-playing poller | 9953caf | 24 overview updates in 64 min, 0 errors |
-| 5 docs, release | docs accepted ec8efde | release half: GitHub release v0.1.0.0 published with `Jellywave_0.1.0.0.zip` on 2026-10-27; the workflow's manifest commit step is being fixed (21da132); install from the manifest URL on the test host still pending |
+| 5 docs, release | docs ec8efde; closed 2026-10-27 | GitHub release v0.1.0.0 published with `Jellywave_0.1.0.0.zip` on 2026-10-27; manifest commit step fixed (21da132); HI confirmed on 2026-10-27 that installing Jellywave from the repository manifest URL in the dashboard catalog works |
 | 6 visible to every user | c370a24 (2026-10-27) | plugin 0.2.0.0 on the test host: first pass 39 granted, 2 already visible, 0 blocked; pass after the next restart 0 granted, 41 already visible, 0 blocked; no ERR/WRN from the plugin; HI confirmed in the admin interface and as a regular user on another device |
+| 7 richer live item (phase 2) | accepted 2026-10-27 (0228d43 implementation, 8edfa75 review fixes) | plugin 0.3.0.0 on the test host, loaded 13:09:58 UTC: "Live item cover updated" at 13:10:03, 13:12:44 and 13:15:24 (one per track), 2 "Live item overview updated" lines in the same window (the first poll's text matched the pre-restart text), 0 ERR/WRN mentioning Jellywave, cover or ImageSaver, 0 "Deleting previous image" lines (all covers JPEG, overwritten in place); HI: cover changes with the track after a list reload. Open: the mini-player thumbnail keeps its playback-start snapshot (documented; the card 8 page script will refresh it) |
 
 Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. The interim bulk script was removed once card 6 (in-plugin grant) landed; HI wanted no scripts or manual passes for end users.
 
