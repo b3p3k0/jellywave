@@ -581,6 +581,8 @@ Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the
 
 #### 17. Station data consistency (D2 server, D4, D5, D6) — v0.4.1.0
 
+**Accepted 2026-10-27** (2b29bda, a47f002, e47aa77, bf06fa4, d445801, c4b7c12; review fixes d70cc97, 7719913, a34b6ee, 78f85ca, a55c4e1; nits in the acceptance pass). RA first pass: CHANGES REQUIRED (Feed served the old station after a URL change until the next poll); fixed and re-checked: ACCEPT, 320/320 tests. Host check pending.
+
 - From the card 15b review: README/DESIGN note that saving a user's Access page clears any BlockedChannels entry (jellyfin-web `Access.tsx` posts `BlockedChannels = null`); `PolicyWriterDependencyTests` lists `IServiceProvider` as allowed only in `LiveItemFinder` (and `StationAccessAttribute` if it resolves services that way), so a new service locator is noticed.
 
 - Cleanup from card 15: `PollerHealth.SetNameCollision` and `PollerHealthSnapshot.NameCollision` are written by the poller but no longer read (Health resolves the collision live); remove them and their test.

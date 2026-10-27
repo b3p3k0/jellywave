@@ -120,10 +120,11 @@ public class LiveItemArtworkTests
         Assert.True(await h.Artwork.ApplyAsync(h.Item, prepared, CancellationToken.None));
         Assert.Equal(["image/png"], h.Saved);
 
-        // Same track, next poll: the station is asked again (cheap 502) but nothing is saved.
+        // Same track, next poll: the missing cover is remembered, so the station is not asked again and nothing is saved.
         prepared = await h.Artwork.PrepareAsync(Base, "no-art", CancellationToken.None);
         Assert.False(await h.Artwork.ApplyAsync(h.Item, prepared, CancellationToken.None));
         Assert.Single(h.Saved);
+        Assert.Equal(1, h.Handler.Requests);
     }
 
     [Fact]

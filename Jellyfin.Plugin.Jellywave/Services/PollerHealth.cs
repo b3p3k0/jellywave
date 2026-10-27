@@ -14,7 +14,6 @@ public sealed class PollerHealth
     private DateTime? _lastSuccessUtc;
     private DateTime? _lastErrorUtc;
     private string? _lastError;
-    private bool _nameCollision;
 
     /// <summary>
     /// Reads every field under one lock.
@@ -30,8 +29,7 @@ public sealed class PollerHealth
                 Reachable = _reachable,
                 LastSuccessUtc = _lastSuccessUtc,
                 LastErrorUtc = _lastErrorUtc,
-                LastError = _lastError,
-                NameCollision = _nameCollision
+                LastError = _lastError
             };
         }
     }
@@ -54,16 +52,6 @@ public sealed class PollerHealth
         {
             _reachable = true;
             _lastSuccessUtc = nowUtc;
-        }
-    }
-
-    /// <summary>Records whether the last poll found the channel name colliding with another plugin's channel.</summary>
-    /// <param name="collides">Whether it collides.</param>
-    public void SetNameCollision(bool collides)
-    {
-        lock (_gate)
-        {
-            _nameCollision = collides;
         }
     }
 

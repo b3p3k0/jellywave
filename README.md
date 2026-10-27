@@ -7,7 +7,7 @@ your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
 Jellyfin shows beside your libraries and Live TV on every client. Open it,
 press play, hear the station.
 
-Status: 0.4.0.0 (the security and integrity hardening of wave 3) requires Jellyfin 12.3; 0.3.4.0 and
+Status: 0.4.1.0 (station data consistency on top of 0.4.0.0, the security and integrity hardening of wave 3) requires Jellyfin 12.3; 0.3.4.0 and
 older claimed 12.0. Stream tile, now playing, cover art, optional visibility for every user, and the optional
 station page with its extras. [`docs/DESIGN.md`](docs/DESIGN.md) explains how it works,
 [`SECURITY.md`](SECURITY.md) how to report a vulnerability, and
@@ -48,7 +48,9 @@ contributors live in [`docs/dev/`](docs/dev/PLAN.md).
 - Each press adds the station to everyone who cannot see it right now, including anyone you
   unticked earlier; after pressing, untick those users again. Unticking the station on a user's
   Access page hides it from that user, and nothing in the background re-adds it. Only a block
-  list entry survives a press, and jellyfin-web has no screen for block lists. (0.2.0.0 to 0.3.4.0 had an always-on setting instead, which re-added the station on
+  list entry survives a press, and jellyfin-web has no screen for block lists. Saving a user's
+  Access page in the dashboard clears that user's block list (jellyfin-web sends it empty), so a
+  block set by a script or provisioning tool must be set again after such a save. (0.2.0.0 to 0.3.4.0 had an always-on setting instead, which re-added the station on
   every policy save and restart; an old saved value is ignored.)
 
 ## Configuration
@@ -67,7 +69,7 @@ Dashboard → Plugins → Jellywave.
 | Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
 | Now playing | Poll the station and show the current track, DJ, show and what is up next on the live item |
 | Poller status | Read-only line under Now playing: station reachable, last success, last error, what the live item carries. "Refresh status" re-reads it |
-| Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
+| Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art; a track without art is checked again after 30 minutes, so art added on the station later shows by then) |
 | Station page | Optional, needs the File Transformation plugin (see below). The channel's own page gets a live header with cover, track, DJ, show, what's next, listeners, Play/Stop and a request box; in the web client and the Android app the playing bar and the grid card follow the track while it plays |
 | Add the station to every user now | A button, not a setting. Adds this channel once to every user who cannot see it yet and shows the counts; never removes access (see above) |
 

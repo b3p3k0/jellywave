@@ -6,6 +6,8 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
 /// The latest now-playing snapshot, shared between the poller and the channel. Thread-safe.
+/// Everything here comes from one station: the feed carries its origin (<see cref="StationUrls.Origin"/>), and a feed
+/// from another origin drops what was learned from the previous station's <c>/api/state</c>.
 /// </summary>
 public sealed class NowPlayingState
 {
@@ -15,6 +17,7 @@ public sealed class NowPlayingState
     public const int MaxFieldLength = 120;
 
     private readonly object _gate = new();
+    private string? _origin;
     private NowPlayingFeed? _feed;
     private StationState? _stationState;
     private DateTime _fetchedUtc;
@@ -34,16 +37,25 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
-    /// Stores a fresh feed and reports what the live item would show differently.
+    /// Stores a fresh feed and reports what the live item would show differently. A feed from another origin than the
+    /// last one clears the station state first, so the new station's feed never sits beside the old one's history.
     /// </summary>
+    /// <param name="origin">The station origin the feed came from (<see cref="StationUrls.Origin"/>).</param>
     /// <param name="feed">The feed just fetched.</param>
     /// <param name="nowUtc">The fetch time.</param>
     /// <returns>Which of the description, track line and cover id differ from the previous feed.</returns>
-    public NowPlayingChange Update(NowPlayingFeed feed, DateTime nowUtc)
+    public NowPlayingChange Update(string origin, NowPlayingFeed feed, DateTime nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(feed);
         lock (_gate)
         {
+            if (!string.Equals(origin, _origin, StringComparison.Ordinal))
+            {
+                _stationState = null;
+                _origin = origin;
+            }
+
             var textBefore = Describe(_feed) + "\n" + TrackLineOf(_feed);
             var coverBefore = CoverIdOf(_feed);
             _feed = feed;
@@ -73,6 +85,7 @@ public sealed class NowPlayingState
         lock (_gate)
         {
             var had = _feed is not null;
+            _origin = null;
             _feed = null;
             _stationState = null;
             return had;
@@ -92,15 +105,26 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
-    /// Stores the last station state (history, upcoming, flags); kept across feed failures until <see cref="Clear"/>.
+    /// Stores the last station state (history, upcoming, flags). Kept across failed state fetches from the same station;
+    /// dropped by <see cref="Clear"/> and by a feed from another origin. A state from another origin than the current
+    /// feed's is not stored.
     /// </summary>
+    /// <param name="origin">The station origin the state came from (<see cref="StationUrls.Origin"/>).</param>
     /// <param name="state">The state just fetched.</param>
-    public void UpdateStationState(StationState state)
+    /// <returns>True when it was stored.</returns>
+    public bool UpdateStationState(string origin, StationState state)
     {
+        ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(state);
         lock (_gate)
         {
+            if (!string.Equals(origin, _origin, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             _stationState = state;
+            return true;
         }
     }
 
@@ -113,6 +137,19 @@ public sealed class NowPlayingState
         lock (_gate)
         {
             return _stationState;
+        }
+    }
+
+    /// <summary>
+    /// Reads the feed, the station state, their origin and the values derived from the feed under one lock, so a caller
+    /// never pairs one station's feed with another's history.
+    /// </summary>
+    /// <returns>The snapshot.</returns>
+    public NowPlayingSnapshot Snapshot()
+    {
+        lock (_gate)
+        {
+            return new NowPlayingSnapshot(_origin, _feed, _stationState, _fetchedUtc, CoverIdOf(_feed), TrackLineOf(_feed), Describe(_feed));
         }
     }
 

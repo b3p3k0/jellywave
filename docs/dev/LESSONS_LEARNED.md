@@ -165,3 +165,10 @@ An external review of v0.3.4.0 (main de8d8dd) found that the trust model had not
 
 - A verification script needs its own review against a real server, not just `bash -n` and a stub: verify-jellyfin.sh defaulted to the plugin's default tile name on a renamed station, and posted an empty PlaybackInfo body, which never yields a TranscodingUrl because the server has no device profile to transcode for. Both were invisible against the stub `curl`. Read defaults from the system under test (the plugin's own configuration) and send the smallest realistic client request (an mp3 transcoding profile).
 - The host test earned its place again: every card passed review and the unit suite, and the one Blocker of the wave (the grant overriding an admin's untick) surfaced only when a person used Jellyfin's own Access page.
+
+## Card 17: station data consistency (2b29bda..c4b7c12; review fixes d70cc97..a55c4e1, nits in the acceptance pass)
+
+- Keying a cache by its source is only half the fix; every reader must check the key too. The poller kept state per station origin, but `GET /Jellywave/Feed` served whatever the last poll stored, so for up to one poll interval after a URL change it paired the old station's track with the new station's name. The route now compares the snapshot's origin with the configured one and answers "nothing heard yet" on a mismatch, and reads feed, state and origin as one snapshot under one lock.
+- A negative cache needs the same key as the positive one: the missing-cover memory is (origin, cover id) with a 30-minute TTL on an injected clock, so another station's identical id, a new track, or time each lift it.
+- Grep for the sibling of a bug before closing it: the duplicate-id 500 in `BuildToday` had two cousins (a null history entry in Feed, a null lyric line in Lyrics), all from trusting upstream collections.
+- A source-text tripwire must be probed with real code, not comments: the scan deliberately skips comment lines, so a commented probe "passed" and looked like a hole. Probe with a code line, then delete it.
