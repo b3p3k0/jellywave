@@ -31,8 +31,14 @@
     function isOurs() {
         var pm = state.deps && state.deps.playbackManager;
         if (!pm || !state.feed || !state.feed.ItemId) { return false; }
-        var item = pm.currentItem ? pm.currentItem() : null;
-        return !!(item && item.Id && norm(item.Id) === norm(state.feed.ItemId));
+        try {
+            // currentItem(player) throws when no player is active; getCurrentPlayer() returns null then.
+            var player = pm.getCurrentPlayer ? pm.getCurrentPlayer() : null;
+            var item = player ? pm.currentItem(player) : null;
+            return !!(item && item.Id && norm(item.Id) === norm(state.feed.ItemId));
+        } catch (e) {
+            return false;
+        }
     }
 
     function play() {
@@ -120,9 +126,9 @@
     function tick() {
         fetchFeed().then(function () {
             if (state.header && !document.body.contains(state.header)) { state.header = null; }
-            render();
-            refreshBar();
-            refreshCards();
+            try { render(); } catch (e) { console.warn('[Jellywave] render failed', e); }
+            try { refreshBar(); } catch (e) { console.warn('[Jellywave] bar refresh failed', e); }
+            try { refreshCards(); } catch (e) { console.warn('[Jellywave] card refresh failed', e); }
             if (!state.header && !isOurs()) { clearInterval(state.timer); state.timer = null; }
         });
     }
@@ -159,15 +165,36 @@
         ensureTimer();
     }
 
+    /* Legacy layout only: its drawer has a slot for custom links (.customMenuOptions); the modern layout has
+       no user drawer and lists the channel in its top bar instead. The link opens the channel's library page. */
+    function ensureDrawerLink() {
+        var container = document.querySelector('.customMenuOptions');
+        var f = state.feed;
+        if (!container || !f || !f.ChannelId || container.querySelector('.jellywave-link')) { return; }
+        var link = document.createElement('a');
+        link.className = 'navMenuOption lnkMediaFolder jellywave-link';
+        link.href = '#';
+        link.innerHTML = '<span class="material-icons navMenuOptionIcon radio" aria-hidden="true"></span><span class="navMenuOptionText"></span>';
+        link.querySelector('.navMenuOptionText').textContent = f.StationName || 'Radio';
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            var router = state.deps && state.deps.appRouter;
+            var client = api();
+            if (router && router.showItem && client) { router.showItem(String(f.ChannelId), client.serverId()); }
+        });
+        container.appendChild(link);
+    }
+
     function onDomChange() {
         if (!state.feed) {
-            if (document.querySelector('.itemsContainer[data-parentid]') && !state.fetching) {
+            if ((document.querySelector('.itemsContainer[data-parentid]') || document.querySelector('.customMenuOptions')) && !state.fetching) {
                 state.fetching = true;
-                fetchFeed().then(function () { state.fetching = false; ensureHeader(); });
+                fetchFeed().then(function () { state.fetching = false; ensureHeader(); ensureDrawerLink(); });
             }
             return;
         }
         ensureHeader();
+        ensureDrawerLink();
     }
 
     function boot(deps) {
