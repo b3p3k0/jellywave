@@ -38,7 +38,7 @@ Dashboard → Plugins → Jellywave.
 |---|---|
 | Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700`. No credentials, query or fragment (see below) |
 | Fetch from station | Reads the name, tagline, stream path and stream format from the station's public API |
-| Tile name | Shown in My Media; renaming creates a new channel entry |
+| Tile name | Shown in My Media. Pick a name no other channel plugin uses; renaming creates a new channel (see below) |
 | Description | Optional channel description; "Fetch from station" fills it with the on-air DJ's tagline |
 | Stream path | Mount under the base URL, normally `/stream.mp3` |
 | Delivery | Relay through Jellyfin (default) or Direct |
@@ -59,6 +59,19 @@ is fine. A *Client stream URL* must not contain credentials either; it may name 
 
 After saving, the tile updates on the next reload. If you renamed it, run the
 "Refresh Internet Channels" scheduled task to drop the old entry.
+
+**Pick a unique tile name.** Jellyfin derives a channel's id from its name, and its plugin API offers
+no other identity, so the plugin cannot make the id collision-proof: two channel plugins with the same
+name share one id. Whether names that differ only in case collide follows the server's item-id
+setting (Jellyfin 12.3 keeps case by default). When the name collides with another plugin's channel,
+Jellywave does nothing with it: the live item is not updated, no access is granted, the station page
+answers 404, and the plugin page's status line says "channel name collides with another plugin's
+channel". Change the tile name to fix it.
+
+**Renaming changes the channel id.** Access given to the old id does not carry over. With "Make the
+station visible to every user" on, the pass after saving grants the new id; otherwise allow the new
+channel again under Dashboard → Users → user → Access. A block list that names the old channel does not
+cover the new one either, so check users with an explicit block list after a rename.
 
 ## Known limitations
 
@@ -109,7 +122,7 @@ channel is allowed under Dashboard → Users → user → Access, or the user ha
 name it, and parental controls pass). Administrators get no exception. A signed-in user who cannot
 see the channel, and every API key, gets 403 from the `/Jellywave` routes (callers that are not signed
 in get Jellyfin's own 401); the page then shows nothing (no header, no drawer link) and asks again
-only every five minutes. Until Jellyfin has created the channel the routes answer 404. A listener request can be followed only by the user who
+only every five minutes. Until Jellyfin has created the channel, and while the tile name collides with another plugin's channel, the routes answer 404. A listener request can be followed only by the user who
 sent it; after a Jellyfin restart the page says the station lost track of a pending request.
 
 ## Tested on

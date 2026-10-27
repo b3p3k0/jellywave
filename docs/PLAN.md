@@ -606,7 +606,7 @@ Host checks (HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`):
 
 - Card 13: a non-admin user with access gets 200 from `/Jellywave/Feed`. A user with the channel in BlockedChannels gets 403. An API key gets 403. User B polling user A's request id gets 403.
 - Card 14: an admin probe of a URL that redirects gets the redirect message.
-- Card 15: `scripts/verify-jellyfin.sh` passes.
+- Card 15: `scripts/verify-jellyfin.sh` passes (set `JELLYWAVE_CHANNEL` to the tile name when it is not `SUB/WAVE`).
 - Every card: 0 ERR/WRN lines mentioning Jellywave after the restart.
 
 ### Risks

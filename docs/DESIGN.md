@@ -17,9 +17,50 @@ Without that line the plugin loads but no tile appears.
 
 The channel's internal id is derived from its name (`ChannelManager.GetInternalChannelId`),
 which is why renaming the tile creates a new channel; the "Refresh Internet Channels"
-scheduled task removes channels whose plugin no longer reports them.
+scheduled task removes channels whose plugin no longer reports them. See "Channel identity".
 
 The tile image is the embedded `Assets/logo.png`, served through `IChannel.GetChannelImage`.
+
+## Channel identity (card 15)
+
+Jellyfin has no identity for a channel other than its name. `ChannelManager.GetInternalChannelId(name)`
+is `ILibraryManager.GetNewItemId("Channel " + name, typeof(Channel))`, and `LibraryManager.GetNewItemId`
+lowercases the key unless `EnableCaseSensitiveItemIds` is on (the 12.3 default), then hashes the type's
+full name plus the key (MD5). So whether `SUB/WAVE` and `sub/wave` are one channel is a server setting.
+
+`LiveItemFinder.Resolve` computes the same id through the same call and loads it with `GetItemById`;
+only a `Channel` counts. There is no name scan any more: the old case-insensitive scan over every
+channel entity could return an entity that is not the one Jellyfin serves for the name.
+`LibraryChannelLocator` (the granter's lookup) uses the finder, creates a missing entity through
+`IChannelManager.GetChannelsInternalAsync` when the station is configured, then resolves by id again.
+
+**Collisions.** `ChannelManager` maps an entity back to its provider with
+`Channels.FirstOrDefault(i => GetInternalChannelId(i.Name) == id)`, so two `IChannel`s whose names derive
+one id share one entity: it is listed once per provider, keeps the name of whichever created it, and the
+first provider serves its items. The finder compares the id of every other registered `IChannel`
+(`IEnumerable<IChannel>` from DI, `JellywaveChannel` excluded) with ours. Comparing derived ids, not
+names, applies the server's case rule exactly. The list is resolved from `IServiceProvider` on first
+use: `JellywaveChannel` itself is one of them. Its constructor needs only a logger and
+`NowPlayingState`, so there is no cycle today, but building every plugin's channel while the finder is
+constructed would be out of order.
+
+On a collision the resolution carries no entity, so every consumer fails closed:
+
+- The poller writes nothing to the live item (no overview, no image) and sets `PollerHealth`'s collision
+  flag, which follows the last poll (at most one poll interval, or 30 s while idle, behind); `GET /Jellywave/Health` turns it into `ChannelStatus` = "channel name collides with another
+  plugin's channel", which the configuration page shows in the status line (as text).
+- The granter grants nothing; a pass returns `Enabled = false` with that sentence as `Error`, and the
+  page shows "Nothing done: …".
+- `StationAccess` refuses with `NameCollision`, which the filter answers with 404, like a missing channel:
+  the station has no channel of its own to serve, and a rename by the admin ends it.
+- One Warning per streak names both channels and the id; one Information line when it clears.
+
+Accepted: the id stays name-derived (Jellyfin's API), so a plugin installed later with the same name
+starts a collision. The README asks for a unique tile name and says that renaming changes the id, so
+grants (and block lists) naming the old id do not apply to the new one.
+
+`scripts/verify-jellyfin.sh` selects the channel by exact name (`JELLYWAVE_CHANNEL`, default
+`SUB/WAVE`) and fails when it is missing or listed more than once.
 
 ## The live item
 
@@ -150,6 +191,15 @@ nothing, so there is no loop). Each user is re-read by id immediately before it 
 the setting off stops future passes and revokes nothing. One Information line per pass carries
 counts, never user names.
 
+The passes are serialized (card 15). One `SemaphoreSlim` in `AccessGranter` (a DI singleton, disposed
+with the container) covers `GrantAllAsync` and `GrantAsync`: the channel lookup, every user read and every
+save run under it, so a user event that arrives during a pass re-reads the user after the pass saved it,
+and the plugin never saves a stale copy over its own write. No deadlock with Jellyfin:
+`UpdatePolicyAsync` and `CreateUserAsync` publish their events after releasing the per-user lock, and
+`UpdateUserAsync` publishes nothing. Accepted: a dashboard save that lands between the plugin's read and
+its `UpdateUserAsync` (milliseconds) is overwritten, because `UpdateUserAsync` copies the whole entity
+and `IUserManager` has no partial update; the admin sees the old value on reload and saves again.
+
 ## Station page (optional, cards 8s–9)
 
 jellyfin-web has no hook for a plugin page that non-admin users can reach: plugin pages, the
@@ -248,7 +298,8 @@ the `StationAccess` singleton, which refuses in this order:
 1. `Jellyfin-IsApiKey` is anything but `False` (Jellyfin sets it with `bool.ToString` on every request).
 2. `Jellyfin-UserId` is missing, unreadable or empty (API keys carry an empty id), or names no user
    (`IUserStore.GetUser`).
-3. The channel entity is missing (`LiveItemFinder.FindChannel`; a fresh install, or a rename before the
+3. The channel name collides with another plugin's channel (`NameCollision`, see "Channel identity"), or
+   the channel entity is missing (`LiveItemFinder.Resolve`; a fresh install, or a rename before the
    channel refresh): fail closed with **404** instead of 403, so the page keeps its short retry.
 4. Jellyfin's own `Channel.IsVisible(user)` is false: block list, enabled list or `EnableAllChannels`,
    then the parental check (tags and rating). Administrators are not exempt, same as in Jellyfin.
@@ -358,7 +409,7 @@ decodes it, and the station is admin-configured.
 ## Poller health (card 10)
 
 `PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
-error with time) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
+error with time, and whether the channel name collides, card 15) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
 description and image key and whether the item exists. The configuration page shows it under
 "Now playing" with a "Refresh status" button, so an admin never has to read the server log to know
 whether the station is being reached.
