@@ -114,7 +114,7 @@
         if (!client || !state.feed || !state.feed.SongId) { state.like = null; return; }
         if (state.likeSongId === state.feed.SongId) { return; }
         state.likeSongId = state.feed.SongId;
-        client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) { state.like = r; renderLike(); }).catch(function () { state.like = null; });
+        client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) { state.like = r; renderLike(); }).catch(function () { state.like = null; state.likeSongId = null; });
     }
 
     function renderLike() {
@@ -139,7 +139,9 @@
             type: 'POST', url: client.getUrl('Jellywave/Like'), dataType: 'json', contentType: 'application/json',
             data: JSON.stringify({ SongId: state.like.SongId })
         }).then(function (r) {
-            state.like = r && r.Enabled ? r : state.like;
+            if (!r || !r.Enabled) { return; }
+            if (r.Message && !r.SongId) { state.like.Message = r.Message; return; }   // refusal: keep heart and count
+            state.like = r;
         }).catch(function () { /* keep the old status */ }).then(function () { state.likeBusy = false; renderLike(); });
     }
 
@@ -155,6 +157,8 @@
         if (!force && state.lyricsSongId === state.feed.SongId) { return; }
         var songId = state.feed.SongId;
         state.lyricsSongId = songId;
+        state.lyrics = null;
+        renderLyrics();
         client.getJSON(client.getUrl('Jellywave/Lyrics', { songId: songId })).then(function (r) {
             if (state.lyricsSongId !== songId) { return; }
             state.lyrics = r;
@@ -181,7 +185,7 @@
         if (!h || !client) { return; }
         var panel = h.querySelector('.jellywave-schedule');
         if (!panel.open) { return; }
-        if (state.schedule && Date.now() - state.scheduleAt < 600000) { renderSchedule(); return; }
+        if (state.schedule && Date.now() - state.scheduleAt < 300000) { renderSchedule(); return; }
         client.getJSON(client.getUrl('Jellywave/Schedule')).then(function (r) {
             state.schedule = r;
             state.scheduleAt = Date.now();
@@ -245,9 +249,10 @@
                     if (!blob || avatar.getAttribute('data-src') !== avatarUrl) { return; }
                     if (avatar.src && avatar.src.indexOf('blob:') === 0) { URL.revokeObjectURL(avatar.src); }
                     avatar.src = URL.createObjectURL(blob);
-                }).catch(function () { avatar.style.display = 'none'; });
+                    avatar.removeAttribute('data-failed');
+                }).catch(function () { avatar.setAttribute('data-failed', '1'); avatar.style.display = 'none'; });
             }
-            avatar.style.display = avatarUrl ? '' : 'none';
+            avatar.style.display = avatarUrl && !avatar.getAttribute('data-failed') ? '' : 'none';
         } else {
             dj.style.display = 'none';
         }
@@ -283,6 +288,7 @@
             if (state.header && !document.body.contains(state.header)) { state.header = null; }
             try { fetchLike(); } catch (e) { console.warn('[Jellywave] like status failed', e); }
             try { render(); } catch (e) { console.warn('[Jellywave] render failed', e); }
+            try { fetchSchedule(); } catch (e) { console.warn('[Jellywave] schedule failed', e); }
             try { refreshBar(); } catch (e) { console.warn('[Jellywave] bar refresh failed', e); }
             try { refreshCards(); } catch (e) { console.warn('[Jellywave] card refresh failed', e); }
             if (!state.header && !isOurs()) { clearInterval(state.timer); state.timer = null; }
@@ -313,20 +319,22 @@
             '<p class="jellywave-sub"></p>' +
             '<div class="jellywave-dj" style="display:none"><img class="jellywave-dj-avatar" alt="" /><div class="jellywave-dj-text"></div></div>' +
             '<div class="jellywave-meta"></div>' +
-            '<details class="jellywave-recent" style="display:none"><summary>Recently played</summary><ol></ol></details>' +
-            '<details class="jellywave-lyrics" style="display:none"><summary>Lyrics</summary><div class="jellywave-lyrics-body"></div></details>' +
-            '<details class="jellywave-schedule" style="display:none"><summary>Today on the station</summary><div class="jellywave-schedule-body"></div></details>' +
             '<div class="jellywave-actions">' +
             '<button is="emby-button" type="button" class="raised button-submit emby-button jellywave-play"><span class="material-icons play_arrow" aria-hidden="true"></span><span>Play</span></button>' +
             '<button is="emby-button" type="button" class="raised emby-button jellywave-stop"><span class="material-icons stop" aria-hidden="true"></span><span>Stop</span></button>' +
-            '</div><div class="jellywave-status"></div>' +
+            '</div><div class="jellywave-status"></div></div>' +
             '<form class="jellywave-request">' +
             '<input type="text" class="jellywave-request-text" maxlength="280" placeholder="Request a song, or say hi to the DJ" autocomplete="off" />' +
             '<input type="text" class="jellywave-request-name" maxlength="40" placeholder="Your name" autocomplete="off" />' +
             '<button is="emby-button" type="submit" class="raised emby-button jellywave-request-send"><span>Send</span></button>' +
             '<div class="jellywave-request-result"></div>' +
             '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests, one pending at a time and a few per hour for everyone on this server together, so a "still queued" or "try again later" answer may be about someone else\'s request.</div>' +
-            '</form></div>';
+            '</form>' +
+            '<div class="jellywave-panels">' +
+            '<details class="jellywave-recent" style="display:none"><summary>Recently played</summary><ol></ol></details>' +
+            '<details class="jellywave-schedule" style="display:none"><summary>Today on the station</summary><div class="jellywave-schedule-body"></div></details>' +
+            '<details class="jellywave-lyrics" style="display:none"><summary>Lyrics</summary><div class="jellywave-lyrics-body"></div></details>' +
+            '</div>';   // closes .jellywave-panels; the header element itself is the container
         header.querySelector('.jellywave-like').addEventListener('click', sendLike);
         header.querySelector('.jellywave-lyrics').addEventListener('toggle', function () { fetchLyrics(true); });
         header.querySelector('.jellywave-schedule').addEventListener('toggle', function () { fetchSchedule(); });

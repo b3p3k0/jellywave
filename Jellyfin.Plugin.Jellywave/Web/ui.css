@@ -1,4 +1,9 @@
-.jellywave-header{display:flex;gap:1.2em;align-items:flex-start;margin:0 0 1em;padding:1em;border-radius:.6em;background:rgba(128,128,128,.12)}
+.jellywave-header{display:grid;grid-template-columns:11em minmax(0,1fr) minmax(16em,24em);grid-template-areas:"cover body request" "panels panels panels";gap:1em 1.2em;align-items:start;margin:0 0 1em;padding:1em;border-radius:.6em;background:rgba(128,128,128,.12)}
+.jellywave-header>.jellywave-cover{grid-area:cover}
+.jellywave-header>.jellywave-body{grid-area:body}
+.jellywave-header>.jellywave-request{grid-area:request;margin-top:0;align-self:start}
+.jellywave-panels{grid-area:panels;display:grid;grid-template-columns:repeat(auto-fit,minmax(16em,1fr));gap:1em}
+.jellywave-panels>details{margin-top:0}
 .jellywave-cover{flex:0 0 11em;width:11em;height:11em;border-radius:.4em;background:#222 center/cover no-repeat}
 .jellywave-body{flex:1 1 auto;min-width:0}
 .jellywave-title{font-size:1.4em;font-weight:600;margin:0;line-height:1.2}
@@ -7,13 +12,14 @@
 .jellywave-meta div{margin-top:.15em}
 .jellywave-actions{display:flex;gap:.6em;margin-top:.9em;flex-wrap:wrap}
 .jellywave-status{font-size:.85em;opacity:.6;margin-top:.5em}
-@media (max-width:40em){.jellywave-header{flex-direction:column;align-items:stretch}.jellywave-cover{width:100%;height:auto;aspect-ratio:1/1;flex-basis:auto}}
-.jellywave-request{display:grid;grid-template-columns:1fr auto auto;gap:.5em;margin-top:1em;align-items:center}
+@media (max-width:60em){.jellywave-header{grid-template-columns:11em minmax(0,1fr);grid-template-areas:"cover body" "request request" "panels panels"}}
+@media (max-width:40em){.jellywave-header{grid-template-columns:1fr;grid-template-areas:"cover" "body" "request" "panels"}.jellywave-cover{width:100%;height:auto;aspect-ratio:1/1}}
+.jellywave-request{display:grid;grid-template-columns:1fr;gap:.5em;margin-top:1em;align-items:center}
+.jellywave-request-name{width:auto}
 .jellywave-request input{min-width:0;padding:.55em .7em;border-radius:.3em;border:1px solid rgba(128,128,128,.4);background:rgba(0,0,0,.25);color:inherit;font:inherit}
 .jellywave-request-name{width:9em}
 .jellywave-request-result{grid-column:1/-1;font-size:.95em;min-height:1.2em}
 .jellywave-request-help{grid-column:1/-1;font-size:.8em;opacity:.55}
-@media (max-width:40em){.jellywave-request{grid-template-columns:1fr}.jellywave-request-name{width:auto}}
 .jellywave-title{display:flex;align-items:center;gap:.5em;flex-wrap:wrap}
 .jellywave-like{background:none;border:1px solid rgba(128,128,128,.4);border-radius:1em;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:.2em;padding:.1em .6em .1em .4em;font:inherit;font-size:.7em}
 .jellywave-like:disabled{opacity:.5;cursor:default}

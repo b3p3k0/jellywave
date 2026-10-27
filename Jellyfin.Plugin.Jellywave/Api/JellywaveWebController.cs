@@ -253,7 +253,7 @@ public class JellywaveWebController : ControllerBase
         {
             info = await _schedule.GetAsync(config, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             _logger.LogDebug("Schedule fetch failed: {Message}", ex.Message);
             return new ScheduleResponse();

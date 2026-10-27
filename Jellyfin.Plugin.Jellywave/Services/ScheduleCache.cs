@@ -14,6 +14,9 @@ public sealed class ScheduleCache : IDisposable
     /// <summary>How long a fetched schedule is served before the station is asked again.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
 
+    /// <summary>How long a stale copy is served after a failed refresh before the station is asked again.</summary>
+    public static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
+
     private readonly StationClient _stationClient;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ScheduleInfo? _schedule;
@@ -60,7 +63,8 @@ public sealed class ScheduleCache : IDisposable
             }
             catch (Exception) when (_schedule is not null)
             {
-                // Stale beats nothing; the next call after Lifetime tries again.
+                // Stale beats nothing; try the station again after RetryDelay rather than on every call.
+                _fetchedUtc = DateTime.UtcNow - Lifetime + RetryDelay;
             }
 
             return _schedule;
