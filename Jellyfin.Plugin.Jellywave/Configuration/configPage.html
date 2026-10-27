@@ -94,7 +94,7 @@
                                 Jellyfin shows a channel only to users whose policy allows all channels or lists this one.
                                 With this on, the plugin adds this channel to each user's channel list: now, at startup, and whenever a user is created or a user's policy is saved.
                                 It never changes anything else in a user's policy, and users with an explicit block list stay blocked.
-                                Turning it off stops future grants and removes nothing.
+                                Turning it off stops future grants and removes nothing. While it is on, un-ticking this channel on one user's policy is undone on save; to exclude a user, put the channel in that user's block list.
                             </div>
                         </div>
                         <div class="inputContainer">
@@ -138,7 +138,7 @@
                     return ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/GrantAccess'), dataType: 'json' }).then(function (r) {
                         out.textContent = describeGrant(r);
                     }).catch(function (e) {
-                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : e);
+                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
                     });
                 }
 
@@ -188,7 +188,7 @@
                         if (r.NowPlaying) { notes.push('now playing: ' + r.NowPlaying); }
                         out.textContent = 'Fetched "' + (r.Name || '?') + '": ' + notes.join('; ') + '. Save to apply.';
                     }).catch(function (e) {
-                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : e);
+                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
                     });
                 });
 

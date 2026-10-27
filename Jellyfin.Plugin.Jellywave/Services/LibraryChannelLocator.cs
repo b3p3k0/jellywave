@@ -50,6 +50,8 @@ public sealed class LibraryChannelLocator : IChannelLocator
             return null;
         }
 
+        // Creates every registered channel's entity (the same work a My Media load does). This can run
+        // inside a user-created or policy-saved event until the entity exists; it is bounded and post-startup.
         cancellationToken.ThrowIfCancellationRequested();
         var created = await _channelManager.GetChannelsInternalAsync(new ChannelQuery()).ConfigureAwait(false);
         return created.Items.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))?.Id;

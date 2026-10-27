@@ -26,7 +26,9 @@ Status: v0.1 in test. See `docs/PLAN.md` and `docs/DESIGN.md`.
   user** on the plugin page: the plugin then adds this channel to each user's channel list,
   immediately, at startup, and whenever a user is created or a user's policy is saved
   (creation flows save a policy right after creating the user, which would otherwise undo it). It changes nothing else in a
-  policy, respects explicit block lists, and removes nothing when turned off.
+  policy, respects explicit block lists, and removes nothing when turned off. While it is on,
+  un-ticking the channel for one user is undone on the next save; exclude a user by adding the
+  channel to that user's block list instead.
 
 ## Configuration
 

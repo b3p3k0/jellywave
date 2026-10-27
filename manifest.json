@@ -13,8 +13,8 @@
         "changelog": "Make the station visible to every user from the plugin page (off by default); new users and policy saves are covered.",
         "targetAbi": "12.0.0.0",
         "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.2.0.0/Jellywave_0.2.0.0.zip",
-        "checksum": "386FEC525E79C20B23D41C8F655DDC56",
-        "timestamp": "2026-10-27T00:22:16.0000000Z"
+        "checksum": "CC7A65F33541580A8E4EBDF1DBC87570",
+        "timestamp": "2026-10-27T00:24:26.0000000Z"
       },
       {
         "version": "0.1.0.0",
