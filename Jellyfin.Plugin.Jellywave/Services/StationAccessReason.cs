@@ -17,7 +17,7 @@ public enum StationAccessReason
     /// <summary>The user id does not name an existing user.</summary>
     UnknownUser,
 
-    /// <summary>The channel entity does not exist (yet), so visibility cannot be decided.</summary>
+    /// <summary>The channel entity does not exist (yet), so visibility cannot be decided. The filter answers 404.</summary>
     NoChannel,
 
     /// <summary>Jellyfin's own <c>Channel.IsVisible</c> hides the channel from this user.</summary>

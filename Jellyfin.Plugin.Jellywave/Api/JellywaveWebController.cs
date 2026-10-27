@@ -11,6 +11,7 @@ using Jellyfin.Plugin.Jellywave.Configuration;
 using Jellyfin.Plugin.Jellywave.Services;
 using Jellyfin.Plugin.Jellywave.Web;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -113,6 +114,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<FeedResponse> Feed()
     {
         var config = _configuration() ?? new PluginConfiguration();
@@ -145,9 +147,9 @@ public class JellywaveWebController : ControllerBase
             FetchedUtc = feed is null ? null : _state.FetchedUtc
         };
 
-        var channel = _finder.FindChannel(config);
-        response.ChannelId = channel?.Id;
-        var item = channel is null ? null : _finder.FindLiveItem(channel);
+        var channel = CallerChannel();
+        response.ChannelId = channel.Id;
+        var item = _finder.FindLiveItem(channel);
         if (item is not null)
         {
             response.ItemId = item.Id;
@@ -207,6 +209,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LikeOutcome>> LikeStatus(CancellationToken cancellationToken)
     {
         var config = _configuration();
@@ -238,6 +241,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LikeOutcome>> Like([FromBody] LikeSubmission submission, CancellationToken cancellationToken)
     {
         var songId = submission?.SongId?.Trim() ?? string.Empty;
@@ -269,6 +273,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ScheduleResponse>> Schedule(CancellationToken cancellationToken)
     {
         var config = _configuration();
@@ -304,6 +309,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, CancellationToken cancellationToken)
     {
         var config = _configuration();
@@ -356,6 +362,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestOutcome>> SubmitRequest([FromBody] RequestSubmission submission, CancellationToken cancellationToken)
     {
         var caller = CallerId();
@@ -429,6 +436,7 @@ public class JellywaveWebController : ControllerBase
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestOutcome>> RequestStatus([FromRoute] string requestId, CancellationToken cancellationToken)
     {
         switch (_receipts.Check(requestId, CallerId()))
@@ -625,6 +633,14 @@ public class JellywaveWebController : ControllerBase
     private Guid CallerId()
         => HttpContext.Items.TryGetValue(StationAccess.UserIdItem, out var value) && value is Guid id
             ? id
+            : throw new InvalidOperationException("The station access filter did not run for this action.");
+
+    /// <summary>
+    /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
+    /// </summary>
+    private Channel CallerChannel()
+        => HttpContext.Items.TryGetValue(StationAccess.ChannelItem, out var value) && value is Channel channel
+            ? channel
             : throw new InvalidOperationException("The station access filter did not run for this action.");
 
     private IActionResult Asset(string resource, string contentType)

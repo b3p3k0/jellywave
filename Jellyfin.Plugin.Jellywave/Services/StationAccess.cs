@@ -21,6 +21,9 @@ public sealed class StationAccess
     /// <summary>The <c>HttpContext.Items</c> key under which an allowed caller's user id (a <see cref="Guid"/>) is left for the action.</summary>
     public const string UserIdItem = "Jellywave.StationAccess.UserId";
 
+    /// <summary>The <c>HttpContext.Items</c> key under which the resolved <see cref="Channel"/> is left for the action.</summary>
+    public const string ChannelItem = "Jellywave.StationAccess.Channel";
+
     private readonly IUserStore _users;
     private readonly Func<Channel?> _findChannel;
     private readonly ILogger<StationAccess> _logger;
@@ -53,50 +56,50 @@ public sealed class StationAccess
     /// Applies the rules in order: API key, user id, user, channel entity, channel visibility.
     /// </summary>
     /// <param name="principal">The authenticated caller.</param>
-    /// <param name="userId">The caller's user id when allowed; <see cref="Guid.Empty"/> otherwise.</param>
-    /// <returns><see cref="StationAccessReason.Allowed"/>, or the rule that refused the caller.</returns>
-    public StationAccessReason Check(ClaimsPrincipal principal, out Guid userId)
+    /// <returns>The decision; for an allowed caller also its user id and the channel entity.</returns>
+    public StationAccessResult Check(ClaimsPrincipal principal)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        var reason = Decide(principal, out userId);
-        if (reason != StationAccessReason.Allowed)
+        var result = Decide(principal);
+        if (result.Reason != StationAccessReason.Allowed)
         {
-            userId = Guid.Empty;
-            _logger.LogDebug("Station route refused: {Reason}", reason);
+            _logger.LogDebug("Station route refused: {Reason}", result.Reason);
         }
 
-        return reason;
+        return result;
     }
 
-    private StationAccessReason Decide(ClaimsPrincipal principal, out Guid userId)
-    {
-        userId = Guid.Empty;
+    private static StationAccessResult Refused(StationAccessReason reason) => new(reason, Guid.Empty, null);
 
+    private StationAccessResult Decide(ClaimsPrincipal principal)
+    {
         // Jellyfin always sets this claim; anything but an explicit "False" is treated as an API key.
         if (!bool.TryParse(principal.FindFirst(ApiKeyClaim)?.Value, out var isApiKey) || isApiKey)
         {
-            return StationAccessReason.ApiKey;
+            return Refused(StationAccessReason.ApiKey);
         }
 
-        if (!Guid.TryParse(principal.FindFirst(UserIdClaim)?.Value, out userId) || userId == Guid.Empty)
+        if (!Guid.TryParse(principal.FindFirst(UserIdClaim)?.Value, out var userId) || userId == Guid.Empty)
         {
-            return StationAccessReason.NoUser;
+            return Refused(StationAccessReason.NoUser);
         }
 
         var user = _users.GetUser(userId);
         if (user is null)
         {
-            return StationAccessReason.UnknownUser;
+            return Refused(StationAccessReason.UnknownUser);
         }
 
         var channel = _findChannel();
         if (channel is null)
         {
-            return StationAccessReason.NoChannel;
+            return Refused(StationAccessReason.NoChannel);
         }
 
         // Jellyfin's own rule, the one behind the tile: block list, enabled list or EnableAllChannels,
         // then the parental check. Administrators are not exempt, same as in Jellyfin.
-        return channel.IsVisible(user) ? StationAccessReason.Allowed : StationAccessReason.NotVisible;
+        return channel.IsVisible(user)
+            ? new StationAccessResult(StationAccessReason.Allowed, userId, channel)
+            : Refused(StationAccessReason.NotVisible);
     }
 }

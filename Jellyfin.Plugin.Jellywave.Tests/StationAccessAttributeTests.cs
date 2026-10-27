@@ -22,7 +22,8 @@ using Xunit;
 namespace Jellyfin.Plugin.Jellywave.Tests;
 
 /// <summary>
-/// The filter turns a refusal into a plain 403 and hands an allowed caller's id to the action.
+/// The filter turns a refusal into a plain 403 (404 while the channel is missing) and hands an allowed caller's
+/// id and the channel entity to the action.
 /// </summary>
 public class StationAccessAttributeTests
 {
@@ -39,11 +40,13 @@ public class StationAccessAttributeTests
         public Task SaveAsync(User user) => throw new InvalidOperationException("access checks never write");
     }
 
-    private static AuthorizationFilterContext Run(User user, bool apiKey)
+    private static readonly Channel TheChannel = new() { Id = ChannelId };
+
+    private static AuthorizationFilterContext Run(User user, bool apiKey, bool channelExists = true)
     {
         var store = new FakeStore();
         store.Users[user.Id] = user;
-        var access = new StationAccess(store, () => new Channel { Id = ChannelId }, NullLogger<StationAccess>.Instance);
+        var access = new StationAccess(store, () => channelExists ? TheChannel : null, NullLogger<StationAccess>.Instance);
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection().AddSingleton(access).BuildServiceProvider(),
@@ -73,6 +76,16 @@ public class StationAccessAttributeTests
         var context = Run(user, apiKey: false);
         Assert.Null(context.Result);
         Assert.Equal(user.Id, context.HttpContext.Items[StationAccess.UserIdItem]);
+        Assert.Same(TheChannel, context.HttpContext.Items[StationAccess.ChannelItem]);
+    }
+
+    [Fact]
+    public void Missing_channel_is_404_and_serves_nothing()
+    {
+        var context = Run(Listener(allChannels: true), apiKey: false, channelExists: false);
+        Assert.Equal(StatusCodes.Status404NotFound, Assert.IsType<StatusCodeResult>(context.Result).StatusCode);
+        Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.UserIdItem));
+        Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.ChannelItem));
     }
 
     [Fact]
@@ -81,6 +94,7 @@ public class StationAccessAttributeTests
         var context = Run(Listener(allChannels: false), apiKey: false);
         Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<StatusCodeResult>(context.Result).StatusCode);
         Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.UserIdItem));
+        Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.ChannelItem));
     }
 
     [Fact]

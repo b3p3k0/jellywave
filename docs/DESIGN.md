@@ -246,13 +246,15 @@ the `StationAccess` singleton, which refuses in this order:
 1. `Jellyfin-IsApiKey` is anything but `False` (Jellyfin sets it with `bool.ToString` on every request).
 2. `Jellyfin-UserId` is missing, unreadable or empty (API keys carry an empty id), or names no user
    (`IUserStore.GetUser`).
-3. The channel entity is missing (`LiveItemFinder.FindChannel`): fail closed.
+3. The channel entity is missing (`LiveItemFinder.FindChannel`; a fresh install, or a rename before the
+   channel refresh): fail closed with **404** instead of 403, so the page keeps its short retry.
 4. Jellyfin's own `Channel.IsVisible(user)` is false: block list, enabled list or `EnableAllChannels`,
    then the parental check (tags and rating). Administrators are not exempt, same as in Jellyfin.
 
-A refusal is a plain 403 with no `X-Application-Error-Code` (jellyfin-web logs a user out on a 403 that
-carries `ParentalControl`) and one Debug line with the rule. An allowed caller's user id is left in
-`HttpContext.Items` for the action. The assets stay anonymous and `WebUi` stays admin-only; a reflection
+Every other refusal is a plain 403 with no `X-Application-Error-Code` (jellyfin-web logs a user out on a
+403 that carries `ParentalControl`); each refusal writes one Debug line with the rule. An allowed caller's
+user id and the resolved `Channel` are left in `HttpContext.Items` for the action, so `Feed` does not
+look the channel up a second time. The user entity is not passed on. The assets stay anonymous and `WebUi` stays admin-only; a reflection
 test fails when an action is neither anonymous, admin-only nor filtered.
 
 Listener requests: the station sees this server as one caller, so the plugin keeps the user binding

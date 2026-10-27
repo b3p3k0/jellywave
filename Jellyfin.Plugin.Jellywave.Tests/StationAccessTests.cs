@@ -93,15 +93,16 @@ public class StationAccessTests
     public void Api_key_is_refused()
     {
         var (store, _) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.ApiKey, Access(store, TheChannel()).Check(Caller(Guid.Empty, "True"), out var id));
-        Assert.Equal(Guid.Empty, id);
+        var result = Access(store, TheChannel()).Check(Caller(Guid.Empty, "True"));
+        Assert.Equal(StationAccessReason.ApiKey, result.Reason);
+        Assert.Equal(Guid.Empty, result.UserId);
     }
 
     [Fact]
     public void Api_key_with_a_user_id_is_still_refused()
     {
         var (store, user) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.ApiKey, Access(store, TheChannel()).Check(Caller(user.Id, "True"), out _));
+        Assert.Equal(StationAccessReason.ApiKey, Access(store, TheChannel()).Check(Caller(user.Id, "True")).Reason);
     }
 
     [Theory]
@@ -111,80 +112,86 @@ public class StationAccessTests
     public void Missing_or_unreadable_api_key_claim_is_refused(string? value)
     {
         var (store, user) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.ApiKey, Access(store, TheChannel()).Check(Caller(user.Id, value), out _));
+        Assert.Equal(StationAccessReason.ApiKey, Access(store, TheChannel()).Check(Caller(user.Id, value)).Reason);
     }
 
     [Fact]
     public void Missing_user_id_is_refused()
     {
         var (store, _) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.NoUser, Access(store, TheChannel()).Check(Caller(null), out _));
+        Assert.Equal(StationAccessReason.NoUser, Access(store, TheChannel()).Check(Caller(null)).Reason);
     }
 
     [Fact]
     public void Empty_user_id_is_refused()
     {
         var (store, _) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.NoUser, Access(store, TheChannel()).Check(Caller(Guid.Empty), out _));
+        Assert.Equal(StationAccessReason.NoUser, Access(store, TheChannel()).Check(Caller(Guid.Empty)).Reason);
     }
 
     [Fact]
     public void Unknown_user_is_refused()
     {
         var (store, _) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.UnknownUser, Access(store, TheChannel()).Check(Caller(Guid.NewGuid()), out _));
+        Assert.Equal(StationAccessReason.UnknownUser, Access(store, TheChannel()).Check(Caller(Guid.NewGuid())).Reason);
     }
 
     [Fact]
     public void Missing_channel_fails_closed()
     {
         var (store, user) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.NoChannel, Access(store, null).Check(Caller(user.Id), out var id));
-        Assert.Equal(Guid.Empty, id);
+        var result = Access(store, null).Check(Caller(user.Id));
+        Assert.Equal(StationAccessReason.NoChannel, result.Reason);
+        Assert.Equal(Guid.Empty, result.UserId);
+        Assert.Null(result.Channel);
     }
 
     [Fact]
     public void Channel_in_block_list_is_refused_even_with_all_channels()
     {
         var (store, user) = StoreWith(NewUser(allChannels: true, blocked: [ChannelId]));
-        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id), out _));
+        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id)).Reason);
     }
 
     [Fact]
     public void User_without_channel_access_is_refused()
     {
         var (store, user) = StoreWith(NewUser(enabled: [Other]));
-        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id), out _));
+        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id)).Reason);
     }
 
     [Fact]
     public void Administrator_without_channel_access_is_refused()
     {
         var (store, user) = StoreWith(NewUser(admin: true));
-        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id), out _));
+        Assert.Equal(StationAccessReason.NotVisible, Access(store, TheChannel()).Check(Caller(user.Id)).Reason);
     }
 
     [Fact]
     public void All_channels_permission_passes()
     {
         var (store, user) = StoreWith(NewUser(allChannels: true));
-        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(Caller(user.Id), out var id));
-        Assert.Equal(user.Id, id);
+        var channel = TheChannel();
+        var result = Access(store, channel).Check(Caller(user.Id));
+        Assert.Equal(StationAccessReason.Allowed, result.Reason);
+        Assert.Equal(user.Id, result.UserId);
+        Assert.Same(channel, result.Channel);
     }
 
     [Fact]
     public void Channel_in_enabled_list_passes()
     {
         var (store, user) = StoreWith(NewUser(enabled: [Other, ChannelId]));
-        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(Caller(user.Id), out var id));
-        Assert.Equal(user.Id, id);
+        var result = Access(store, TheChannel()).Check(Caller(user.Id));
+        Assert.Equal(StationAccessReason.Allowed, result.Reason);
+        Assert.Equal(user.Id, result.UserId);
     }
 
     [Fact]
     public void Block_list_naming_another_channel_passes()
     {
         var (store, user) = StoreWith(NewUser(blocked: [Other]));
-        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(Caller(user.Id), out _));
+        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(Caller(user.Id)).Reason);
     }
 
     [Fact]
@@ -194,6 +201,6 @@ public class StationAccessTests
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim("Jellyfin-IsApiKey", "False"), new Claim("Jellyfin-UserId", user.Id.ToString("D", CultureInfo.InvariantCulture))],
             "Test"));
-        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(principal, out _));
+        Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(principal).Reason);
     }
 }
