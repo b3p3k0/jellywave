@@ -184,9 +184,12 @@ only exception).
 
 `Channel.IsVisible` (Jellyfin) shows a channel to a user when the user has a block list that does
 not name it, or, with no block list, when the user has `EnableAllChannels` or the channel in
-`EnabledChannels`. Administrators are not exempt. Jellyfin's own user creation turns
-`EnableAllChannels` on (`User.AddDefaultPermissions`), but provisioning tools and templates often
-create users with none of these. That per-user Channel Access setting is the only ongoing
+`EnabledChannels`. Administrators are not exempt. Server-side user creation turns
+`EnableAllChannels` on (the `AddDefaultPermissions` extension in `UserEntityExtensions`, called from
+`UserManager.CreateUserInternalAsync`), but jellyfin-web 12.3's Add User page
+(`src/apps/dashboard/routes/users/add.tsx`) leaves "Enable access to all channels" unticked and then
+posts the policy, so a user added in the dashboard cannot see the station; templates and provisioning
+tools often do the same. That per-user Channel Access setting is the only ongoing
 authority; the plugin never changes it on its own (card 15b).
 
 For users who cannot see the station, the plugin page has a one-shot button, "Add the station to every
@@ -201,9 +204,12 @@ the configuration is not loaded, the channel entity does not exist yet, or its n
 (card 15). One Information line per press carries the counts, never user names.
 
 Nothing else writes a policy: no hosted startup pass, no user event consumer, no setting. Users created
-later see the station when their policy allows all channels, when the provisioning tool's template
-includes it, or after another press. An admin who unticks the station on a user's Access page is
-never overruled.
+later see the station when the admin ticks "Enable access to all channels" or the station on the
+dashboard's Add User form, when the provisioning tool's template includes it, or after another press.
+An admin who unticks the station on a user's Access page is not overruled in the background, but the
+next press re-adds it: an unticked user looks the same as one never granted. Only a `BlockedChannels`
+entry survives a press, and jellyfin-web has no screen for it; the page tells the admin to untick
+those users again after pressing.
 
 Each user is re-read by id immediately before it is written, because `GetUsers` hands out untracked
 snapshots and `UpdateUserAsync` saves the whole entity. Presses are serialized (card 15): one

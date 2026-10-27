@@ -83,7 +83,7 @@ This file says which ones, what holds them, and what is left open on purpose.
 | `ImageSniffer`: type from magic bytes, header dimensions bounded, malformed input is "unknown" | 14 |
 | Channel found by its derived id, not by name; a name collision with another plugin's channel fails closed in the poller, the granter and the station routes | 15 |
 | Grant passes serialized under one lock; each user re-read before it is saved | 15 |
-| No background policy writer: no startup pass, no user event consumer, no setting. The grant runs only from the admin-only `POST /Jellywave/GrantAccess` button, so an admin's removal of the channel from a user stands; registrator test | 15b |
+| No background policy writer: no startup pass, no user event consumer, no setting. The grant runs only from the admin-only `POST /Jellywave/GrantAccess` button, so an admin's removal of the channel from a user stands until the next press; registrator and constructor-reflection tests | 15b |
 | `verify-jellyfin.sh` selects the channel by exact name and fails on none or more than one | 15 |
 
 ## Accepted risks
@@ -97,7 +97,8 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Station URL disclosed to clients | The stream URL is in the live item's playback info in both modes, which `Items/{id}/PlaybackInfo` returns to any signed-in user who can see the item (`Channel.IsVisible` included) and to any API key; in Direct mode clients fetch it themselves. SUB/WAVE streams are public; listener auth is not supported. |
 | Name-derived channel id | Jellyfin's plugin API has no other channel identity. A collision fails closed; renaming changes the id, so grants and block lists naming the old id stop applying. |
 | User-save window against dashboard saves | Only while the grant button's pass is running: a dashboard policy save that lands between the plugin's read and save of that user (milliseconds) is overwritten; `IUserManager` has no partial update. The admin sees the old value on reload. |
-| New users are not granted automatically | Since card 15b nothing grants in the background. Users whose policy allows all channels (Jellyfin's default) see the station; others need it in the provisioning tool's template or another press of the button. The safe direction: a missing grant hides the station, it never shows it to someone the admin removed. |
+| New users are not granted automatically | Since card 15b nothing grants in the background. The dashboard's Add User page leaves "Enable access to all channels" unticked, so a user added there, from a template or by a provisioning tool cannot see the station until the admin ticks it or the station, the tool's template includes it, or the button is pressed again. The safe direction: a missing grant hides the station. |
+| A press re-adds the station to users an admin unticked | The button adds the channel to everyone who cannot see it, and an unticked user looks the same as one never granted. Only a `BlockedChannels` entry survives, and jellyfin-web has no screen for it. The press is an explicit admin action, and the page says to untick those users again afterwards. |
 | Live-item whole-row write racing Jellyfin's channel refresh | Jellyfin has no partial item update. Narrowed: the cover is downloaded first, then the item is looked up and written; every poll reconciles the item. |
 | GIF, APNG and animated WebP frames | Only the first frame's header is sized; a file within 4 MB and 4096 × 4096 can still carry many frames for Jellyfin's image processor to decode. The station is admin-chosen. |
 | jellyfin-web DOM selectors | `.itemsContainer[data-parentid]`, `.nowPlayingBar` and `.card` are jellyfin-web internals that can move between releases; the page degrades to doing nothing. |

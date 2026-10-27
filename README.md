@@ -35,15 +35,20 @@ contributors live in [`docs/dev/`](docs/dev/PLAN.md).
   are public by design, so this is a hostname disclosure, not a credential one.
   Do not point the plugin at a private station until listener auth is supported.
 - Jellyfin's own **Channel access** setting on each user (Dashboard → Users → user → Access)
-  decides who sees the station: users whose policy allows all channels (Jellyfin's default for
-  new users) see it, and so do users whose channel list includes it. Users created from a template
-  or by a provisioning tool often have neither. **Add the station to every user now** on the plugin
-  page adds this channel once to every user who cannot see it yet and shows the counts (granted,
-  already visible, blocked by a block list). It changes nothing else in a policy, never removes
-  the station from anyone, and skips users whose block list names it. It runs only when you press
-  it: users created later need the station in the provisioning tool's template, or another press.
-  To hide the station from one user, untick it on that user's Access page; the plugin will not
-  undo that. (0.2.0.0 to 0.3.4.0 had an always-on setting instead, which re-added the station on
+  decides who sees the station: users whose policy allows all channels see it, and so do users
+  whose channel list includes it. Users added in the dashboard, from a template or by a
+  provisioning tool often have neither: the dashboard's Add User page leaves **Enable access to
+  all channels** unticked. **Add the station to every user now** on the plugin page adds this
+  channel to every user who cannot see it right now and shows the counts (granted, already
+  visible, blocked by a block list). It changes nothing else in a policy, never removes the
+  station from anyone, and skips users whose block list names it.
+- The button runs only when you press it, so new users do not get the station automatically. Tick
+  **Enable access to all channels** or the station on the Add User form, include the station in
+  the provisioning tool's template, or press the button again.
+- Each press adds the station to everyone who cannot see it right now, including anyone you
+  unticked earlier; after pressing, untick those users again. Unticking the station on a user's
+  Access page hides it from that user, and nothing in the background re-adds it. Only a block
+  list entry survives a press, and jellyfin-web has no screen for block lists. (0.2.0.0 to 0.3.4.0 had an always-on setting instead, which re-added the station on
   every policy save and restart; an old saved value is ignored.)
 
 ## Configuration

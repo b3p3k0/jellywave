@@ -99,10 +99,10 @@
                         <h2 class="sectionTitle">Who can see it</h2>
                         <div class="fieldDescription">
                             Jellyfin's own Channel Access setting on each user (Dashboard → Users → user → Access) decides who sees the station.
-                            The button below adds the station once to every user who cannot see it yet, and never removes it from anyone; nothing else in a user's policy changes, and users whose block list names the station stay blocked.
-                            Users whose policy allows all channels (Jellyfin's default for new users) see it automatically.
-                            Users created later by a provisioning tool need the station in that tool's template, or another press of the button.
-                            To hide the station from one user, untick it on their Access page; the plugin will not undo that.
+                            The button below adds the station to everyone who cannot see it right now, including anyone you unticked earlier; after pressing, untick those users again.
+                            It never removes the station from anyone, changes nothing else in a user's policy, and skips users whose block list names the station.
+                            New users do not get it automatically. The dashboard's Add User page leaves "Enable access to all channels" unticked, so tick that or the station on the form; for users from a provisioning tool, include the station in the tool's template; or press the button again.
+                            To hide the station from one user, untick it on their Access page. Nothing in the background re-adds it, but the next press of the button does.
                         </div>
                         <div class="inputContainer">
                             <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Add the station to every user now</span></button>
