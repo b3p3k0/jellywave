@@ -126,7 +126,7 @@ public class JellywaveWebController : ControllerBase
             SongId = _state.CoverId(),
             DjAvatarId = AvatarIdOf(feed?.Dj?.Avatar),
             UpNext = TrackLineOf(upNext),
-            Recent = (stationState?.History ?? []).Take(MaxRecent).Select(t => TrackLineOf(t) + (string.IsNullOrWhiteSpace(t.RequestedBy) ? string.Empty : " · requested by " + t.RequestedBy.Trim())).Where(l => l.Length > 0).ToList(),
+            Recent = (stationState?.History ?? []).Take(MaxRecent).Select(t => TrackLineOf(t) + (string.IsNullOrWhiteSpace(t?.RequestedBy) ? string.Empty : " · requested by " + t.RequestedBy.Trim())).Where(l => l.Length > 0).ToList(),
             LyricsEnabled = stationState?.Lyrics?.Enabled == true,
             StationName = JellywaveChannel.StationName(config),
             Online = feed?.StreamOnline,
@@ -329,7 +329,7 @@ public class JellywaveWebController : ControllerBase
                 case StatusCodes.Status409Conflict:
                     return new LyricsResponse { SongId = songId, Status = "ended", Message = "That track is no longer on air." };
                 case StatusCodes.Status200OK when body is not null:
-                    var lines = (body.Lines ?? []).Select(l => Collapse(l.Text)).Where(t => t.Length > 0).ToList();
+                    var lines = (body.Lines ?? []).Select(l => Collapse(l?.Text)).Where(t => t.Length > 0).ToList();
                     if (lines.Count == 0)
                     {
                         return new LyricsResponse { SongId = songId, Status = body.Pending == true ? "pending" : "none", Message = body.Pending == true ? "Still looking…" : "No lyrics for this one." };
@@ -527,8 +527,26 @@ public class JellywaveWebController : ControllerBase
             return response;
         }
 
-        var shows = (info.Shows ?? []).Where(s => s.Id is not null).ToDictionary(s => s.Id!, s => s);
-        var personas = (info.Personas ?? []).Where(p => p.Id is not null).ToDictionary(p => p.Id!, p => p.Name);
+        // The station's ids are not trusted to be unique: the first show or persona with an id wins, a repeat is ignored
+        // (ToDictionary would throw and the route would answer 500).
+        var shows = new Dictionary<string, ScheduleShow>(StringComparer.Ordinal);
+        foreach (var show in info.Shows ?? [])
+        {
+            if (show?.Id is not null)
+            {
+                shows.TryAdd(show.Id, show);
+            }
+        }
+
+        var personas = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var persona in info.Personas ?? [])
+        {
+            if (persona?.Id is not null)
+            {
+                personas.TryAdd(persona.Id, persona.Name);
+            }
+        }
+
         var blocks = new List<ScheduleBlock>();
         ScheduleBlock? open = null;
         string? openId = null;
