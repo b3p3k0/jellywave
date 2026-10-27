@@ -227,7 +227,7 @@
                     if (!baseUrl) { out.textContent = 'Enter the station base URL first.'; return; }
                     out.textContent = 'Contacting the station from the server…';
                     ApiClient.getJSON(ApiClient.getUrl('Jellywave/Station', { baseUrl: baseUrl })).then(function (r) {
-                        if (!r.Ok) { out.textContent = 'Station did not answer: ' + (r.Error || 'unknown error'); return; }
+                        if (!r.Ok) { out.textContent = 'Station probe failed: ' + (r.Error || 'unknown error') + '.'; return; }
                         if (r.Name) { el('StationName').value = r.Name; }
                         if (r.Tagline) { el('StationTagline').value = r.Tagline; }
                         if (r.StreamMount) { el('StreamPath').value = r.StreamMount; }
@@ -241,6 +241,7 @@
                         if (r.NowPlaying) { notes.push('now playing: ' + r.NowPlaying); }
                         out.textContent = 'Fetched "' + (r.Name || '?') + '": ' + notes.join('; ') + '. Save to apply.';
                     }).catch(function (e) {
+                        if (e && e.status === 400) { out.textContent = 'The station base URL must be an absolute http(s) URL without credentials, a query or a fragment.'; return; }
                         out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
                     });
                 });

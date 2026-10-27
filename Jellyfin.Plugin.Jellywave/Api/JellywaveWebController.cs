@@ -460,6 +460,12 @@ public class JellywaveWebController : ControllerBase
         {
             var reply = await _stationClient.GetRequestStatusAsync(baseUrl, requestId, cancellationToken).ConfigureAwait(false);
             var body = reply.Body;
+            if (reply.StatusCode is >= StatusCodes.Status300MultipleChoices and < StatusCodes.Status400BadRequest)
+            {
+                // Not followed; the receipt stays, so a later poll can still reach the station.
+                return new RequestOutcome { RequestId = requestId, Status = "unavailable", Message = "The station did not answer." };
+            }
+
             if (reply.StatusCode == StatusCodes.Status404NotFound || body is null)
             {
                 return LostTrack(requestId);
@@ -591,7 +597,8 @@ public class JellywaveWebController : ControllerBase
             SongId = StationClient.IsValidId(body?.SongId) ? body!.SongId : null,
             Liked = body?.Liked == true,
             Count = body?.Count ?? 0,
-            Message = reply.StatusCode >= StatusCodes.Status400BadRequest ? (body?.Error ?? "The station did not take the like.") : null,
+            // A redirect (3xx) is not followed and its body is not read: it shows as a refusal, never as a like.
+            Message = reply.StatusCode >= StatusCodes.Status300MultipleChoices ? (body?.Error ?? "The station did not take the like.") : null,
             RetryAfterSeconds = body?.RetryAfter
         };
     }

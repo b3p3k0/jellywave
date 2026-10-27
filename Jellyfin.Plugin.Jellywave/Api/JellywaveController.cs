@@ -22,6 +22,11 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 [Produces("application/json")]
 public class JellywaveController : ControllerBase
 {
+    /// <summary>
+    /// The path segment every station endpoint the probe calls sits under.
+    /// </summary>
+    private const string StationApiSegment = "/api/";
+
     private readonly StationClient _stationClient;
     private readonly AccessGranter _accessGranter;
     private readonly NowPlayingState _state;
@@ -102,7 +107,10 @@ public class JellywaveController : ControllerBase
     /// </summary>
     /// <param name="baseUrl">The station base URL as seen from the Jellyfin server.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The probe result; HTTP 200 whether or not the station answered, with <c>ok</c> telling which.</returns>
+    /// <returns>
+    /// The probe result; HTTP 200 whether or not the station answered, with <c>ok</c> telling which. A redirect is not
+    /// followed: the error names where the station pointed, so the admin can enter that address instead.
+    /// </returns>
     [HttpGet("Station")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -110,7 +118,7 @@ public class JellywaveController : ControllerBase
     {
         if (!StationUrls.TryParseBaseUrl(baseUrl, out var uri) || uri is null)
         {
-            return BadRequest("baseUrl must be an absolute http(s) URL");
+            return BadRequest("baseUrl must be an absolute http(s) URL without credentials, a query or a fragment");
         }
 
         try
@@ -146,9 +154,24 @@ public class JellywaveController : ControllerBase
         => ex switch
         {
             OperationCanceledException => "timed out",
+            StationRedirectException { Location: { } location } => $"the station redirected to {SuggestedBase(location)}; use that address instead",
+            StationRedirectException { StatusCode: { } status } => $"the station answered HTTP {(int)status} (a redirect) without saying where to",
             HttpRequestException { StatusCode: { } status } => $"HTTP {(int)status}",
             HttpRequestException => "could not connect",
             JsonException or NotSupportedException or InvalidOperationException => "did not answer with the expected JSON (is this a SUB/WAVE base URL?)",
             _ => "unexpected error"
         };
+
+    /// <summary>
+    /// Turns a redirect target into the base URL to enter: the probe asks for <c>api/…</c> under the base, so a
+    /// station that moved answers with the new base plus that path, which is cut off along with any query.
+    /// </summary>
+    /// <param name="location">The absolute redirect target.</param>
+    /// <returns>The suggested base URL.</returns>
+    internal static string SuggestedBase(Uri location)
+    {
+        var path = location.GetLeftPart(UriPartial.Path);
+        var api = path.LastIndexOf(StationApiSegment, StringComparison.Ordinal);
+        return api > location.GetLeftPart(UriPartial.Authority).Length - 1 ? path[..(api + 1)] : path;
+    }
 }
