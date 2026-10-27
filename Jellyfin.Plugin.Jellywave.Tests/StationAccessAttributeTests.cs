@@ -42,11 +42,12 @@ public class StationAccessAttributeTests
 
     private static readonly Channel TheChannel = new() { Id = ChannelId };
 
-    private static AuthorizationFilterContext Run(User user, bool apiKey, bool channelExists = true)
+    private static AuthorizationFilterContext Run(User user, bool apiKey, bool channelExists = true, bool collides = false)
     {
         var store = new FakeStore();
         store.Users[user.Id] = user;
-        var access = new StationAccess(store, () => channelExists ? ChannelResolution.Found(TheChannel) : ChannelResolution.Missing, NullLogger<StationAccess>.Instance);
+        var resolution = collides ? ChannelResolution.Collision("SUB/WAVE") : channelExists ? ChannelResolution.Found(TheChannel) : ChannelResolution.Missing;
+        var access = new StationAccess(store, () => resolution, NullLogger<StationAccess>.Instance);
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection().AddSingleton(access).BuildServiceProvider(),
@@ -83,6 +84,15 @@ public class StationAccessAttributeTests
     public void Missing_channel_is_404_and_serves_nothing()
     {
         var context = Run(Listener(allChannels: true), apiKey: false, channelExists: false);
+        Assert.Equal(StatusCodes.Status404NotFound, Assert.IsType<StatusCodeResult>(context.Result).StatusCode);
+        Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.UserIdItem));
+        Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.ChannelItem));
+    }
+
+    [Fact]
+    public void Colliding_channel_name_is_404_and_serves_nothing()
+    {
+        var context = Run(Listener(allChannels: true), apiKey: false, collides: true);
         Assert.Equal(StatusCodes.Status404NotFound, Assert.IsType<StatusCodeResult>(context.Result).StatusCode);
         Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.UserIdItem));
         Assert.False(context.HttpContext.Items.ContainsKey(StationAccess.ChannelItem));
