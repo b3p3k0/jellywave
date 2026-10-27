@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "Cover art and what is up next on the live item; optional station page (needs the File Transformation plugin) with live track, DJ, show, requests, and a playing bar that follows the track.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.3.0.0/Jellywave_0.3.0.0.zip",
+        "checksum": "8933AFDEFE0082BE35F15E3DA759DD06",
+        "timestamp": "2026-10-27T15:17:06.0000000Z"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "Make the station visible to every user from the plugin page (off by default); new users and policy saves are covered.",
         "targetAbi": "12.0.0.0",
