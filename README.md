@@ -168,12 +168,12 @@ see the channel, and every API key, gets 403 from the station routes (`/Jellywav
 `Like`, `Lyrics`, `Schedule`, `Avatar`; callers that are not signed in get Jellyfin's own 401). The
 page then shows nothing (no header, no drawer link) and asks again only every five minutes. Until
 Jellyfin has created the channel, and while the tile name collides with another plugin's channel
-(see [Configuration](#configuration)), the routes answer 404; a header or drawer link already on screen
-then goes away too, and the page asks again after 15 seconds. Signing out, or signing in as another
-user or on another server, clears everything the page showed for the previous session. A station URL the plugin refuses counts
-as no station: the page has nothing live to show and requests answer "The station is not
-configured." A listener request can be followed only by the user who sent it; after a Jellyfin
-restart the page says the station lost track of a pending request.
+(see [Configuration](#configuration)), the routes answer 404; a header or drawer link already on
+screen then goes away too, and the page asks again after 15 seconds. Signing out, or signing in as
+another user or on another server, clears everything the page showed for the previous session. A
+station URL the plugin refuses counts as no station: the page has nothing live to show and requests
+answer "The station is not configured." A listener request can be followed only by the user who sent
+it; after a Jellyfin restart the page says the station lost track of a pending request.
 
 ## Tested on
 

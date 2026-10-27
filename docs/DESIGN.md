@@ -356,20 +356,29 @@ Lifecycle (card 18):
   script listens on `document` and looks for the channel's container inside the shown view. A
   `MutationObserver` on `body` stays as the fallback for what `viewshow` does not cover (the legacy
   drawer, late renders). Its callback does no document query: it arms one pending timer
-  (`DOM_DEBOUNCE_MS`, 250 ms) and returns. The pass that timer runs first reads the length of two live
-  collections (`itemsContainer`, `customMenuOptions`) and stops when both are empty, so a page without
-  a list or a drawer costs one length check per window. The header goes into the container whose
-  `data-parentid` is the channel, not the first container found, because cached views keep other
-  libraries' containers in the document.
+  (`DOM_DEBOUNCE_MS`, 250 ms) and returns. The pass that timer runs first checks the session key (no DOM
+  access), then reads the length of two live collections (`itemsContainer`, `customMenuOptions`) and
+  stops when both are empty, so a page without a list or a drawer costs one length check per window.
+  The header goes into the container whose `data-parentid` is the channel, not the first container
+  found, because cached views keep other libraries' containers in the document. A document-wide search
+  (the fallback pass, and the one after a feed reply) skips cached views, which `viewContainer.js` hides
+  with `.hide`. The search after a feed reply is document-wide because the user may have moved to the
+  channel view while the fetch was in flight, and that view's `viewshow` returned early. When the page
+  already has a header (a cached channel view shown again), `state.header` is pointed back at it and
+  repainted.
 - **Session key.** The state belongs to `ApiClient.serverId()` plus `ApiClient.getCurrentUserId()`
-  (jellyfin-apiclient 1.11.0, which 12.3 bundles; both return null when signed out). Each tick, feed
-  request and DOM pass compares that key with the stored one. On a change, or a sign-out (no access
+  (jellyfin-apiclient 1.11.0, which 12.3 bundles). The key is null when `accessToken()` is empty, which
+  is how a sign-out shows (`getCurrentUserId()` is null then too; `serverId()` is not). Each tick, feed
+  request, DOM pass, request submit and request poll compares that key with the stored one. On a change, or a sign-out (no access
   token), the script drops the feed, like, lyrics, schedule, cover tags and feed back-off, removes
   every header and drawer link, and revokes the portrait's blob URL.
 - **Stale replies.** Each reset bumps an epoch counter. The feed, like, lyrics, schedule and portrait
-  requests capture it, and a reply that comes back under another epoch is dropped. `fetchLike` also
-  captures the song id it asked about, hides the previous track's heart until the new status arrives,
-  and drops a reply once the feed's `SongId` or `likeSongId` has moved on. `sendLike` posts the
+  requests capture it, and a reply that comes back under another epoch is dropped. The request form
+  captures the epoch its header was built in: a submit or a status poll checks the session first and
+  stops when the epoch has changed, so a poll for one user's request never goes out under the next
+  user. `fetchLike` also captures the song id it asked about, hides the previous track's heart until
+  the new status arrives, and drops a reply once the feed's `SongId` or `likeSongId` has moved on, or
+  when the reply names another song (the station answers about the track on air now). `sendLike` posts the
   captured id and ignores a reply once the shown heart is for another song, or when the reply names
   another song.
 
