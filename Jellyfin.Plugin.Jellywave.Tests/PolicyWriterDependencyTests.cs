@@ -14,7 +14,10 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 /// that took <see cref="AccessGranter"/> (or the user store under it) could grant in the background again, and the
 /// registrator test would not see it. Every constructor in the plugin assembly is checked, generic arguments included
 /// (<c>Func&lt;AccessGranter&gt;</c>, <c>Lazy&lt;IUserStore&gt;</c>). A service locator (<see cref="IServiceProvider"/>)
-/// can resolve anything at run time, out of this scan's sight, so it is guarded the same way (card 17).
+/// can resolve anything at run time, out of this scan's sight, so it is guarded the same way (card 17). Calls made through
+/// <c>HttpContext.RequestServices</c> never show in a constructor; <see cref="ServiceLocatorSourceTests"/> scans the
+/// source for them (allowed: <c>StationAccessAttribute</c> resolving <see cref="StationAccess"/>, <see cref="LiveItemFinder"/>
+/// resolving the registered channels).
 /// </summary>
 public class PolicyWriterDependencyTests
 {
