@@ -15,9 +15,10 @@ using Xunit;
 namespace Jellyfin.Plugin.Jellywave.Tests;
 
 /// <summary>
-/// Card 15 (D3): the plugin's own grant passes never overlap, and a queued pass re-reads its user after the running one.
-/// The store holds the first save open until the test releases it, so the second call is started while the first is
-/// mid-write; without the gate it reaches <c>SaveAsync</c> synchronously and the overlap is recorded.
+/// Card 15 (D3), kept by card 15b: two presses of the grant button never overlap, and the queued pass reads its users
+/// after the running one has saved. The store holds the first save open until the test releases it, so the second
+/// call is started while the first is mid-write; without the gate it reaches <c>SaveAsync</c> synchronously and the
+/// overlap is recorded.
 /// </summary>
 public class AccessGranterSerializationTests
 {
@@ -81,10 +82,10 @@ public class AccessGranterSerializationTests
     }
 
     private static AccessGranter Granter(IUserStore store)
-        => new(store, new FixedLocator(), NullLogger<AccessGranter>.Instance, () => new PluginConfiguration { GrantAccessToAllUsers = true });
+        => new(store, new FixedLocator(), NullLogger<AccessGranter>.Instance, () => new PluginConfiguration());
 
     [Fact]
-    public async Task A_single_grant_waits_for_a_running_pass_and_saves_never_overlap()
+    public async Task A_second_press_waits_for_the_running_pass_and_saves_never_overlap()
     {
         var store = new HoldingStore();
         var a = NewUser("a");
@@ -96,29 +97,27 @@ public class AccessGranterSerializationTests
         }
 
         using var granter = Granter(store);
-        var pass = granter.GrantAllAsync(CancellationToken.None);
+        var first = granter.GrantAllAsync(CancellationToken.None);
         Assert.True(store.FirstSaveEntered);
 
-        var single = granter.GrantAsync(c.Id, CancellationToken.None);
-        var allPasses = granter.GrantAllAsync(CancellationToken.None);
-        Assert.False(single.IsCompleted);
+        var second = granter.GrantAllAsync(CancellationToken.None);
+        Assert.False(second.IsCompleted);
         Assert.Equal(1, store.MaxConcurrentSaves);
 
         store.Release();
-        var result = await pass;
-        var granted = await single;
-        var again = await allPasses;
+        var result = await first;
+        var again = await second;
 
         Assert.Equal(1, store.MaxConcurrentSaves);
         Assert.Equal(3, result.Granted);
-        Assert.False(granted);          // c was granted by the pass; the re-read under the gate sees it
-        Assert.Equal(0, again.Granted);
+        Assert.Equal(0, again.Granted);   // the queued pass re-read every user after the first one granted them
+        Assert.Equal(3, again.AlreadyVisible);
         Assert.Equal(3, store.Saved.Count);
         Assert.Equal(store.Saved.Distinct().Count(), store.Saved.Count);
     }
 
     [Fact]
-    public async Task A_queued_grant_reads_the_user_after_the_running_pass_not_before()
+    public async Task A_queued_pass_reads_its_users_after_the_running_pass_not_before()
     {
         var store = new HoldingStore();
         var a = NewUser("a");
@@ -126,9 +125,9 @@ public class AccessGranterSerializationTests
         store.Users[a.Id] = a;
         using var granter = Granter(store);
 
-        var pass = granter.GrantAllAsync(CancellationToken.None);   // holds the gate inside a's save
+        var first = granter.GrantAllAsync(CancellationToken.None);   // holds the gate inside a's save
         store.Users[b.Id] = b;
-        var single = granter.GrantAsync(b.Id, CancellationToken.None);
+        var second = granter.GrantAllAsync(CancellationToken.None);
 
         // Meanwhile an admin gives b every channel. A copy read before the gate would still need a grant and would be
         // saved over this edit.
@@ -137,8 +136,9 @@ public class AccessGranterSerializationTests
         store.Users[b.Id] = edited;
 
         store.Release();
-        await pass;
-        Assert.False(await single);
+        await first;
+        var again = await second;
+        Assert.Equal(0, again.Granted);
         Assert.Equal(new[] { a.Id }, store.Saved);
     }
 }

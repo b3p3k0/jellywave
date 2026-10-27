@@ -1,12 +1,10 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.Jellywave.Channels;
 using Jellyfin.Plugin.Jellywave.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
-using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -44,9 +42,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<AccessGranter>();
         serviceCollection.AddSingleton<StationAccess>();
         serviceCollection.AddSingleton<RequestReceipts>();
-        serviceCollection.AddHostedService<AccessGrantService>();
-        serviceCollection.AddScoped<IEventConsumer<UserCreatedEventArgs>, UserCreatedConsumer>();
-        serviceCollection.AddScoped<IEventConsumer<UserUpdatedEventArgs>, UserUpdatedConsumer>();
     }
 
     /// <summary>

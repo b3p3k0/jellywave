@@ -67,7 +67,6 @@ public class PluginConfiguration : BasePluginConfiguration
         StreamBitrateKbps = DefaultStreamBitrateKbps;
         StreamSampleRate = DefaultStreamSampleRate;
         StreamChannels = DefaultStreamChannels;
-        GrantAccessToAllUsers = false;
         LastChangedUtc = DateTime.UnixEpoch;
     }
 
@@ -133,12 +132,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the stream channel count.
     /// </summary>
     public int StreamChannels { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the plugin adds its channel to every user's enabled-channel
-    /// list so the station is visible to everyone. Off by default; turning it off revokes nothing.
-    /// </summary>
-    public bool GrantAccessToAllUsers { get; set; }
 
     /// <summary>
     /// Gets or sets the UTC time the configuration last changed. Drives channel cache invalidation.

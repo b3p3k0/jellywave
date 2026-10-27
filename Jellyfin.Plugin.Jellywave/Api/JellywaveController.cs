@@ -115,10 +115,11 @@ public class JellywaveController : ControllerBase
     }
 
     /// <summary>
-    /// Runs one access-grant pass now (the config page calls this after saving with the setting on).
+    /// Adds the station once to every user who cannot see it yet (the config page's "Add the station to every user
+    /// now" button). Never removes access; nothing else runs it.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The counts; <c>Enabled</c> false when the setting is off or the channel does not exist yet.</returns>
+    /// <returns>The counts, or <c>Error</c> set when nothing was done.</returns>
     [HttpPost("GrantAccess")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<GrantResult>> GrantAccess(CancellationToken cancellationToken)
@@ -130,7 +131,7 @@ public class JellywaveController : ControllerBase
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Channel access pass failed");
-            return new GrantResult { Enabled = false, Error = "the pass failed; see the server log" };
+            return new GrantResult { Error = "the pass failed; see the server log" };
         }
     }
 

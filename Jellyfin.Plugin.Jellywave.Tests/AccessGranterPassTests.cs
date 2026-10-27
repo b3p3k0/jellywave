@@ -59,16 +59,17 @@ public class AccessGranterPassTests
         return u;
     }
 
-    private static AccessGranter Granter(FakeStore store, FakeLocator locator, bool enabled)
-        => new(store, locator, NullLogger<AccessGranter>.Instance, () => new PluginConfiguration { GrantAccessToAllUsers = enabled, StationBaseUrl = "http://radio.example" });
+    private static AccessGranter Granter(FakeStore store, FakeLocator locator)
+        => new(store, locator, NullLogger<AccessGranter>.Instance, () => new PluginConfiguration { StationBaseUrl = "http://radio.example" });
 
     [Fact]
-    public async Task Setting_off_writes_nothing()
+    public async Task No_configuration_writes_nothing()
     {
         var store = new FakeStore();
         var u = NewUser("plain"); store.Users[u.Id] = u;
-        var result = await Granter(store, new FakeLocator(), enabled: false).GrantAllAsync(CancellationToken.None);
-        Assert.False(result.Enabled);
+        var granter = new AccessGranter(store, new FakeLocator(), NullLogger<AccessGranter>.Instance, () => null);
+        var result = await granter.GrantAllAsync(CancellationToken.None);
+        Assert.Equal(AccessGranter.NotReadyError, result.Error);
         Assert.Empty(store.Saved);
     }
 
@@ -77,8 +78,8 @@ public class AccessGranterPassTests
     {
         var store = new FakeStore();
         var u = NewUser("plain"); store.Users[u.Id] = u;
-        var result = await Granter(store, new FakeLocator { Id = null }, enabled: true).GrantAllAsync(CancellationToken.None);
-        Assert.False(result.Enabled);
+        var result = await Granter(store, new FakeLocator { Id = null }).GrantAllAsync(CancellationToken.None);
+        Assert.Equal(AccessGranter.MissingChannelError, result.Error);
         Assert.Empty(store.Saved);
     }
 
@@ -95,9 +96,9 @@ public class AccessGranterPassTests
             store.Users[u.Id] = u;
         }
 
-        var result = await Granter(store, new FakeLocator(), enabled: true).GrantAllAsync(CancellationToken.None);
+        var result = await Granter(store, new FakeLocator()).GrantAllAsync(CancellationToken.None);
 
-        Assert.True(result.Enabled);
+        Assert.Null(result.Error);
         Assert.Equal(1, result.Granted);
         Assert.Equal(2, result.AlreadyVisible);
         Assert.Equal(1, result.Blocked);
@@ -112,7 +113,7 @@ public class AccessGranterPassTests
     {
         var store = new FakeStore();
         var plain = NewUser("plain"); store.Users[plain.Id] = plain;
-        var granter = Granter(store, new FakeLocator(), enabled: true);
+        var granter = Granter(store, new FakeLocator());
         await granter.GrantAllAsync(CancellationToken.None);
         var again = await granter.GrantAllAsync(CancellationToken.None);
         Assert.Equal(0, again.Granted);
@@ -120,14 +121,16 @@ public class AccessGranterPassTests
     }
 
     [Fact]
-    public async Task Single_user_grant_rereads_and_skips_visible_users()
+    public async Task Pass_adds_only_this_channel_and_keeps_the_rest_of_the_list()
     {
         var store = new FakeStore();
-        var plain = NewUser("plain"); store.Users[plain.Id] = plain;
-        var granter = Granter(store, new FakeLocator(), enabled: true);
-        Assert.True(await granter.GrantAsync(plain.Id, CancellationToken.None));
-        Assert.False(await granter.GrantAsync(plain.Id, CancellationToken.None));   // now visible: no second write
-        Assert.False(await granter.GrantAsync(Guid.NewGuid(), CancellationToken.None)); // unknown user
-        Assert.Single(store.Saved);
+        var other = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var u = NewUser("other", enabled: [other]); store.Users[u.Id] = u;
+
+        var result = await Granter(store, new FakeLocator()).GrantAllAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Granted);
+        Assert.Equal(new[] { other, Channel }, u.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels));
+        Assert.False(u.HasPermission(PermissionKind.EnableAllChannels));
     }
 }

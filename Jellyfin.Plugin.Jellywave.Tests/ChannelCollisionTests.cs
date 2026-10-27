@@ -118,7 +118,7 @@ public class ChannelCollisionTests
             store,
             new LibraryChannelLocator(server.Finder, null!),   // the entity exists or collides, so the channel manager is never asked
             NullLogger<AccessGranter>.Instance,
-            () => new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example", GrantAccessToAllUsers = true });
+            () => new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" });
 
     [Fact]
     public async Task Control_without_a_collision_the_poller_writes_the_live_item()
@@ -167,9 +167,8 @@ public class ChannelCollisionTests
 
         var result = await granter.GrantAllAsync(CancellationToken.None);
 
-        Assert.True(result.Enabled);
+        Assert.Null(result.Error);
         Assert.Equal(new[] { user.Id }, store.Saved);
-        Assert.True(await granter.GrantAsync(NewUserIn(store), CancellationToken.None));
     }
 
     [Fact]
@@ -181,11 +180,9 @@ public class ChannelCollisionTests
         using var granter = Granter(server, store);
 
         var result = await granter.GrantAllAsync(CancellationToken.None);
-        var single = await granter.GrantAsync(user.Id, CancellationToken.None);
 
-        Assert.False(result.Enabled);
         Assert.Equal("channel name collides with another plugin's channel", result.Error);
-        Assert.False(single);
+        Assert.Equal(0, result.Granted);
         Assert.Empty(store.Saved);
         Assert.Empty(user.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels));
     }
@@ -258,12 +255,5 @@ public class ChannelCollisionTests
 
         Assert.Null(health.ChannelStatus);
         Assert.True(health.LiveItemExists);
-    }
-
-    private static Guid NewUserIn(FakeStore store)
-    {
-        var user = NewUser();
-        store.Users[user.Id] = user;
-        return user.Id;
     }
 }
