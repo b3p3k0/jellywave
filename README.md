@@ -46,6 +46,7 @@ Dashboard → Plugins → Jellywave.
 | Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
 | Now playing | Poll the station and show the current track, DJ, show and what is up next on the live item |
 | Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
+| Station page | Optional, needs the File Transformation plugin (see below). The channel's own page gets a live header with cover, track, DJ, show, what's next, listeners, Play/Stop and a request box; the playing bar and the grid card follow the track while it plays |
 | Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
 
 After saving, the tile updates on the next reload. If you renamed it, run the
@@ -64,6 +65,36 @@ After saving, the tile updates on the next reload. If you renamed it, run the
 Dashboard → Plugins → Repositories → add
 `https://raw.githubusercontent.com/b3p3k0/jellywave/main/manifest.json`,
 then install **Jellywave** from the catalog and restart Jellyfin.
+
+## Station page (optional)
+
+Jellyfin's web client has no hook for plugin pages that ordinary users can reach, so the station
+page is injected into the web client by the third-party
+[File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) plugin
+(repository `https://www.iamparadox.dev/jellyfin/plugins/manifest.json`). Install it, restart, and
+the plugin page's "Station page" section reads "Active". Without it everything else works; only the
+page is missing. What users get, in the web client and the Android app (which wraps it):
+
+- The channel's library page (the tile, or the top-bar entry in the default layout, or the drawer
+  entry in the legacy layout) shows a header: cover, track, DJ with tagline, show, what's next,
+  listener count, Play and Stop through Jellyfin's own player.
+- While the station plays, the playing bar's thumbnail and text, the item's card in the grid and the
+  browser's media session follow the track. Jellyfin itself copies the item when playback starts and
+  never re-reads it; the page repaints those spots every five seconds.
+- A request box: text and a name (prefilled with the Jellyfin user name), sent to the station's DJ.
+  The station's own limits apply, a short wait between requests and a few per hour, and everyone on
+  the Jellyfin server counts as one caller to the station. The page explains that under the box.
+
+The page talks only to the Jellyfin server (`/Jellywave/Feed`, `/Jellywave/Request`), never to the
+station, so the station can be closed to the world while Jellyfin users keep access.
+
+## Tested on
+
+| Client | Result | Notes |
+|---|---|---|
+| Web, Firefox and Chrome on Ubuntu 26.04 (Intel and AMD) | works | tile, playback, cover and now-playing rotation, station page |
+| Jellyfin Android 2.7.3 on a Pixel 9 (GrapheneOS) | works | same as web (the app wraps the web client) |
+| macOS, iOS, Windows, Roku, Android TV | untested | reports welcome |
 
 ## Build
 

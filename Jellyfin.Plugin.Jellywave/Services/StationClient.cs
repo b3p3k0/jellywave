@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -146,6 +147,60 @@ public class StationClient
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Submits a listener request: <c>POST /api/request</c>. The station answers 202 with a receipt, or refuses with
+    /// 400 (empty text), 429 (its per-caller and global rate limits; the body says how long to wait) or 503 (requests
+    /// closed or the DJ on autopilot). All Jellyfin users share one caller as seen by the station.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="text">The request text (1 to 280 characters).</param>
+    /// <param name="name">The listener's name (up to 40 characters), or empty.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status code and the parsed body.</returns>
+    public async Task<StationReply<RequestReceipt>> SubmitRequestAsync(Uri baseUrl, string text, string name, CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var content = JsonContent.Create(new Dictionary<string, string> { ["text"] = text, ["name"] = name }, options: JsonOptions);
+        using var response = await client.PostAsync(new Uri(baseUrl, "api/request"), content, cancellationToken).ConfigureAwait(false);
+        return new StationReply<RequestReceipt>((int)response.StatusCode, await ReadBodyAsync<RequestReceipt>(response, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Polls a submitted request: <c>GET /api/request/{id}</c>. 404 means the station no longer knows the id.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="requestId">The id from the receipt.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status code and the parsed body.</returns>
+    public async Task<StationReply<RequestStatus>> GetRequestStatusAsync(Uri baseUrl, string requestId, CancellationToken cancellationToken)
+    {
+        if (!IsValidId(requestId))
+        {
+            return new StationReply<RequestStatus>(404, null);
+        }
+
+        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var response = await client.GetAsync(new Uri(baseUrl, "api/request/" + requestId), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        return new StationReply<RequestStatus>((int)response.StatusCode, await ReadBodyAsync<RequestStatus>(response, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<T?> ReadBodyAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
+        where T : class
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private async Task<T?> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken)

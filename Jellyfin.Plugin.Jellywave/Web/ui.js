@@ -156,13 +156,72 @@
             '<div class="jellywave-actions">' +
             '<button is="emby-button" type="button" class="raised button-submit emby-button jellywave-play"><span class="material-icons play_arrow" aria-hidden="true"></span><span>Play</span></button>' +
             '<button is="emby-button" type="button" class="raised emby-button jellywave-stop"><span class="material-icons stop" aria-hidden="true"></span><span>Stop</span></button>' +
-            '</div><div class="jellywave-status"></div></div>';
+            '</div><div class="jellywave-status"></div>' +
+            '<form class="jellywave-request">' +
+            '<input type="text" class="jellywave-request-text" maxlength="280" placeholder="Request a song, or say hi to the DJ" autocomplete="off" />' +
+            '<input type="text" class="jellywave-request-name" maxlength="40" placeholder="Your name" autocomplete="off" />' +
+            '<button is="emby-button" type="submit" class="raised emby-button jellywave-request-send"><span>Send</span></button>' +
+            '<div class="jellywave-request-result"></div>' +
+            '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests and a few per hour for everyone on this server together.</div>' +
+            '</form></div>';
         header.querySelector('.jellywave-play').addEventListener('click', function () { play(); setTimeout(render, 800); });
         header.querySelector('.jellywave-stop').addEventListener('click', function () { stop(); setTimeout(render, 300); });
+        wireRequests(header);
         anchor.parentNode.insertBefore(header, anchor);
         state.header = header;
         render();
         ensureTimer();
+    }
+
+    /* Listener requests: POST Jellywave/Request, then poll Jellywave/Request/{id} until the station resolves it. */
+    function wireRequests(header) {
+        var form = header.querySelector('.jellywave-request');
+        var text = form.querySelector('.jellywave-request-text');
+        var name = form.querySelector('.jellywave-request-name');
+        var send = form.querySelector('.jellywave-request-send');
+        var out = form.querySelector('.jellywave-request-result');
+        var client = api();
+        if (client && client.getCurrentUser) {
+            client.getCurrentUser().then(function (u) { if (u && u.Name && !name.value) { name.value = u.Name; } }).catch(function () { /* fine */ });
+        }
+        var pollTimer = null;
+        function say(msg) { out.textContent = msg || ''; }
+        function describe(r) {
+            if (!r) { return 'No answer.'; }
+            if (r.Status === 'pending') { return r.Message || 'Waiting for the DJ…'; }
+            if (r.Status === 'resolved') {
+                var bits = [];
+                if (r.Ack) { bits.push(r.Ack); }
+                if (r.Track) { bits.push('Queued: ' + r.Track + (typeof r.QueuePosition === 'number' ? ' (position ' + r.QueuePosition + ')' : '')); }
+                if (!bits.length) { bits.push(r.Message || 'Done.'); }
+                return bits.join(' ');
+            }
+            if (r.RetryAfterSeconds) { return (r.Message || 'Too soon.') + ' (' + r.RetryAfterSeconds + ' s)'; }
+            return r.Message || r.Status;
+        }
+        function poll(id, tries) {
+            clearTimeout(pollTimer);
+            client.getJSON(client.getUrl('Jellywave/Request/' + encodeURIComponent(id))).then(function (r) {
+                say(describe(r));
+                if (r && r.Status === 'pending' && tries < 30) { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000); }
+                else { send.disabled = false; }
+            }).catch(function () { say('Lost contact while waiting.'); send.disabled = false; });
+        }
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var client2 = api();
+            var value = text.value.trim();
+            if (!client2 || !value) { return; }
+            send.disabled = true;
+            say('Sending…');
+            client2.ajax({
+                type: 'POST', url: client2.getUrl('Jellywave/Request'), dataType: 'json', contentType: 'application/json',
+                data: JSON.stringify({ Text: value, Name: name.value.trim() })
+            }).then(function (r) {
+                say(describe(r));
+                if (r && r.Accepted && r.RequestId) { text.value = ''; poll(r.RequestId, 0); } else { send.disabled = false; }
+            }).catch(function () { say('Could not reach the server.'); send.disabled = false; });
+        });
     }
 
     /* Legacy layout only: its drawer has a slot for custom links (.customMenuOptions); the modern layout has
