@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.Jellywave.Api;
 
@@ -24,6 +25,9 @@ public sealed class FeedResponse
     /// <summary>Gets or sets the album.</summary>
     public string? Album { get; set; }
 
+    /// <summary>Gets or sets the station's id of the track on air (for likes and lyrics), when valid.</summary>
+    public string? SongId { get; set; }
+
     /// <summary>Gets or sets the "Artist – Title" line.</summary>
     public string? TrackLine { get; set; }
 
@@ -36,6 +40,9 @@ public sealed class FeedResponse
     /// <summary>Gets or sets the DJ's tagline.</summary>
     public string? DjTagline { get; set; }
 
+    /// <summary>Gets or sets the DJ's persona id, for <c>GET /Jellywave/Avatar/{id}</c>, when the station has a portrait path.</summary>
+    public string? DjAvatarId { get; set; }
+
     /// <summary>Gets or sets the active show.</summary>
     public string? Show { get; set; }
 
@@ -47,6 +54,15 @@ public sealed class FeedResponse
 
     /// <summary>Gets or sets when the next show starts, as the station phrases it.</summary>
     public string? NextShowStartsAt { get; set; }
+
+    /// <summary>Gets or sets the next queued track as "Artist – Title", when the station has one.</summary>
+    public string? UpNext { get; set; }
+
+    /// <summary>Gets or sets the recently played tracks, newest first, as "Artist – Title" (with "· requested by X" when applicable).</summary>
+    public IReadOnlyList<string> Recent { get; set; } = [];
+
+    /// <summary>Gets or sets a value indicating whether the station offers lyrics.</summary>
+    public bool LyricsEnabled { get; set; }
 
     /// <summary>Gets or sets the current listener count.</summary>
     public int? Listeners { get; set; }

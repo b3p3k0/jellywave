@@ -86,19 +86,59 @@ public class StationClient
     /// declared length over the cap count the same way. A missing content type is taken as JPEG, the station's default.
     /// Transport failures (timeouts, a chunked body that overruns the cap) throw and are retried by the caller.
     /// </returns>
-    public async Task<StationImage?> GetCoverAsync(Uri baseUrl, string coverId, CancellationToken cancellationToken)
-    {
-        if (!IsValidId(coverId))
-        {
-            return null;
-        }
+    public Task<StationImage?> GetCoverAsync(Uri baseUrl, string coverId, CancellationToken cancellationToken)
+        => IsValidId(coverId) ? GetImageAsync(baseUrl, "api/cover/" + coverId, cancellationToken) : Task.FromResult<StationImage?>(null);
 
+    /// <summary>
+    /// Gets a DJ portrait: <c>GET /api/persona-avatar/{id}</c>. The station answers a transparent PNG when none is set.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="personaId">The persona id (3 to 32 characters of lowercase letters, digits and underscore).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The image, or null when the id is invalid or the answer is unusable.</returns>
+    public Task<StationImage?> GetAvatarAsync(Uri baseUrl, string personaId, CancellationToken cancellationToken)
+        => IsValidId(personaId) ? GetImageAsync(baseUrl, "api/persona-avatar/" + personaId, cancellationToken) : Task.FromResult<StationImage?>(null);
+
+    /// <summary>
+    /// Reads the like status of the track on air: <c>GET /api/like</c>.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status code and body.</returns>
+    public async Task<StationReply<LikeStatus>> GetLikeAsync(Uri baseUrl, CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var response = await client.GetAsync(new Uri(baseUrl, "api/like"), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        return new StationReply<LikeStatus>((int)response.StatusCode, await ReadBodyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Likes the track on air: <c>POST /api/like</c>. 403 disabled, 409 the track ended, 429 too fast.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="songId">The song id the listener saw, so a stale tap cannot like the next track.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status code and body.</returns>
+    public async Task<StationReply<LikeStatus>> PostLikeAsync(Uri baseUrl, string songId, CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var content = JsonContent.Create(new Dictionary<string, string> { ["songId"] = songId }, options: JsonOptions);
+        using var response = await client.PostAsync(new Uri(baseUrl, "api/like"), content, cancellationToken).ConfigureAwait(false);
+        return new StationReply<LikeStatus>((int)response.StatusCode, await ReadBodyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<StationImage?> GetImageAsync(Uri baseUrl, string relativePath, CancellationToken cancellationToken)
+    {
         using var client = _httpClientFactory.CreateClient(NamedClient.Default);
         client.Timeout = RequestTimeout;
         client.MaxResponseContentBufferSize = MaxImageBytes;
 
         // Headers first: a declared oversize or a wrong type is "no art", decided without reading the body.
-        using var response = await client.GetAsync(new Uri(baseUrl, "api/cover/" + coverId), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await client.GetAsync(new Uri(baseUrl, relativePath), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;

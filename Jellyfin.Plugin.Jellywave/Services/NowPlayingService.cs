@@ -180,10 +180,31 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         if (feed is not null)
         {
             _state.Update(feed, DateTime.UtcNow);
+            await FetchStationStateAsync(baseUrl, cancellationToken).ConfigureAwait(false);
             await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
         }
 
         return TimeSpan.FromSeconds(config.EffectivePollSeconds);
+    }
+
+    /// <summary>
+    /// The station page shows history, up next and the lyrics flag from <c>/api/state</c>; fetched alongside the
+    /// feed, and a failure keeps the previous state (the feed already proved the station answers).
+    /// </summary>
+    private async Task FetchStationStateAsync(Uri baseUrl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stationState = await _stationClient.GetStateAsync(baseUrl, cancellationToken).ConfigureAwait(false);
+            if (stationState is not null)
+            {
+                _state.UpdateStationState(stationState);
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
+        {
+            _logger.LogDebug("Station state fetch failed: {Message}", ex.Message);
+        }
     }
 
     /// <summary>

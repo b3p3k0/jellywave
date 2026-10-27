@@ -34,7 +34,9 @@ public class JellywaveWebController : ControllerBase
 
     /// <summary>Jellyfin's claim carrying the signed-in user's id (Jellyfin.Api.Constants.InternalClaimTypes.UserId).</summary>
     private const string UserIdClaim = "Jellyfin-UserId";
+    private const int MaxRecent = 8;
     private static readonly TimeSpan AssetCacheLifetime = TimeSpan.FromDays(1);
+    private static readonly TimeSpan AvatarCacheLifetime = TimeSpan.FromHours(1);
 
     private readonly NowPlayingState _state;
     private readonly LiveItemFinder _finder;
@@ -89,9 +91,17 @@ public class JellywaveWebController : ControllerBase
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var feed = _state.Feed();
+        var stationState = _state.StationState();
         var next = feed?.Context?.ShowHandover?.NextShow;
+        var upcoming = stationState?.Upcoming;
+        var upNext = upcoming is { Count: > 0 } ? upcoming[0] : null;
         var response = new FeedResponse
         {
+            SongId = _state.CoverId(),
+            DjAvatarId = AvatarIdOf(feed?.Dj?.Avatar),
+            UpNext = TrackLineOf(upNext),
+            Recent = (stationState?.History ?? []).Take(MaxRecent).Select(t => TrackLineOf(t) + (string.IsNullOrWhiteSpace(t.RequestedBy) ? string.Empty : " · requested by " + t.RequestedBy.Trim())).Where(l => l.Length > 0).ToList(),
+            LyricsEnabled = stationState?.Lyrics?.Enabled == true,
             StationName = JellywaveChannel.StationName(config),
             Online = feed?.StreamOnline,
             Title = feed?.NowPlaying?.Title,
@@ -120,6 +130,100 @@ public class JellywaveWebController : ControllerBase
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// The DJ's portrait, proxied from the station (any signed-in user). A transparent PNG when the persona has none.
+    /// </summary>
+    /// <param name="personaId">The persona id from the feed.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The image.</returns>
+    [HttpGet("Avatar/{personaId}")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Avatar([FromRoute] string personaId, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(personaId))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            var image = await _stationClient.GetAvatarAsync(baseUrl, personaId, cancellationToken).ConfigureAwait(false);
+            if (image is null)
+            {
+                return NotFound();
+            }
+
+            Response.Headers[HeaderNames.CacheControl] = "private, max-age=" + (int)AvatarCacheLifetime.TotalSeconds;
+            return File(image.OpenStream(), image.MimeType);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug("Avatar fetch failed: {Message}", ex.Message);
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Like status of the track on air (any signed-in user).
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status.</returns>
+    [HttpGet("Like")]
+    [Authorize]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<LikeOutcome>> LikeStatus(CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
+        {
+            return new LikeOutcome { Enabled = false };
+        }
+
+        try
+        {
+            return MapLike(await _stationClient.GetLikeAsync(baseUrl, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug("Like status failed: {Message}", ex.Message);
+            return new LikeOutcome { Enabled = false };
+        }
+    }
+
+    /// <summary>
+    /// Likes the track on air (any signed-in user). The station counts this server as one caller.
+    /// </summary>
+    /// <param name="submission">The song id the listener saw.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The result.</returns>
+    [HttpPost("Like")]
+    [Authorize]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<LikeOutcome>> Like([FromBody] LikeSubmission submission, CancellationToken cancellationToken)
+    {
+        var songId = submission?.SongId?.Trim() ?? string.Empty;
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
+        {
+            return new LikeOutcome { Enabled = false, Message = "Nothing to like right now." };
+        }
+
+        try
+        {
+            return MapLike(await _stationClient.PostLikeAsync(baseUrl, songId, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug("Like failed: {Message}", ex.Message);
+            return new LikeOutcome { Enabled = true, Message = "The station did not answer." };
+        }
     }
 
     /// <summary>
@@ -244,6 +348,50 @@ public class JellywaveWebController : ControllerBase
     [Authorize(Policy = Policies.RequiresElevation)]
     [Produces("application/json")]
     public ActionResult<WebUiStatus> WebUi() => WebUiStartupTask.Status;
+
+    private static LikeOutcome MapLike(StationReply<LikeStatus> reply)
+    {
+        var body = reply.Body;
+        if (reply.StatusCode == StatusCodes.Status403Forbidden || body?.Enabled == false)
+        {
+            return new LikeOutcome { Enabled = false };
+        }
+
+        return new LikeOutcome
+        {
+            Enabled = true,
+            SongId = StationClient.IsValidId(body?.SongId) ? body!.SongId : null,
+            Liked = body?.Liked == true,
+            Count = body?.Count ?? 0,
+            Message = reply.StatusCode >= StatusCodes.Status400BadRequest ? (body?.Error ?? "The station did not take the like.") : null,
+            RetryAfterSeconds = body?.RetryAfter
+        };
+    }
+
+    /// <summary>
+    /// The persona id at the end of the feed's avatar path (<c>/persona-avatar/p_8754e4</c>), when it is a safe id.
+    /// </summary>
+    private static string? AvatarIdOf(string? avatarPath)
+    {
+        if (string.IsNullOrWhiteSpace(avatarPath))
+        {
+            return null;
+        }
+
+        var id = avatarPath.Trim().TrimEnd('/');
+        id = id[(id.LastIndexOf('/') + 1)..];
+        return StationClient.IsValidId(id) ? id : null;
+    }
+
+    private static string TrackLineOf(QueueTrack? track)
+    {
+        if (track is null)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(" – ", new[] { track.Artist, track.Title }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Collapse(p)));
+    }
 
     private static string Collapse(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

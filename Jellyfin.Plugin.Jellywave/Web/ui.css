@@ -14,3 +14,12 @@
 .jellywave-request-result{grid-column:1/-1;font-size:.95em;min-height:1.2em}
 .jellywave-request-help{grid-column:1/-1;font-size:.8em;opacity:.55}
 @media (max-width:40em){.jellywave-request{grid-template-columns:1fr}.jellywave-request-name{width:auto}}
+.jellywave-title{display:flex;align-items:center;gap:.5em;flex-wrap:wrap}
+.jellywave-like{background:none;border:1px solid rgba(128,128,128,.4);border-radius:1em;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:.2em;padding:.1em .6em .1em .4em;font:inherit;font-size:.7em}
+.jellywave-like:disabled{opacity:.5;cursor:default}
+.jellywave-like .material-icons{font-size:1.3em}
+.jellywave-dj{display:flex;align-items:center;gap:.6em;margin-top:.6em;opacity:.85}
+.jellywave-dj-avatar{width:2.6em;height:2.6em;border-radius:50%;object-fit:cover;background:rgba(128,128,128,.2)}
+.jellywave-recent{margin-top:.7em;font-size:.9em;opacity:.8}
+.jellywave-recent summary{cursor:pointer}
+.jellywave-recent ol{margin:.3em 0 0;padding-left:1.4em}

@@ -13,6 +13,10 @@ public sealed class DjInfo
     [JsonPropertyName("tagline")]
     public string? Tagline { get; set; }
 
+    /// <summary>Gets or sets the portrait path, for example <c>/persona-avatar/p_8754e4</c>.</summary>
+    [JsonPropertyName("avatar")]
+    public string? Avatar { get; set; }
+
     /// <summary>Gets or sets the station name the DJ is hosting.</summary>
     [JsonPropertyName("station")]
     public string? Station { get; set; }

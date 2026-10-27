@@ -16,6 +16,7 @@ public sealed class NowPlayingState
 
     private readonly object _gate = new();
     private NowPlayingFeed? _feed;
+    private StationState? _stationState;
     private DateTime _fetchedUtc;
 
     /// <summary>
@@ -73,6 +74,7 @@ public sealed class NowPlayingState
         {
             var had = _feed is not null;
             _feed = null;
+            _stationState = null;
             return had;
         }
     }
@@ -86,6 +88,31 @@ public sealed class NowPlayingState
         lock (_gate)
         {
             return Describe(_feed);
+        }
+    }
+
+    /// <summary>
+    /// Stores the last station state (history, upcoming, flags); kept across feed failures until <see cref="Clear"/>.
+    /// </summary>
+    /// <param name="state">The state just fetched.</param>
+    public void UpdateStationState(StationState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        lock (_gate)
+        {
+            _stationState = state;
+        }
+    }
+
+    /// <summary>
+    /// Gets the last station state, or null. Callers must not modify it.
+    /// </summary>
+    /// <returns>The state.</returns>
+    public StationState? StationState()
+    {
+        lock (_gate)
+        {
+            return _stationState;
         }
     }
 

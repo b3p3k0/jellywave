@@ -9,7 +9,7 @@
 
     var POLL_MS = 5000;
     var FEED_RETRY_MS = 15000;
-    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0 };
+    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, like: null, likeSongId: null, likeBusy: false };
 
     function api() { return window.ApiClient || null; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
@@ -108,22 +108,82 @@
         if (touched) { state.lastCardTag = f.ImageTag; }
     }
 
+    /* Likes: status is per track; the station counts this server as one caller, so "liked" is shared. */
+    function fetchLike() {
+        var client = api();
+        if (!client || !state.feed || !state.feed.SongId) { state.like = null; return; }
+        if (state.likeSongId === state.feed.SongId) { return; }
+        state.likeSongId = state.feed.SongId;
+        client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) { state.like = r; renderLike(); }).catch(function () { state.like = null; });
+    }
+
+    function renderLike() {
+        var h = state.header;
+        if (!h) { return; }
+        var btn = h.querySelector('.jellywave-like');
+        var like = state.like;
+        if (!like || !like.Enabled || !like.SongId) { btn.style.display = 'none'; return; }
+        btn.style.display = '';
+        btn.disabled = state.likeBusy;
+        btn.querySelector('.jellywave-like-icon').textContent = like.Liked ? 'favorite' : 'favorite_border';
+        btn.querySelector('.jellywave-like-count').textContent = like.Count ? String(like.Count) : '';
+        btn.title = like.Message ? like.Message : (like.Liked ? 'Liked' : 'Like this track');
+    }
+
+    function sendLike() {
+        var client = api();
+        if (!client || !state.like || !state.like.SongId || state.likeBusy) { return; }
+        state.likeBusy = true;
+        renderLike();
+        client.ajax({
+            type: 'POST', url: client.getUrl('Jellywave/Like'), dataType: 'json', contentType: 'application/json',
+            data: JSON.stringify({ SongId: state.like.SongId })
+        }).then(function (r) {
+            state.like = r && r.Enabled ? r : state.like;
+        }).catch(function () { /* keep the old status */ }).then(function () { state.likeBusy = false; renderLike(); });
+    }
+
     function render() {
         var h = state.header;
         var f = state.feed;
         if (!h) { return; }
         var url = imageUrl(f, 600);
         h.querySelector('.jellywave-cover').style.backgroundImage = url ? 'url("' + url + '")' : '';
-        h.querySelector('.jellywave-title').textContent = f ? (f.Title || (f.Online === false ? 'Off air' : f.StationName)) : 'Loading…';
+        h.querySelector('.jellywave-title-text').textContent = f ? (f.Title || (f.Online === false ? 'Off air' : f.StationName)) : 'Loading…';
         h.querySelector('.jellywave-sub').textContent = f ? [f.Artist, f.Album].filter(Boolean).join(' · ') : '';
+        var dj = h.querySelector('.jellywave-dj');
+        if (f && f.Dj) {
+            dj.style.display = '';
+            dj.querySelector('.jellywave-dj-text').textContent = 'DJ ' + f.Dj + (f.DjTagline ? ' — ' + f.DjTagline : '');
+            var avatar = dj.querySelector('.jellywave-dj-avatar');
+            var client = api();
+            var avatarUrl = f.DjAvatarId && client ? client.getUrl('Jellywave/Avatar/' + encodeURIComponent(f.DjAvatarId)) : '';
+            if (avatarUrl && avatar.getAttribute('data-src') !== avatarUrl) {
+                avatar.setAttribute('data-src', avatarUrl);
+                avatar.src = avatarUrl + (avatarUrl.indexOf('?') < 0 ? '?' : '&') + 'api_key=' + encodeURIComponent(client.accessToken());
+            }
+            avatar.style.display = avatarUrl ? '' : 'none';
+        } else {
+            dj.style.display = 'none';
+        }
         var meta = [];
-        if (f && f.Dj) { meta.push('DJ ' + f.Dj + (f.DjTagline ? ' — ' + f.DjTagline : '')); }
         if (f && f.Show) { meta.push('On air: ' + f.Show); }
+        if (f && f.UpNext) { meta.push('Up next: ' + f.UpNext); }
         if (f && f.NextShow) { meta.push('Up next: ' + f.NextShow + (f.NextShowPresenter ? ' with ' + f.NextShowPresenter : '') + (f.NextShowStartsAt ? ' at ' + f.NextShowStartsAt : '')); }
         if (f && typeof f.Listeners === 'number') { meta.push(f.Listeners + ' listening'); }
         var metaEl = h.querySelector('.jellywave-meta');
         metaEl.innerHTML = '';
         meta.forEach(function (m) { var d = document.createElement('div'); d.textContent = m; metaEl.appendChild(d); });
+        var recent = h.querySelector('.jellywave-recent');
+        if (f && f.Recent && f.Recent.length) {
+            recent.style.display = '';
+            var ol = recent.querySelector('ol');
+            ol.innerHTML = '';
+            f.Recent.forEach(function (line) { var li = document.createElement('li'); li.textContent = line; ol.appendChild(li); });
+        } else {
+            recent.style.display = 'none';
+        }
+        renderLike();
         var playing = isOurs();
         h.querySelector('.jellywave-play').style.display = playing ? 'none' : '';
         h.querySelector('.jellywave-stop').style.display = playing ? '' : 'none';
@@ -133,6 +193,7 @@
     function tick() {
         fetchFeed().then(function () {
             if (state.header && !document.body.contains(state.header)) { state.header = null; }
+            try { fetchLike(); } catch (e) { console.warn('[Jellywave] like status failed', e); }
             try { render(); } catch (e) { console.warn('[Jellywave] render failed', e); }
             try { refreshBar(); } catch (e) { console.warn('[Jellywave] bar refresh failed', e); }
             try { refreshCards(); } catch (e) { console.warn('[Jellywave] card refresh failed', e); }
@@ -159,7 +220,12 @@
         header.innerHTML =
             '<div class="jellywave-cover"></div>' +
             '<div class="jellywave-body">' +
-            '<p class="jellywave-title"></p><p class="jellywave-sub"></p><div class="jellywave-meta"></div>' +
+            '<p class="jellywave-title"><span class="jellywave-title-text"></span>' +
+            '<button type="button" class="jellywave-like" title="Like this track" style="display:none"><span class="material-icons jellywave-like-icon" aria-hidden="true">favorite_border</span><span class="jellywave-like-count"></span></button></p>' +
+            '<p class="jellywave-sub"></p>' +
+            '<div class="jellywave-dj" style="display:none"><img class="jellywave-dj-avatar" alt="" /><div class="jellywave-dj-text"></div></div>' +
+            '<div class="jellywave-meta"></div>' +
+            '<details class="jellywave-recent" style="display:none"><summary>Recently played</summary><ol></ol></details>' +
             '<div class="jellywave-actions">' +
             '<button is="emby-button" type="button" class="raised button-submit emby-button jellywave-play"><span class="material-icons play_arrow" aria-hidden="true"></span><span>Play</span></button>' +
             '<button is="emby-button" type="button" class="raised emby-button jellywave-stop"><span class="material-icons stop" aria-hidden="true"></span><span>Stop</span></button>' +
@@ -171,6 +237,7 @@
             '<div class="jellywave-request-result"></div>' +
             '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests, one pending at a time and a few per hour for everyone on this server together, so a "still queued" or "try again later" answer may be about someone else\'s request.</div>' +
             '</form></div>';
+        header.querySelector('.jellywave-like').addEventListener('click', sendLike);
         header.querySelector('.jellywave-play').addEventListener('click', function () { play(); setTimeout(render, 800); });
         header.querySelector('.jellywave-stop').addEventListener('click', function () { stop(); setTimeout(render, 300); });
         wireRequests(header);
