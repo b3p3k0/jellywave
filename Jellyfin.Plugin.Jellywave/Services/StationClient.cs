@@ -30,6 +30,11 @@ public class StationClient
     private const int MaxIdLength = 64;
 
     /// <summary>
+    /// Cover media types saved as the item's image; Jellyfin's image processor decodes these.
+    /// </summary>
+    private static readonly string[] AcceptedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+    /// <summary>
     /// Whole-request budget (connect, headers and body) per call.
     /// </summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
@@ -74,7 +79,12 @@ public class StationClient
     /// <param name="baseUrl">The station base URL with a trailing slash.</param>
     /// <param name="coverId">The track's music-server id, as given by the now-playing feed.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The image, or null when the station has no art for the track (it answers 502 with an empty body) or the id is not a valid station id.</returns>
+    /// <returns>
+    /// The image, or null when the track has no usable art: the station answers 502 with an empty body when it has none,
+    /// and an unknown id, a non-success status, a media type outside <see cref="AcceptedImageTypes"/>, an empty body or a
+    /// declared length over the cap count the same way. A missing content type is taken as JPEG, the station's default.
+    /// Transport failures (timeouts, a chunked body that overruns the cap) throw and are retried by the caller.
+    /// </returns>
     public async Task<StationImage?> GetCoverAsync(Uri baseUrl, string coverId, CancellationToken cancellationToken)
     {
         if (!IsValidId(coverId))
@@ -86,19 +96,31 @@ public class StationClient
         client.Timeout = RequestTimeout;
         client.MaxResponseContentBufferSize = MaxImageBytes;
 
-        using var response = await client.GetAsync(new Uri(baseUrl, "api/cover/" + coverId), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        // Headers first: a declared oversize or a wrong type is "no art", decided without reading the body.
+        using var response = await client.GetAsync(new Uri(baseUrl, "api/cover/" + coverId), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;
         }
 
         var mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-        if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        if (Array.IndexOf(AcceptedImageTypes, mimeType.ToLowerInvariant()) < 0)
         {
             return null;
         }
 
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var declaredLength = response.Content.Headers.ContentLength;
+        if (declaredLength is > MaxImageBytes or 0)
+        {
+            return null;
+        }
+
+        // With ResponseHeadersRead the client's Timeout and buffer cap stop at the headers (card 3 lesson), so the
+        // body gets its own budget: the same timeout, and LoadIntoBufferAsync's cap for chunked bodies.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(RequestTimeout);
+        await response.Content.LoadIntoBufferAsync(MaxImageBytes, timeout.Token).ConfigureAwait(false);
+        var bytes = await response.Content.ReadAsByteArrayAsync(timeout.Token).ConfigureAwait(false);
         return bytes.Length == 0 ? null : new StationImage(mimeType, bytes);
     }
 

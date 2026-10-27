@@ -18,10 +18,12 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
 /// Polls the station's now-playing feed and writes what it learns onto the live item: the one-line
-/// description into <see cref="BaseItem.Overview"/>, "Artist – Title" into <see cref="BaseItem.Album"/>
-/// (the playing bar's first line when an audio item has no artists), and the current cover art as the
-/// Primary image through <see cref="LiveItemArtwork"/>. <c>Artists</c> is never written: Jellyfin would
-/// create a Music-library artist entry for every track the station plays.
+/// description into <see cref="BaseItem.Overview"/> and the current cover art as the Primary image
+/// through <see cref="LiveItemArtwork"/>. Every successful poll reconciles the item (one cheap query),
+/// so an overwrite by Jellyfin's own channel refresh is repaired on the next poll.
+/// Neither <c>Artists</c> nor <c>Album</c> is written: Artists would make Jellyfin create a Music-library
+/// artist per track, and Album is part of the item's user-data key, so a rotating value would leave an
+/// orphan user-data row per track and user (see DESIGN.md).
 /// Jellyfin does not push updates of channel items to clients; changes show on the next list load.
 /// </summary>
 public sealed class NowPlayingService : IHostedService, IDisposable
@@ -52,7 +54,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     private readonly CancellationTokenSource _stopping = new();
     private Task? _loop;
     private bool _stationReachable = true;
-    private bool _retryArtwork;
+    private bool _artworkSaveFailed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NowPlayingService"/> class.
@@ -143,11 +145,8 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         var config = _configuration();
         if (config is null || !config.NowPlayingEnabled || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
-            if (_state.Clear() || _retryArtwork)
-            {
-                await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
-            }
-
+            _state.Clear();
+            await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
             return IdleDelay;
         }
 
@@ -164,11 +163,8 @@ public sealed class NowPlayingService : IHostedService, IDisposable
                 _stationReachable = false;
             }
 
-            if (_state.Clear())
-            {
-                await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
-            }
-
+            _state.Clear();
+            await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
             return TimeSpan.FromSeconds(config.EffectivePollSeconds);
         }
 
@@ -178,8 +174,9 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             _stationReachable = true;
         }
 
-        if (feed is not null && (_state.Update(feed, DateTime.UtcNow) != NowPlayingChange.None || _retryArtwork))
+        if (feed is not null)
         {
+            _state.Update(feed, DateTime.UtcNow);
             await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
         }
 
@@ -240,12 +237,25 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Writes the current state onto the live item: overview, track line and cover. With <paramref name="baseUrl"/>
-    /// null (polling disabled or the station unreachable) the item falls back to the default overview, no track
-    /// line and the logo.
+    /// Reconciles the live item with the current state: overview and cover. With <paramref name="baseUrl"/>
+    /// null (polling disabled or the station unreachable) the item falls back to the default overview and
+    /// the logo. Writes only what differs; most polls write nothing.
     /// </summary>
     private async Task UpdateLiveItemAsync(PluginConfiguration? config, Uri? baseUrl, CancellationToken cancellationToken)
     {
+        // The cover download (up to 8 s) happens before the item is read, so the item is held for milliseconds only.
+        var coverId = baseUrl is not null && config?.CoverArtEnabled == true ? _state.CoverId() : null;
+        PreparedArtwork? artwork = null;
+        try
+        {
+            artwork = await _artwork.PrepareAsync(baseUrl, coverId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
+        {
+            // The feed answered but the cover did not; the text still goes out and the cover is tried again next poll.
+            _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
+        }
+
         var channel = FindChannel(config);
         if (channel is null)
         {
@@ -275,29 +285,27 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             updateType |= ItemUpdateType.MetadataEdit;
         }
 
-        var trackLine = baseUrl is null ? null : _state.TrackLine();
-        if (!string.Equals(item.Album, trackLine, StringComparison.Ordinal))
+        if (artwork is not null)
         {
-            item.Album = trackLine;
-            updateType |= ItemUpdateType.MetadataEdit;
-        }
-
-        var coverId = baseUrl is not null && config?.CoverArtEnabled == true ? _state.CoverId() : null;
-        try
-        {
-            if (await _artwork.ApplyAsync(item, baseUrl, coverId, cancellationToken).ConfigureAwait(false))
+            try
             {
-                updateType |= ItemUpdateType.ImageUpdate;
-                _logger.LogInformation("Live item cover updated: {Cover}", _artwork.Applied);
-            }
+                if (await _artwork.ApplyAsync(item, artwork, cancellationToken).ConfigureAwait(false))
+                {
+                    updateType |= ItemUpdateType.ImageUpdate;
+                    _logger.LogInformation("Live item cover updated: {Cover}", _artwork.Applied);
+                }
 
-            _retryArtwork = false;
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
-        {
-            // The feed answered but the cover did not; keep the text and try the cover again next poll.
-            _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
-            _retryArtwork = true;
+                _artworkSaveFailed = false;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is not OperationCanceledException)
+            {
+                // Saving the file failed (metadata folder not writable, disk full). Keep the text update; log once per streak.
+                if (!_artworkSaveFailed)
+                {
+                    _logger.LogError(ex, "Saving the live item's cover failed; the item keeps its current image");
+                    _artworkSaveFailed = true;
+                }
+            }
         }
 
         if (updateType == ItemUpdateType.None)

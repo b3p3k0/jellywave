@@ -88,13 +88,21 @@ channel id and external id `live`) and writes:
 | Item field | Value | Why |
 |---|---|---|
 | `Overview` | the description line | Shown on the item's detail page and in list descriptions |
-| `Album` | the track line | jellyfin-web's playing bar shows `Album` as its first line when an audio item has no artists (`itemText.ts`), so playback starts with "Artist – Title" over the item name. No validator derives library entities from the string. |
 | Primary image | the track's cover (`GET /api/cover/{id}`) or the embedded logo | See below |
 
-All three go through one `ILibraryManager.UpdateItemAsync(..., MetadataEdit | ImageUpdate)`.
+Both go through one `ILibraryManager.UpdateItemAsync(..., MetadataEdit | ImageUpdate)`, and the
+poller reconciles the item on every successful poll (one cheap query, a write only when a
+field differs), so a re-save by Jellyfin's own channel refresh, which can overwrite the row
+from an older in-memory copy, is repaired on the next poll rather than the next track.
 Jellyfin does not raise the library-changed event for channel items, so nothing is pushed;
 clients show the new text and art on their next list load or playback start, and the
-playing bar keeps what it copied at playback start. The channel entity is looked up with a
+playing bar keeps what it copied at playback start.
+
+Not written, on purpose: `Album`. The playing bar would show it as its first line, but
+`Audio.GetUserDataKeys()` prefixes the item's user-data key with `Album`, and
+`UserDataManager.SaveUserData` writes one row per key and keeps rows under old keys, so a
+value that changes every track would leave an orphan user-data row per track and listener.
+`Name` and `AlbumArtists` are in the same key and are left alone for the same reason. The channel entity is looked up with a
 plain item query, not through the channel manager, because the latter creates channel
 entities on demand and the poller must not race Jellyfin's startup channel refresh.
 
@@ -105,9 +113,15 @@ file under the item's metadata folder, deletes the previous one, and stamps the 
 `DateModified`, which is what the client-facing image tag hashes, so clients refetch. The
 station answers 502 with an empty body when a track has no art; then, and when cover art is
 off, polling is off, or the station is unreachable, the logo is saved instead so the item
-never shows a blank. The image is at most 4 MB and must carry an `image/*` content type. A
-failed cover download (timeout) keeps the text update and is retried on the next poll. The
-tile in the My Media row is the channel's own image and always stays the logo.
+never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF (a missing content type
+counts as JPEG, the station's default) of at most 4 MB, judged from the headers before the
+body is read; anything else is "no art". The download happens before the item is looked up,
+so the item is held for milliseconds. A transport failure (timeout, a chunked body over the
+cap) keeps the text update and is retried on the next poll; a failure to write the file is
+logged once per streak and the text still goes out. Because the item's parent is a `Channel`,
+Jellyfin's `UpdateImagesAsync` takes its "live TV" branch and computes neither dimensions
+nor a blurhash for the image, so there is no blurred placeholder while it loads. The tile in
+the My Media row is the channel's own image and always stays the logo.
 
 `Artists` is never written. Setting it on an `Audio` item would make Jellyfin's artists
 validator create a Music-library artist for every track the station plays.

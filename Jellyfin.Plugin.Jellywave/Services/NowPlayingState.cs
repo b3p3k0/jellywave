@@ -194,7 +194,7 @@ public sealed class NowPlayingState
 
         var next = feed.Context?.ShowHandover?.NextShow;
         var nextName = Clean(next?.Name);
-        if (nextName.Length > 0)
+        if (nextName.Length > 0 && !string.Equals(nextName, show, StringComparison.OrdinalIgnoreCase))
         {
             var presenter = Clean(next?.Presenter);
             var startsAt = Clean(next?.StartsAt);

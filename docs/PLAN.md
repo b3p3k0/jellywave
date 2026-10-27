@@ -249,9 +249,9 @@ HI decisions 2026-10-27:
 7. **Richer live item.** Poller downloads the current cover (`/api/cover/{id}`) on track change and saves it
    as the live item's Primary; falls back to the embedded logo when the station has none (today the item
    has no image at all). Overview gains "Up next: show with presenter at time" from
-   `context.showHandover`. `Album` on the item is set to "Artist – Title" so the playing bar shows the
-   track at playback start (web `itemText`: Album is line 1 when Artists is empty; no validator derives
-   entities from the string). `Artists` stays untouched. Config: `CoverArtEnabled` (default on).
+   `context.showHandover`. **Dropped in review:** writing `Album` = "Artist – Title" for the playing bar,
+   because `Album` is part of `Audio.GetUserDataKeys()` and `SaveUserData` keeps a row per key, so every
+   track would leave orphan user-data rows. `Artists` stays untouched. Config: `CoverArtEnabled` (default on).
    Exit: on the test host, opening the tile shows the current cover and the longer line; after a track
    change and a list reload the cover changes; log shows one "cover updated" line per track, 0 errors
    over 30 min; a track without art shows the logo.

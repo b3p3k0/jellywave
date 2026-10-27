@@ -43,6 +43,11 @@ public class NowPlayingStateTests
         feed.Context.ShowHandover.NextShow.StartsAt = "  ";
         state.Update(feed, DateTime.UtcNow);
         Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville", state.Description());
+
+        // The station sometimes names the running show as "next"; that is noise.
+        feed.Context.ShowHandover.NextShow.Name = "early shift";
+        state.Update(feed, DateTime.UtcNow);
+        Assert.Equal("Now playing: A – B · Early Shift", state.Description());
     }
 
     [Fact]
