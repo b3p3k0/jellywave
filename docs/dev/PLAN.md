@@ -564,6 +564,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 15b. Access grant as a one-shot admin action (found in the 0.4.0.0 host test)
 
+**Accepted 2026-10-27** (4ec324b, 4828310, f77fa8a, 6efa974; review fixes 4589d57, 7f742e1). RA first pass: CHANGES REQUIRED (the dashboard's Add User form unticks all channels; a press re-adds users the admin unticked); fixed and re-checked: ACCEPT, 279/279 tests. Host check pending.
+
 Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the station on a user's Jellyfin Access page saw it re-added at once (`UserUpdatedConsumer` → `GrantAsync`, log 18:50:04 and 18:52:09); the startup pass would also re-add it after each restart. Blocker for v0.4.0.0. HI decision 2026-10-27: trade the always-on shortcut for stability ("I'm willing to trade that shortcut... if it makes the end product more stable"); MI recommendation adopted: one-shot admin action.
 
 - Remove the background writers: `AccessGrantService` (startup pass), `UserCreatedConsumer`, `UserUpdatedConsumer` and their registrations; remove the `GrantAccessToAllUsers` setting (an old saved value must load without error).
@@ -576,6 +578,8 @@ Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the
 **Then: merge to main, deploy to the host, and tag v0.4.0.0.**
 
 #### 17. Station data consistency (D2 server, D4, D5, D6) — v0.4.1.0
+
+- From the card 15b review: README/DESIGN note that saving a user's Access page clears any BlockedChannels entry (jellyfin-web `Access.tsx` posts `BlockedChannels = null`); `PolicyWriterDependencyTests` lists `IServiceProvider` as allowed only in `LiveItemFinder` (and `StationAccessAttribute` if it resolves services that way), so a new service locator is noticed.
 
 - Cleanup from card 15: `PollerHealth.SetNameCollision` and `PollerHealthSnapshot.NameCollision` are written by the poller but no longer read (Health resolves the collision live); remove them and their test.
 
