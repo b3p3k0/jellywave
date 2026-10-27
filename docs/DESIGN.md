@@ -277,7 +277,9 @@ The release workflow has two jobs. `build` (token `contents: read`, checkout wit
 credentials) restores packages, runs the analyzers, tests, `build.sh` and `check-manifest.sh`, and
 uploads the zip and `meta.json` as an artifact. `publish` (`contents: write`) downloads that
 artifact, creates or updates the GitHub release and writes the manifest entry, taking changelog,
-timestamp and `targetAbi` from the zip's own `meta.json`. No package restore or project code runs
-while the write token is present. `ci.yml` runs build, tests, `dotnet format --verify-no-changes`,
+timestamp and `targetAbi` from the zip's own `meta.json`. While the write token is present only
+`gh`, `jq` and main's `scripts/update-manifest.sh` run: no package restore, analyzer or build. The
+job then refuses to commit an entry whose `targetAbi` differs from the zip's (main's script predating
+the release), so tag only after the release's branch is merged. `ci.yml` runs build, tests, `dotnet format --verify-no-changes`,
 `node --check`, `bash -n` and `check-manifest.sh` on every push and pull request with a read-only
 token. Every action is pinned to a full commit SHA; `.github/dependabot.yml` proposes updates.

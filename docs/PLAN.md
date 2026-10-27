@@ -459,6 +459,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 12. ABI, release pipeline, CI (O1, S5, O13)
 
+**Accepted 2026-10-27** (ec952e7 plus review fixes in the acceptance commit). RA: no Blocker, nothing Required; folded in: the publish job refuses a manifest entry whose targetAbi differs from the zip's (Suggested 1), DESIGN/README wording (Nits). Deferred to Dependabot: moving the v4 action pins to current majors (Node 20 deprecation notice). CI run 40547909389 green. Still open until the v0.4.0.0 tag: the release path itself.
+
 - `build.yaml`: set `targetAbi: "12.3.0.0"`. Published manifest entries are not touched.
 - `scripts/check-manifest.sh`: assert that the Jellyfin.Controller and Jellyfin.Model package versions in **both** csproj files equal targetAbi's first three parts. It already reads build.yaml through `scripts/lib.sh`.
 - Test `AbiTests`: every `Jellyfin.*` and `MediaBrowser.*` entry in `typeof(Plugin).Assembly.GetReferencedAssemblies()` must have a version ≤ targetAbi. Read targetAbi with one anchored regex over the single-line `build.yaml`; that file's values are single-line by rule. This is the DLL-level check the reviewer asked for.

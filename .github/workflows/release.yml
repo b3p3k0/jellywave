@@ -98,6 +98,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           TARGET_ABI="$(jq -r .targetAbi "$META")" scripts/update-manifest.sh "$V" "$CHANGELOG" "$TIMESTAMP"
+          # main's update-manifest.sh runs here; if it predates TARGET_ABI (a tag released before its branch
+          # was merged) it would write main's targetAbi. Refuse an entry that does not describe this zip.
+          jq -e --arg v "$V" --arg abi "$(jq -r .targetAbi "$META")" \
+            'any(.[0].versions[]; .version == $v and .targetAbi == $abi)' manifest.json >/dev/null \
+            || { echo "manifest entry for $V does not carry the zip's targetAbi; merge the release's branch into main first" >&2; exit 1; }
           git add manifest.json
           git diff --cached --quiet && { echo "manifest already current"; exit 0; }
           git commit -m "chore: manifest for ${VERSION}"

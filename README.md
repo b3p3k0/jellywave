@@ -124,7 +124,8 @@ Requires the .NET 10 SDK, `jq`, and `zip`.
 The workflow fails on purpose if the tag version does not match `Directory.Build.props`. It runs as
 two jobs: `build` (tests, analyzers and packaging with a read-only token and no stored credentials)
 hands the zip to `publish`, the only job allowed to write to the repository. The `CI` workflow runs
-the same checks on every push and pull request. Actions are pinned to commit SHAs; Dependabot
+build, tests, formatting, `node --check`, `bash -n` and `check-manifest.sh` on every push and pull
+request. Actions are pinned to commit SHAs; Dependabot
 proposes updates.
 
 ## License
