@@ -207,9 +207,86 @@ Found during closeout: users need channel access (`EnableAllChannels` or the cha
 - Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit.
 - Save memory notes: the Agent Charter URL and response contract; host roles (the Jellyfin test host = Jellyfin 12.3 test server, user access + sudo password; the station host = SUB/WAVE, `kevin@<station-host>` works, `claude@<station-host>` needs `~/.ssh/claude_framework`).
 
+## Phase 2: live station page (decided 2026-10-27)
+
+HI's ideas: current track, artist, album, show, DJ and album art in Jellyfin, plus a box to use the
+station's listener-request feature. Research facts (2026-10-27, SUB/WAVE 1.28.0 source and Jellyfin 12.3
+source) that shape the cards:
+
+- Every Jellyfin client copies the playing item when playback starts and never re-reads it, so the
+  playing bar cannot change mid-stream whatever the server writes (`playbackmanager.js`
+  `getNowPlayingItemForReporting`; `nowPlayingBar.js` only re-reads user data). Live information
+  therefore lives on a custom page; standard clients get the state at the moment a list loads or
+  playback starts.
+- Channel items keep a remote image URL only when first created (`ChannelManager.GetChannelItemEntityAsync`
+  sets `ImageUrl` just when the item has no Primary), but a plugin can save a new Primary any time with
+  `IProviderManager.SaveImage(item, stream, mime, Primary, null, ct)` and persist with
+  `UpdateItemAsync(..., ItemUpdateType.ImageUpdate)`. The image tag is `MD5(item.Path + image.DateModified)`,
+  and `ImageSaver` sets `DateModified` from the new file, so clients refetch on the next list load.
+- SUB/WAVE: art is `GET /api/cover/{subsonic_id}` (public, 512 px, `Cache-Control` one day, **502 with an
+  empty body when there is no art**); DJ portrait `GET /api/persona-avatar/{id}` (1x1 PNG when unset);
+  requests `POST /api/request {text<=280, name?<=40}` -> 202 `{requestId}` then `GET /api/request/{id}`
+  for the outcome; refusals are 503 (disabled or autopilot), 429 with `Retry-After` (per-IP cooldown
+  60 s, 8 per hour per IP, 30 per hour global, one pending per IP); no login, no dedication field, no
+  listener-side library search. Schedule `GET /api/schedule`, next track and history in `GET /api/state`
+  (`upcoming[0]`, `history`), listeners in now-playing. No push channel; the station's own player polls
+  every 5 s. `X-Frame-Options SAMEORIGIN` from Caddy: the station page cannot be framed.
+- `privatePlayer` only locks the station's own web pages; `listenerAuth` needs `?auth=` on the stream
+  URL (a secret in plugin config: Hard Stop review when it comes).
+
+HI decisions 2026-10-27:
+
+| Decision | Choice |
+|---|---|
+| Station access from the page | Everything goes through plugin endpoints on the Jellyfin server (feed, cover, avatar, request). Lets HI close SUB/WAVE to the world later while Jellyfin users keep access. |
+| Request limits | Honour the station's own limits (all Jellyfin users share the server's per-IP budget) and explain them in our UI. No extra limiter in the plugin. |
+| Home carousel tile | Stays the station logo (consistent library images). The live item inside the library shows the current cover. |
+| Order | MI's call: card 7 first (every client benefits), then the page. |
+
+### Cards
+
+7. **Richer live item.** Poller downloads the current cover (`/api/cover/{id}`) on track change and saves it
+   as the live item's Primary; falls back to the embedded logo when the station has none (today the item
+   has no image at all). Overview gains "Up next: show with presenter at time" from
+   `context.showHandover`. `Album` on the item is set to "Artist – Title" so the playing bar shows the
+   track at playback start (web `itemText`: Album is line 1 when Artists is empty; no validator derives
+   entities from the string). `Artists` stays untouched. Config: `CoverArtEnabled` (default on).
+   Exit: on the test host, opening the tile shows the current cover and the longer line; after a track
+   change and a list reload the cover changes; log shows one "cover updated" line per track, 0 errors
+   over 30 min; a track without art shows the logo.
+8s. **Spike: page injection.** How a plugin puts a user-facing page and a top-bar entry into jellyfin-web
+   12.3 for signed-in non-admin users: File Transformation plugin (SeerrFin precedent) versus any native
+   hook. Output: a one-page decision in DESIGN.md and a throwaway proof on the test host. Exit: a
+   non-admin user reaches a "Hello" page from the top bar in web and in the Android app.
+8a. **Feed endpoints.** Signed-in-user (not admin) endpoints under `/Jellywave/`: `Feed` (now playing,
+   DJ, show, next show, listeners, up next, recent history, with the station's ids but never its URL),
+   `Cover/{id}` and `Avatar/{id}` (byte proxies with the station's cache headers, size-capped, id
+   validated `^[\w-]{1,64}$`), `Request` (POST, forwards text and name, returns the station's status
+   code and `Retry-After` verbatim), `Request/{id}` (status). Tests on the id validation and the
+   pass-through mapping.
+8b. **Station page.** Inside the Jellyfin web app (so the Android app gets it): cover, track, DJ with
+   portrait and tagline, show and what's next, listener count, recent tracks; play/stop drives
+   Jellyfin's own player on the live item so the bar, remote control and lock-screen controls keep
+   working; polls `Feed` every 5 s while visible.
+8c. **Requests.** Text box, optional name, submit, outcome from the status endpoint ("queued, position
+   3", "no match", "cooldown, try in 40 s"); helper text explains the shared budget.
+8d. **Small extras on the page** (after 8c, each its own `wip:`): like button (`/api/like`), today's
+   schedule strip (`/api/schedule`), lyrics when the station enables them.
+
+Also queued, not on the page: poller health on the config page (last successful poll, last error).
+
+### Risks
+
+| Item | Severity | Handling |
+|---|---|---|
+| No native user-page hook in jellyfin-web; File Transformation adds a second plugin for admins to install | Required to verify | Spike 8s before 8b; README documents the dependency if it stays. |
+| Shared request budget through the proxy | Accepted by HI | Helper text; HI can raise limits on the station side. |
+| Cover download every track adds a file write under the item's metadata folder | Nit | `ImageSaver` deletes the previous file; one write per ~3 min. |
+| `listenerAuth` mode needs a secret in config | Hard Stop later | Out of scope until HI closes the station. |
+
 ## Phase 2 candidates (not in this plan)
 
-- Custom in-Jellyfin station page (HI's pick): top-bar tab with a mini-player, cover, now playing, requests; likely via the File Transformation plugin as SeerrFin does. SUB/WAVE sends X-Frame-Options SAMEORIGIN, so no iframe; its API has CORS * so the page can read now-playing directly.
+- ~~Custom in-Jellyfin station page~~ (planned above as phase 2, cards 7–8d).
 - ~~Plugin-side "make visible to all users" control, and a hook for newly created users~~ (shipped as wave 2, card 6).
 - Plugin-hosted byte-for-byte stream proxy endpoint (keeps ICY, avoids ffmpeg).
 - Multi-station support (SUB/WAVE profiles) as multiple channels.
