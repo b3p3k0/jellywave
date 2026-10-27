@@ -499,6 +499,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 14. Outbound hardening (S3, S4, S6)
 
+**Accepted 2026-10-27** (91ff06f, 8d9e17c, f5e03e6; review follow-ups 6c69545, bd5c0c2). RA: ACCEPT, no Blocker or Required; folded in: a refused saved station URL is reported as "set but not allowed: <reason>", redirect suggestions only for acceptable addresses, the authority check documented as load-bearing, animation risk widened to APNG and WebP, a test race. 245/245 tests. Host check pending: an admin probe of a redirecting URL.
+
 - `PluginServiceRegistrator`: register the named client `Jellywave` with `SocketsHttpHandler { AllowAutoRedirect = false, AutomaticDecompression = All }` and a User-Agent header. If `AddHttpClient` does not compile with the current references, add `Microsoft.Extensions.Http` with `ExcludeAssets runtime`.
 - `StationClient`: every call goes through one private `CreateClient()` helper. That also removes the six copies of the timeout and buffer setup.
 - A 3xx is never followed:
