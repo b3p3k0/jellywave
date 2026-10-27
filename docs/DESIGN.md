@@ -150,7 +150,7 @@ nothing, so there is no loop). Each user is re-read by id immediately before it 
 the setting off stops future passes and revokes nothing. One Information line per pass carries
 counts, never user names.
 
-## Station page (optional, cards 8s–8c)
+## Station page (optional, cards 8s–9)
 
 jellyfin-web has no hook for a plugin page that non-admin users can reach: plugin pages, the
 `configurationpage` route and `EnableInMainMenu` all live behind the admin dashboard, the
@@ -217,7 +217,17 @@ Extras (card 8d), each a signed-in endpoint on `JellywaveWebController` and a bl
 | Up next, recently played | the poller also fetches `/api/state` each cycle; `Feed` carries `UpNext` and up to 8 `Recent` lines ("· requested by X") | one line and a collapsible list |
 | Like | `GET`/`POST /Jellywave/Like` map the station's `/api/like` (403 off, 409 track ended, 429 too fast) into `LikeOutcome` | heart with the count, per track |
 | Lyrics | `GET /Jellywave/Lyrics?songId=` maps `/api/lyrics/current` (403 off, 401 private station, 409 ended, 503 music server) into `ok/none/pending/off/unavailable/ended`; shown only when `state.lyrics.enabled` | collapsible panel, one fetch per track while open, plain lines (no timing-based highlight: the stream's buffering makes a client-side clock unreliable) |
-| Today's programme | `GET /Jellywave/Schedule`: `ScheduleCache` holds `/api/schedule` for five minutes (stale on failure) and `BuildToday` turns the Sunday-first weekly grid into today's blocks in the station's time zone with the current one marked (unit-tested, falls back to UTC on an unknown zone) | collapsible panel with hour ranges, show and host |
+| Today's programme | `GET /Jellywave/Schedule`: `ScheduleCache` holds `/api/schedule` for five minutes (stale on failure, retried after one minute) and `BuildToday` turns the Sunday-first weekly grid into today's blocks in the station's time zone with the current one marked (unit-tested, falls back to UTC on an unknown zone) | collapsible panel with hour ranges, show and host; refetched every five minutes while open so the current block moves |
+
+Layout (card 9, HI's option A, "fill the width"): the header is a CSS grid with four named areas,
+`cover | body | request` on the first row and `panels` spanning the second, and each direct child
+(cover, body, the request form, the panels block) is pinned to its area, so the markup order does not
+matter. The columns are `11em`, `minmax(0, 1fr)` and `minmax(16em, 24em)`; the panels block is its
+own `repeat(auto-fit, minmax(16em, 1fr))` grid, so Recently played, Today on the station and Lyrics
+share a row when there is room. Two breakpoints only re-map the areas: at 60em the request box
+drops under cover and body (`"cover body" "request request" "panels panels"`), at 40em everything
+stacks and the cover becomes a full-width square. Inside the form the text field spans both of its
+columns and the name and Send sit on one row (`minmax(0, 1fr) auto`).
 
 Known limits: the DOM selectors (`.itemsContainer[data-parentid]`, `.nowPlayingBar`, `.card`) are
 jellyfin-web internals and can move between releases; the page degrades to "nothing happens"
