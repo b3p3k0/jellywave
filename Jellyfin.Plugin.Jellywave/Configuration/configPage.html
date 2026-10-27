@@ -24,7 +24,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
                             <input id="StationName" name="StationName" type="text" is="emby-input" required />
-                            <div class="fieldDescription">Shown in My Media. Renaming creates a new channel entry; the old one is cleaned up by the "Refresh Internet Channels" task.</div>
+                            <div class="fieldDescription">Shown in My Media. Jellyfin derives the channel id from this name, so pick one no other channel plugin uses. Renaming creates a new channel entry: access granted to the old one does not carry over, and the old one is cleaned up by the "Refresh Internet Channels" task.</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationTagline">Description</label>
@@ -75,7 +75,7 @@
                                 <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
                                 <span>Show the current track on the live item</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description, and the track as its album line. Clients show it when they reload the list or start playback.</div>
+                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description. Clients show it when they reload the list or start playback; the playing bar keeps what it copied at playback start unless the station page below is active.</div>
                         </div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -119,8 +119,9 @@
                         <h2 class="sectionTitle">Station page</h2>
                         <div class="fieldDescription">
                             Optional. With the <a is="emby-linkbutton" class="button-link" href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener noreferrer">File Transformation</a>
-                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), every signed-in user gets a station entry in the
-                            web client's menu, Android app included: cover, track, DJ, show, what is next, play and stop. Without it the tile keeps working; only the page is missing.
+                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), users who can see the channel get a live header on the
+                            channel's page in the web client, Android app included: cover, track, DJ, show, what is next, play and stop, and a request box. Without it the tile keeps working; only the page is missing.
+                            As of 2026-10-27 that repository offers no File Transformation build to Jellyfin 12.3 servers (its newest entry targets 12.2), so it does not show in the catalog here.
                         </div>
                         <div class="fieldDescription" id="webUiStatus">Checking…</div>
                     </div>
