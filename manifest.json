@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",
     "versions": [
       {
+        "version": "0.3.1.0",
+        "changelog": "Station page extras: DJ portrait, up next, recently played, like button, today's programme, lyrics panel when the station enables them.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.3.1.0/Jellywave_0.3.1.0.zip",
+        "checksum": "0D61C7F66D3064A9F073F535A5EFB0EC",
+        "timestamp": "2026-10-27T16:07:38.0000000Z"
+      },
+      {
         "version": "0.3.0.0",
         "changelog": "Cover art and what is up next on the live item; optional station page (needs the File Transformation plugin) with live track, DJ, show, requests, and a playing bar that follows the track.",
         "targetAbi": "12.0.0.0",
