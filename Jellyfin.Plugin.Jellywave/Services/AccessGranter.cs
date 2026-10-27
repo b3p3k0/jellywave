@@ -15,15 +15,17 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// <see cref="PreferenceKind.EnabledChannels"/> preference. That is the only policy field ever written:
 /// <see cref="PermissionKind.EnableAllChannels"/> is never set, other channels are never added or removed,
 /// and <see cref="PreferenceKind.BlockedChannels"/> is respected (an explicit block wins).
-/// Each user is re-read immediately before it is written, so a pass never saves a stale copy over a
-/// concurrent edit.
+/// One gate serializes every pass (startup, the admin endpoint, the user created and updated events), and each
+/// user is re-read under it immediately before it is written, so the plugin never saves a stale copy over its own
+/// concurrent write. A dashboard save between that read and the write can still be lost; accepted (DESIGN.md).
 /// </summary>
-public sealed class AccessGranter
+public sealed class AccessGranter : IDisposable
 {
     private readonly IUserStore _users;
     private readonly IChannelLocator _channels;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly ILogger<AccessGranter> _logger;
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _missingChannelLogged;
 
     /// <summary>
@@ -120,6 +122,42 @@ public sealed class AccessGranter
     /// </returns>
     public async Task<GrantResult> GrantAllAsync(CancellationToken cancellationToken)
     {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GrantAllUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Grants access to one user (created or updated hooks), when the setting is on. The user is re-read by id under
+    /// the gate, after any pass that was running has saved.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>True when a grant was written.</returns>
+    public async Task<bool> GrantAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GrantUnderGateAsync(userId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _gate.Dispose();
+
+    private async Task<GrantResult> GrantAllUnderGateAsync(CancellationToken cancellationToken)
+    {
         var (channelId, collides) = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
         if (collides)
         {
@@ -167,13 +205,7 @@ public sealed class AccessGranter
         return result;
     }
 
-    /// <summary>
-    /// Grants access to one user (created or updated hooks), when the setting is on. The user is re-read by id.
-    /// </summary>
-    /// <param name="userId">The user id.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>True when a grant was written.</returns>
-    public async Task<bool> GrantAsync(Guid userId, CancellationToken cancellationToken)
+    private async Task<bool> GrantUnderGateAsync(Guid userId, CancellationToken cancellationToken)
     {
         var (channelId, _) = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
         if (channelId is null)
