@@ -180,7 +180,9 @@ property name and takes the returned string.
   injected code to drive Jellyfin's player.
 
 `JellywaveWebController` serves the two assets anonymously (they are part of the page load, before
-sign-in; ETag and a day of caching keyed on the assembly version), `GET /Jellywave/Feed` to users
+sign-in; ETag and a day of caching keyed on a content hash, the first 12 hex characters of a SHA-256
+over the embedded `ui.js` and `ui.css`, used for the `?v=` query too, so a changed script reaches
+browsers even while the plugin version stays the same), `GET /Jellywave/Feed` to users
 who can see the channel (see "Station route authorization"; the poller's last feed reduced to display fields plus the channel id, the live
 item id and its image tag; never the station URL), `POST /Jellywave/Request` and
 `GET /Jellywave/Request/{id}` for listener requests, and `GET /Jellywave/WebUi` (admin) for the

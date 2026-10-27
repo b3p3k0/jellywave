@@ -31,8 +31,6 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 [Route("Jellywave")]
 public class JellywaveWebController : ControllerBase
 {
-    private const string ScriptResource = "Jellyfin.Plugin.Jellywave.Web.ui.js";
-    private const string StyleResource = "Jellyfin.Plugin.Jellywave.Web.ui.css";
     private const int MaxRequestText = 280;
     private const int MaxRequestName = 40;
     private const int MaxRecent = 8;
@@ -93,7 +91,7 @@ public class JellywaveWebController : ControllerBase
     [HttpGet("ui.js")]
     [AllowAnonymous]
     [Produces("text/javascript")]
-    public IActionResult Script() => Asset(ScriptResource, "text/javascript");
+    public IActionResult Script() => Asset(WebUiTransforms.ScriptResource, "text/javascript");
 
     /// <summary>
     /// The injected stylesheet.
@@ -102,7 +100,7 @@ public class JellywaveWebController : ControllerBase
     [HttpGet("ui.css")]
     [AllowAnonymous]
     [Produces("text/css")]
-    public IActionResult Style() => Asset(StyleResource, "text/css");
+    public IActionResult Style() => Asset(WebUiTransforms.StyleResource, "text/css");
 
     /// <summary>
     /// What is on air, for the station page (users who can see the channel).
