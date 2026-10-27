@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",
     "versions": [
       {
+        "version": "0.4.2.0",
+        "changelog": "Station page: signing out, or signing in as another user or on another server, clears what the page showed before; a station that becomes unavailable to you (access removed, channel renamed) takes its header and drawer link away; the like button no longer sends the previous track's like after a track change; the page does less work on every screen change in the web client.",
+        "targetAbi": "12.3.0.0",
+        "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.4.2.0/Jellywave_0.4.2.0.zip",
+        "checksum": "7297A82375AD996080B7E55925760BBE",
+        "timestamp": "2026-10-27T20:30:11.0000000Z"
+      },
+      {
         "version": "0.4.1.0",
         "changelog": "Changing the station URL no longer mixes the old station's schedule, recent tracks or cover art into the new one; a track without cover art is rechecked every 30 minutes instead of on every poll; an empty now-playing answer from the station counts as a failure and the tile falls back to its default text; a schedule with a repeated show or host id, or a station list with an empty entry, no longer breaks the station page.",
         "targetAbi": "12.3.0.0",
