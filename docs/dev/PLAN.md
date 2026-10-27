@@ -545,7 +545,7 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 #### 16. Docs and repo hygiene (O14, T1, T4 docs, HI decision on the packet)
 
 - Move `docs/PLAN.md` and `docs/LESSONS_LEARNED.md` to `docs/dev/` with `git mv`. Grep every reference and update it: CLAUDE.md, README, DESIGN and the scripts.
-- Remove the host-access notes from PLAN.md (the admin-rights note, SSH user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
+- Remove the host-access notes from PLAN.md (the admin-rights note, remote-login user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
 - README:
   - A support matrix: Jellyfin 12.3.x; File Transformation 3.0.x works when installed, but its catalog does not offer it to 12.3 servers as of 2026-10-27 (upstream issue #87). No 12.0–12.2.
   - The playing bar line: standard clients do not update mid-track; the station page does.

@@ -100,9 +100,10 @@ carry the server-side URL so ffmpeg still has a usable input if a client falls b
 transcoding. The web client's universal audio endpoint redirects the browser straight to
 `Path` in this mode.
 
-In both modes the station URLs are part of the live item's playback info, which Jellyfin hands to
-any caller allowed to play the item (in Direct mode the client then fetches the URL itself). The
-plugin's own station routes never return it. SUB/WAVE streams are public by design; the plugin does
+In both modes the station URLs are part of the live item's playback info, which Jellyfin's
+`Items/{id}/PlaybackInfo` returns to any signed-in user who can see the item (for a channel item that
+includes `Channel.IsVisible`) and to any API key; no playback permission is checked. In Direct mode
+the client then fetches the URL itself. The plugin's own station routes never return it. SUB/WAVE streams are public by design; the plugin does
 not support listener auth.
 
 ## Why the media source advertises a runtime
@@ -263,7 +264,8 @@ The script (`Web/ui.js`) does three things:
    the feed. `playbackManager.currentItem(player)` throws when no player exists, so the script asks
    `getCurrentPlayer()` first and guards each step.
 3. **Requests.** The form posts text and a free-text name (prefilled with the Jellyfin user name;
-   the listener can change it, and the plugin passes it on unchanged apart from a 40-character cut) to the
+   the listener can change it; the plugin collapses its whitespace, cuts it at 40 characters and
+   otherwise passes it on unchanged) to the
    plugin, which forwards them to the station's `POST /api/request` and maps the receipt (202) or
    the refusal (400, 429 with `retryAfter`, 503) into one outcome object; the page then polls
    `GET /Jellywave/Request/{id}` every three seconds until the station resolves it and shows the
@@ -343,8 +345,9 @@ says "You don't have access to this station." instead of a connection error.
 
 ## Outbound requests (card 14)
 
-Every request to the station goes through `StationClient`, and every `StationClient` call goes
-through one private `CreateClient`, which asks for the plugin's own named client `Jellywave` and
+Every request the plugin itself makes to the station (feed, state, schedule, likes, requests,
+lyrics, images) goes through `StationClient`, and every `StationClient` call goes through one
+private `CreateClient`, which asks for the plugin's own named client `Jellywave` and
 sets the 8 s budget and the body cap (256 KB for JSON, 4 MB for images).
 
 **Own client, redirects refused.** Jellyfin's `NamedClient.Default` keeps `SocketsHttpHandler`'s
@@ -356,7 +359,12 @@ the zip stays the DLL, `meta.json` and `thumb.png`. Jellyfin's own clients also 
 `ConnectCallback` (`HttpClientExtension.OnConnect`, which honours the server's IPv6 setting); it lives
 in a server assembly the plugin does not reference, so the plugin uses the default connect. The
 station is a LAN host; a name that resolves to an unreachable IPv6 address first costs part of the
-8 s budget before IPv4 is tried. A 3xx is the station's answer, not a hop:
+8 s budget before IPv4 is tried. A 3xx is the station's answer, not a hop, for those requests. The stream is not one of them: in
+Relay mode Jellyfin's ffmpeg fetches it and in Direct mode the client does, so neither goes through
+this client, and ffmpeg's http input probably follows a redirect (untested). That is an accepted risk
+(see `THREAT-MODEL.md`).
+
+For the plugin's own requests:
 
 - JSON reads (now playing, state, schedule) throw `StationRedirectException`, an
   `HttpRequestException` with the status and the resolved `Location`, so every existing failure path

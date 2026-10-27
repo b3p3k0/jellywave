@@ -1,6 +1,6 @@
 # Jellywave threat model
 
-Status: 2026-10-27, describes plugin version 0.4.0.0 (branch `wave3-hardening`, cards 1–15).
+Status: 2026-10-27, describes plugin version 0.4.0.0 (cards 1–15).
 Written from the code and [`DESIGN.md`](DESIGN.md); where this file and the code disagree, the code
 wins and this file is wrong.
 
@@ -31,9 +31,10 @@ This file says which ones, what holds them, and what is left open on purpose.
    validated, so a mistake fails closed: a base URL with userinfo, a query or a fragment is refused
    and the station is treated as not configured.
 2. **Station responses are untrusted data.** The station is admin-chosen but its answers are not
-   trusted:
+   trusted. These controls cover the plugin's own requests (feed, state, schedule, likes, requests,
+   lyrics, images), not the audio stream, which ffmpeg (Relay) or the client (Direct) fetches:
    - Bodies are bounded: 256 KB for JSON, 4 MB for images, 8 s per call, body included.
-   - Redirects are never followed. The plugin's own named HTTP client has `AllowAutoRedirect = false`;
+   - The plugin follows no redirect on its own requests. Its named HTTP client has `AllowAutoRedirect = false`;
      a 3xx is the answer, mapped to a failure or "no art".
    - Images are sniffed. The type comes from magic bytes (JPEG, PNG, GIF, WebP), the size from the
      header (at most 4096 px a side, 16 777 216 px area); anything else is "no art". The declared
@@ -50,9 +51,10 @@ This file says which ones, what holds them, and what is left open on purpose.
    neither anonymous, admin-only nor filtered.
 4. **API keys are refused on station routes.** Jellyfin's default policy lets any API key through;
    the filter answers 403 unless the `Jellyfin-IsApiKey` claim is present and parses as false.
-5. **The browser page renders station text with `textContent`.** The header's markup is a fixed
+5. **The browser page renders station text with `textContent` or `innerText`.** The header's markup is a fixed
    string; every station-supplied value (track, DJ, tagline, show, recent tracks, lyrics, schedule,
-   request outcomes) goes in through `textContent` or a created element's `textContent`. Images are
+   request outcomes, the playing bar's lines) goes in through `textContent`, a created element's
+   `textContent`, or `innerText` (the playing bar); all three are text, never markup. Images are
    Jellyfin image URLs built from the item id and tag, or a blob URL of the portrait fetched with
    the session. The page talks only to the Jellyfin server, never to the station.
 6. **The anonymous assets are static.** `ui.js` and `ui.css` are embedded in the DLL and served
@@ -69,7 +71,7 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Access grant writes only this channel's id into `EnabledChannels`, never sets `EnableAllChannels`, leaves block lists alone, logs counts and never user names; manual trigger is admin-only | 6 |
 | `Album`, `Name` and `AlbumArtists` never written (no orphan user-data rows); cover id validated; 4 MB image cap with headers judged first | 7 |
 | Station routes never return the station URL; the page talks only to Jellyfin; request text capped at 280, name cut at 40 | 8a, 8c |
-| Station text rendered with `textContent`; the header markup is a fixed string | 8b, 8d |
+| Station text rendered with `textContent` or `innerText`; the header markup is a fixed string | 8b, 8d |
 | Persona and song ids validated before they reach a station URL; portrait fetched with the session, not `?api_key=` | 8d |
 | `targetAbi` matches the packages the DLL is built against (check script and test) | 12 |
 | Release: read-only build job, separate publish job holding the only write token, actions pinned by SHA, Dependabot, CI on every push and pull request | 12 |
@@ -88,8 +90,9 @@ This file says which ones, what holds them, and what is left open on purpose.
 |---|---|
 | Shared station identity and request budget | The station sees the server as one caller; one user can use up everyone's requests. HI chose the station's own limits over a plugin limiter; the page explains it. |
 | Free-text DJ name | A listener can type any name the DJ will see. The real user id is kept in the receipt and the log line, so abuse can be traced. |
+| Stream fetch outside the redirect control | In Relay mode Jellyfin's ffmpeg fetches the stream, in Direct mode the client does; neither uses the plugin's client. A station that redirects its stream can point ffmpeg at another host (ffmpeg's http input probably follows 3xx; untested). The plugin cannot change how Jellyfin invokes ffmpeg, and the admin chooses the station. |
 | Plain-HTTP station URL | The station normally runs on plain HTTP on the LAN; refusing it would break the common install. |
-| Station URL disclosed to clients | The stream URL is in Jellyfin's playback info in both modes, and in Direct mode clients fetch it themselves. SUB/WAVE streams are public; listener auth is not supported. |
+| Station URL disclosed to clients | The stream URL is in the live item's playback info in both modes, which `Items/{id}/PlaybackInfo` returns to any signed-in user who can see the item (`Channel.IsVisible` included) and to any API key; in Direct mode clients fetch it themselves. SUB/WAVE streams are public; listener auth is not supported. |
 | Name-derived channel id | Jellyfin's plugin API has no other channel identity. A collision fails closed; renaming changes the id, so grants and block lists naming the old id stop applying. |
 | User-save window against dashboard saves | A dashboard policy save that lands between the plugin's read and save (milliseconds) is overwritten; `IUserManager` has no partial update. The admin sees the old value on reload. |
 | Live-item whole-row write racing Jellyfin's channel refresh | Jellyfin has no partial item update. Narrowed: the cover is downloaded first, then the item is looked up and written; every poll reconciles the item. |

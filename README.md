@@ -7,8 +7,8 @@ your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
 Jellyfin shows beside your libraries and Live TV on every client. Open it,
 press play, hear the station.
 
-Status: 0.4.0.0 on the way (the security and integrity hardening of wave 3); the latest release is
-v0.3.4.0. Stream tile, now playing, cover art, optional visibility for every user, and the optional
+Status: 0.4.0.0 (the security and integrity hardening of wave 3) requires Jellyfin 12.3; 0.3.4.0 and
+older claimed 12.0. Stream tile, now playing, cover art, optional visibility for every user, and the optional
 station page with its extras. [`docs/DESIGN.md`](docs/DESIGN.md) explains how it works,
 [`SECURITY.md`](SECURITY.md) how to report a vulnerability, and
 [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) what the plugin trusts. The plan and lessons for
@@ -18,8 +18,9 @@ contributors live in [`docs/dev/`](docs/dev/PLAN.md).
 
 | Component | Status | Notes |
 |---|---|---|
-| Jellyfin 12.3.x | supported | `targetAbi` is 12.3.0.0 from 0.4.0.0 on. Servers on 12.0–12.2 are not offered 0.4.0.0 or later |
-| [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) 3.0.x | optional; needed only for the station page | Works when installed: tested with 3.0.0.0 on Jellyfin 12.3. As of 2026-10-27 its catalog offers nothing to 12.3 servers (the newest catalog entry targets 12.2.0.0), so a fresh 12.3 server cannot get it from the catalog. Upstream: [issue #87](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/issues/87), [releases](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases). Installing a release zip by hand is untested here |
+| Jellyfin 12.3.x | supported | `targetAbi` is 12.3.0.0 from 0.4.0.0 on |
+| Jellyfin 12.0–12.2 | not supported | The catalog still offers these servers 0.3.4.0, which gets no fixes |
+| [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) 3.0.x | optional; needed only for the station page | Works when installed: tested with 3.0.0.0 on Jellyfin 12.3. As of 2026-10-27 its catalog offers nothing to 12.3 servers (the newest catalog entry targets 12.2.0.0), so a fresh 12.3 server cannot get it from the catalog: with a 12.3 user agent the catalog returns an empty list for every plugin. Upstream: [issue #87](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/issues/87) (filed for 12.2; 12.3 is reported in its comments), [releases](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases). Installing a release zip by hand is untested here |
 | Clients | see [Tested on](#tested-on) | Web and the Android app tested; the rest untested |
 
 ## How it works, and what users can see
@@ -29,8 +30,8 @@ contributors live in [`docs/dev/`](docs/dev/PLAN.md).
   "Allow audio playback that requires transcoding" permission (on by default).
 - **Direct**: clients fetch the stream URL themselves. Every client must reach the
   station host, or the URL you put in *Client stream URL*.
-- In both modes the station URL you configure is visible to any signed-in user
-  who opens the item (it is part of Jellyfin's playback info). SUB/WAVE streams
+- In both modes the station URL you configure is part of the live item's playback info, which
+  Jellyfin returns to any signed-in user who can see the channel and to any API key. SUB/WAVE streams
   are public by design, so this is a hostname disclosure, not a credential one.
   Do not point the plugin at a private station until listener auth is supported.
 - Jellyfin shows a channel only to users whose policy allows all channels or lists this one
@@ -65,8 +66,9 @@ Dashboard → Plugins → Jellywave.
 
 The station base URL must not contain credentials (`user:password@`), a query (`?…`) or a
 fragment (`#…`). Such a value is not used: the plugin treats the station as not configured. The plugin page warns "station URL is set but not allowed",
-with the reason, on load and after saving. The plugin never follows a redirect from the
-station. If the URL redirects (for example http to https, or to a new host), "Fetch from station"
+with the reason, on load and after saving. The plugin's own requests to the station never follow
+a redirect (the audio stream is fetched by ffmpeg or the client, see
+[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md)). If the URL redirects (for example http to https, or to a new host), "Fetch from station"
 says "the station redirected to …; use that address instead". Enter that address. Plain `http://`
 is fine. A *Client stream URL* must not contain credentials either; it may name any host.
 
@@ -141,7 +143,8 @@ is shared by everyone on it.
   be about someone else's request. The page says so under the box. The plugin adds no limiter of
   its own.
 - **The name is free text.** It is prefilled with the Jellyfin user name, but the listener can type
-  anything; the plugin cuts it at 40 characters and passes it to the station's DJ unchanged.
+  anything; the plugin collapses its whitespace, cuts it at 40 characters and passes it to the
+  station's DJ otherwise unchanged.
   Nothing checks it against the Jellyfin account.
 - **The server knows who sent it.** Jellyfin keeps the real user id with each accepted request: in
   the receipt that lets only that user follow the request, and in one Information log line (request
