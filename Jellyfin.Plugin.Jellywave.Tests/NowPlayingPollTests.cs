@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -42,6 +43,8 @@ public class NowPlayingPollTests
             [HostA] = """{"history":[{"artist":"Old","title":"From A"}],"upcoming":[{"artist":"Next","title":"From A"}]}"""
         };
 
+        public HashSet<string> Art { get; } = new();
+
         public List<string> Seen { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -49,6 +52,12 @@ public class NowPlayingPollTests
             var host = request.RequestUri!.Host;
             var path = request.RequestUri.AbsolutePath;
             Seen.Add(host + path);
+            if (Art.Contains(host + path))
+            {
+                var image = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(ImageFixtures.For("image/jpeg")) };
+                image.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                return Task.FromResult(image);
+            }
             var body = path switch
             {
                 "/api/now-playing" => NowPlaying.GetValueOrDefault(host),
@@ -108,10 +117,13 @@ public class NowPlayingPollTests
 
         public NowPlayingService Poller { get; }
 
+        public List<string> ImagesSaved { get; } = new();
+
         public Task PollAsync() => Poller.PollOnceAsync(CancellationToken.None);
 
-        private static Task SaveImageAsync(BaseItem item, Stream stream, string mime, CancellationToken cancellationToken)
+        private Task SaveImageAsync(BaseItem item, Stream stream, string mime, CancellationToken cancellationToken)
         {
+            ImagesSaved.Add(mime);
             item.SetImagePath(ImageType.Primary, "http://saved.example/" + Guid.NewGuid().ToString("N"));
             return Task.CompletedTask;
         }
@@ -151,5 +163,33 @@ public class NowPlayingPollTests
         await server.PollAsync();
 
         Assert.Equal("From A", server.State.StationState()?.History?[0].Title);
+    }
+
+    [Fact]
+    public async Task A_track_without_art_costs_one_cover_request_across_polls()
+    {
+        var server = new Server();
+        for (var poll = 0; poll < 5; poll++)
+        {
+            await server.PollAsync();
+        }
+
+        Assert.Single(server.Stations.Seen, r => r == HostA + "/api/cover/cov1");
+        Assert.Equal(new[] { "image/png" }, server.ImagesSaved);
+    }
+
+    [Fact]
+    public async Task After_a_station_switch_the_same_cover_id_is_fetched_from_the_new_station()
+    {
+        var server = new Server();
+        server.Stations.Art.Add(HostA + "/api/cover/cov1");
+        server.Stations.Art.Add(HostB + "/api/cover/cov1");
+        await server.PollAsync();
+        server.Config.StationBaseUrl = "http://" + HostB;
+
+        await server.PollAsync();
+
+        Assert.Contains(HostB + "/api/cover/cov1", server.Stations.Seen);
+        Assert.Equal(new[] { "image/jpeg", "image/jpeg" }, server.ImagesSaved);
     }
 }
