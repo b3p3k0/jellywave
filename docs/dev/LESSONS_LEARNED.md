@@ -143,3 +143,14 @@ An external review of v0.3.4.0 (main de8d8dd) found that the trust model had not
 - A lock around a call into the host needs the host's re-entry paths checked: the grant gate wraps `IUserStore.SaveAsync`, and Jellyfin's `UpdatePolicyAsync` publishes `UserUpdated`, whose consumer calls `GrantAsync` inline. It is safe only because the plugin saves with `UpdateUserAsync`, which publishes nothing; that is now written on the interface, because nothing else would stop a future change from deadlocking every user save.
 - A status shown to an admin should be read when it is asked for, not copied from the last background pass: the collision line followed the poller and lagged a poll interval after a rename until Health resolved it live.
 - A verification script that picks "the first one" proves nothing about yours: verify-jellyfin.sh now selects the channel by exact name and fails when it is missing, duplicated (Jellyfin lists a shared entity once per provider), absent from the user's views, or without an audio item. A stub `curl` on PATH let the RA exercise it without a server.
+
+## Card 16: docs and repo hygiene (283f1d5..48a1272; review fixes 1b0406a)
+
+- A threat model has to name the boundary of each control, not just the control: "redirects are never followed" was true only for the plugin's own requests, while the stream itself is fetched by Jellyfin's ffmpeg (Relay) or the client (Direct). State where a control stops and list what lies beyond it as an accepted risk.
+- Check upstream claims you cite: the File Transformation issue is filed for 12.2, with 12.3 reported in its comments, and a 12.3 user agent gets an empty catalog for every plugin, not just one. Cite it as related, with the date.
+- A pointer to a reporting channel is a promise: SECURITY.md names GitHub private vulnerability reporting, which is off until HI enables it, so the merge waits for that switch.
+
+## Host test of 0.4.0.0 (2026-10-27): the card 6 grant overrode the admin
+
+- With "make the station visible to every user" on, an admin who unticked the station on a user's Jellyfin Access page saw it come straight back: Jellyfin publishes `UserUpdated` from the policy save and the plugin's consumer re-granted within milliseconds (the startup pass would also have re-granted after every restart). Card 13's route check was correct; it was handed a user the plugin had just re-granted. A background writer of someone else's policy must never be able to undo that owner's explicit choice; card 6 only tested granting, never an admin taking access away again. HI chose stability over the shortcut: the grant becomes a one-shot admin button (card 15b), and Jellyfin's own Channel Access setting is the only ongoing authority.
+- Jellyfin's "Channel Access" and "Enable access to all channels" headings on the user Access page are jellyfin-web's own strings (`HeaderChannelAccess`, `OptionEnableAccessToAllChannels`), not the plugin's; a plugin cannot rename them.

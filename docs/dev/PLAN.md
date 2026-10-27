@@ -544,6 +544,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 16. Docs and repo hygiene (O14, T1, T4 docs, HI decision on the packet)
 
+**Accepted 2026-10-27** (283f1d5, 61410bd, c1b4ad3, bf87822, 83d94d9, 48a1272; review fixes 1b0406a). RA: first pass CHANGES REQUIRED (PlaybackInfo wording, redirect control scoped to the plugin's own requests with the stream fetch as an accepted risk, one grep hit); fixes re-checked: ACCEPT. Condition before merge: HI enables private vulnerability reporting (SECURITY.md relies on it).
+
 - Move `docs/PLAN.md` and `docs/LESSONS_LEARNED.md` to `docs/dev/` with `git mv`. Grep every reference and update it: CLAUDE.md, README, DESIGN and the scripts.
 - Remove the host-access notes from PLAN.md (the admin-rights note, remote-login user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
 - README:
@@ -559,6 +561,17 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 - DESIGN.md: a consistency pass over cards 12–15. Each card has already closed its own section.
 - Exit: the docs match the code, a grep for host-access strings comes back empty, and the links resolve.
 - Changelog must mention: station URLs with credentials, a query or a fragment are refused (card 14).
+
+#### 15b. Access grant as a one-shot admin action (found in the 0.4.0.0 host test)
+
+Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the station on a user's Jellyfin Access page saw it re-added at once (`UserUpdatedConsumer` → `GrantAsync`, log 18:50:04 and 18:52:09); the startup pass would also re-add it after each restart. Blocker for v0.4.0.0. HI decision 2026-10-27: trade the always-on shortcut for stability ("I'm willing to trade that shortcut... if it makes the end product more stable"); MI recommendation adopted: one-shot admin action.
+
+- Remove the background writers: `AccessGrantService` (startup pass), `UserCreatedConsumer`, `UserUpdatedConsumer` and their registrations; remove the `GrantAccessToAllUsers` setting (an old saved value must load without error).
+- Keep `AccessGranter.GrantAllAsync` (with card 15's gate, collision check and block-list rule) behind the existing admin-only `POST /Jellywave/GrantAccess`, now triggered only by a button on the plugin page: "Add the station to every user now", showing granted / already visible / blocked counts. It never removes access and never sets EnableAllChannels.
+- Plugin page text: Jellyfin's own Channel Access setting on each user decides from then on; new users see the station when their policy allows all channels (Jellyfin's default), when a provisioning tool's template includes it, or after another click.
+- Docs: README, DESIGN (card 6 section rewritten as history plus current behaviour), THREAT-MODEL (no background policy writes; the user-save window risk goes away or narrows to the button), build.yaml changelog line.
+- Tests: no consumer or hosted grant service is registered (registrator test); the button route grants and reports counts; an existing config file containing `GrantAccessToAllUsers` still deserializes.
+- Host check: untick a test user → stays hidden after the save and after a restart; the button reports counts.
 
 **Then: merge to main, deploy to the host, and tag v0.4.0.0.**
 
