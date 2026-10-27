@@ -90,6 +90,18 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
+    /// Gets the last feed as fetched, or null when nothing is known. Callers must not modify it.
+    /// </summary>
+    /// <returns>The feed.</returns>
+    public NowPlayingFeed? Feed()
+    {
+        lock (_gate)
+        {
+            return _feed;
+        }
+    }
+
+    /// <summary>
     /// Gets the short "Artist – Title" line for the playing bar, or null when nothing is on air.
     /// </summary>
     /// <returns>For example "Artist – Title".</returns>

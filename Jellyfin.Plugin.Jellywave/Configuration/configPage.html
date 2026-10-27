@@ -110,6 +110,16 @@
                         </div>
                     </div>
 
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Station page</h2>
+                        <div class="fieldDescription">
+                            Optional. With the <a is="emby-linkbutton" class="button-link" href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener noreferrer">File Transformation</a>
+                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), every signed-in user gets a station entry in the
+                            web client's menu, Android app included: cover, track, DJ, show, what is next, play and stop. Without it the tile keeps working; only the page is missing.
+                        </div>
+                        <div class="fieldDescription" id="webUiStatus">Checking…</div>
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -175,6 +185,13 @@
                         load(config);
                         Dashboard.hideLoadingMsg();
                     });
+                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/WebUi')).then(function (s) {
+                        var text = { NotInstalled: 'Not active: the File Transformation plugin is not installed.',
+                                     Active: 'Active with File Transformation ' + (s.FileTransformationVersion || '') + '. Users may need to reload the web client once.',
+                                     Failed: 'Not active: registration failed; see the server log.',
+                                     Unknown: 'Not checked yet (the check runs at server startup).' }[s.State] || s.Message;
+                        el('webUiStatus').textContent = text;
+                    }).catch(function () { el('webUiStatus').textContent = 'Status unavailable.'; });
                 });
 
                 el('btnProbe').addEventListener('click', function () {

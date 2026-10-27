@@ -33,6 +33,10 @@
     <EmbeddedResource Include="Configuration\configPage.html" />
     <None Remove="Assets\logo.png" />
     <EmbeddedResource Include="Assets\logo.png" />
+    <None Remove="Web\ui.js" />
+    <EmbeddedResource Include="Web\ui.js" />
+    <None Remove="Web\ui.css" />
+    <EmbeddedResource Include="Web\ui.css" />
   </ItemGroup>
 
 </Project>

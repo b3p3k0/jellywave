@@ -1,14 +1,11 @@
 using System;
-using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Jellywave.Channels;
 using Jellyfin.Plugin.Jellywave.Configuration;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Hosting;
@@ -47,6 +44,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     private readonly StationClient _stationClient;
     private readonly NowPlayingState _state;
     private readonly LiveItemArtwork _artwork;
+    private readonly LiveItemFinder _finder;
     private readonly ILibraryManager _libraryManager;
     private readonly IServerApplicationHost _applicationHost;
     private readonly Func<PluginConfiguration?> _configuration;
@@ -63,6 +61,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="artwork">The live item artwork keeper.</param>
+    /// <param name="finder">The live item finder.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
@@ -70,10 +69,11 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         StationClient stationClient,
         NowPlayingState state,
         LiveItemArtwork artwork,
+        LiveItemFinder finder,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger)
-        : this(stationClient, state, artwork, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
+        : this(stationClient, state, artwork, finder, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
     {
     }
 
@@ -83,6 +83,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="artwork">The live item artwork keeper.</param>
+    /// <param name="finder">The live item finder.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
@@ -91,6 +92,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         StationClient stationClient,
         NowPlayingState state,
         LiveItemArtwork artwork,
+        LiveItemFinder finder,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger,
@@ -99,6 +101,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _stationClient = stationClient;
         _state = state;
         _artwork = artwork;
+        _finder = finder;
         _libraryManager = libraryManager;
         _applicationHost = applicationHost;
         _logger = logger;
@@ -256,21 +259,14 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
         }
 
-        var channel = FindChannel(config);
+        var channel = _finder.FindChannel(config);
         if (channel is null)
         {
             _logger.LogDebug("Channel entity not created yet; nothing to update");
             return;
         }
 
-        var items = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            ChannelIds = [channel.Id],
-            ExternalId = JellywaveChannel.LiveItemId,
-            IncludeItemTypes = [BaseItemKind.Audio]
-        });
-
-        var item = items.Count > 0 ? items[0] : null;
+        var item = _finder.FindLiveItem(channel);
         if (item is null)
         {
             _logger.LogDebug("Live item not created yet; nothing to update");
@@ -319,16 +315,5 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             // Information on purpose: one line per track change is the runtime evidence that the poller works.
             _logger.LogInformation("Live item overview updated: {Overview}", overview);
         }
-    }
-
-    /// <summary>
-    /// Finds the channel entity by name without creating it (unlike IChannelManager.GetChannelsInternalAsync).
-    /// </summary>
-    private Channel? FindChannel(PluginConfiguration? config)
-    {
-        var name = JellywaveChannel.StationName(config ?? new PluginConfiguration());
-        return _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Channel] })
-            .OfType<Channel>()
-            .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 }

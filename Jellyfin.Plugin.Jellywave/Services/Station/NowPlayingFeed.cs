@@ -30,4 +30,8 @@ public sealed class NowPlayingFeed
     /// <summary>Gets or sets the context block (next show).</summary>
     [JsonPropertyName("context")]
     public ContextInfo? Context { get; set; }
+
+    /// <summary>Gets or sets the listener counts.</summary>
+    [JsonPropertyName("listeners")]
+    public ListenersInfo? Listeners { get; set; }
 }
