@@ -7,7 +7,8 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
 /// The station's weekly schedule, refetched at most every few minutes: it changes rarely and every open
-/// station page would otherwise ask for it.
+/// station page would otherwise ask for it. The copy is kept with its station origin (<see cref="StationUrls.Origin"/>):
+/// a change of station URL drops it before the new station is asked, so another station's schedule is never served.
 /// </summary>
 public sealed class ScheduleCache : IDisposable
 {
@@ -18,7 +19,9 @@ public sealed class ScheduleCache : IDisposable
     public static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
 
     private readonly StationClient _stationClient;
+    private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private string? _origin;
     private ScheduleInfo? _schedule;
     private DateTime _fetchedUtc;
 
@@ -27,12 +30,24 @@ public sealed class ScheduleCache : IDisposable
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     public ScheduleCache(StationClient stationClient)
+        : this(stationClient, TimeProvider.System)
     {
-        _stationClient = stationClient;
     }
 
     /// <summary>
-    /// Gets the schedule, from cache when fresh. Station failures propagate; a stale copy is returned instead when there is one.
+    /// Initializes a new instance of the <see cref="ScheduleCache"/> class with an explicit clock (tests).
+    /// </summary>
+    /// <param name="stationClient">The station client.</param>
+    /// <param name="clock">The clock.</param>
+    internal ScheduleCache(StationClient stationClient, TimeProvider clock)
+    {
+        _stationClient = stationClient;
+        _clock = clock;
+    }
+
+    /// <summary>
+    /// Gets the schedule, from cache when fresh. Station failures propagate; a stale copy of the same station's
+    /// schedule is returned instead when there is one.
     /// </summary>
     /// <param name="config">The configuration (for the station URL).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -44,10 +59,19 @@ public sealed class ScheduleCache : IDisposable
             return null;
         }
 
+        var origin = StationUrls.Origin(baseUrl);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_schedule is not null && DateTime.UtcNow - _fetchedUtc < Lifetime)
+            if (!string.Equals(origin, _origin, StringComparison.Ordinal))
+            {
+                // Another station: its schedule is fetched fresh, and on failure there is no copy to fall back on.
+                _schedule = null;
+                _origin = origin;
+            }
+
+            var now = _clock.GetUtcNow().UtcDateTime;
+            if (_schedule is not null && now - _fetchedUtc < Lifetime)
             {
                 return _schedule;
             }
@@ -58,13 +82,13 @@ public sealed class ScheduleCache : IDisposable
                 if (fresh is not null)
                 {
                     _schedule = fresh;
-                    _fetchedUtc = DateTime.UtcNow;
+                    _fetchedUtc = _clock.GetUtcNow().UtcDateTime;
                 }
             }
             catch (Exception) when (_schedule is not null)
             {
                 // Stale beats nothing; try the station again after RetryDelay rather than on every call.
-                _fetchedUtc = DateTime.UtcNow - Lifetime + RetryDelay;
+                _fetchedUtc = _clock.GetUtcNow().UtcDateTime - Lifetime + RetryDelay;
             }
 
             return _schedule;

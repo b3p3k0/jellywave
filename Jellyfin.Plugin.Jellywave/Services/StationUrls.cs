@@ -37,6 +37,18 @@ public static class StationUrls
     }
 
     /// <summary>
+    /// Gets the station origin that keys everything cached from the station (now-playing state, schedule, applied
+    /// cover): the parsed base URL in full, so a change of host, port, scheme or path prefix counts as another station.
+    /// </summary>
+    /// <param name="baseUrl">The base URL from <see cref="TryGetBaseUrl"/>.</param>
+    /// <returns>The origin key.</returns>
+    public static string Origin(Uri baseUrl)
+    {
+        ArgumentNullException.ThrowIfNull(baseUrl);
+        return baseUrl.AbsoluteUri;
+    }
+
+    /// <summary>
     /// Parses a station base URL string the way <see cref="TryGetBaseUrl"/> does.
     /// </summary>
     /// <param name="rawBaseUrl">The raw value, possibly null or padded.</param>

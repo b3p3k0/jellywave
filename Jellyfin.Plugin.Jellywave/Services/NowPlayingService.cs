@@ -186,9 +186,10 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
         if (feed is not null)
         {
+            var origin = StationUrls.Origin(baseUrl);
             _health.Success(DateTime.UtcNow);
-            _state.Update(feed, DateTime.UtcNow);
-            await FetchStationStateAsync(baseUrl, cancellationToken).ConfigureAwait(false);
+            _state.Update(origin, feed, DateTime.UtcNow);
+            await FetchStationStateAsync(baseUrl, origin, cancellationToken).ConfigureAwait(false);
             await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
         }
 
@@ -197,16 +198,17 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
     /// <summary>
     /// The station page shows history, up next and the lyrics flag from <c>/api/state</c>; fetched alongside the
-    /// feed, and a failure keeps the previous state (the feed already proved the station answers).
+    /// feed, and a failure keeps the previous state (the feed already proved the station answers). The previous state
+    /// is the same station's: <see cref="NowPlayingState.Update"/> dropped it when the feed came from another origin.
     /// </summary>
-    private async Task FetchStationStateAsync(Uri baseUrl, CancellationToken cancellationToken)
+    private async Task FetchStationStateAsync(Uri baseUrl, string origin, CancellationToken cancellationToken)
     {
         try
         {
             var stationState = await _stationClient.GetStateAsync(baseUrl, cancellationToken).ConfigureAwait(false);
             if (stationState is not null)
             {
-                _state.UpdateStationState(stationState);
+                _state.UpdateStationState(origin, stationState);
             }
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
