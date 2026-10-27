@@ -1,11 +1,11 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: cards 1–11 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75; 8s/8a/8b/8c: 2026-10-27, commits d95f759 through 13b9ebf; 8d: 2026-10-27, commits a923124 through 4895824; 9: 2026-10-27, commits 4d67e6f and c6ea146; 10: 2026-10-27, commit 0505d94; 11: 2026-10-27, commit cf9d672, see the phase 2 closeout table). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Open: the lyrics panel shows a sentence instead of lines on HI's station (station side, not a blocker); v0.3.3.0 is released (manifest 0612866, zip matches the entry) and v0.3.4.0 is built from cf9d672 and unreleased. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–15 accepted (wave 3 cards 12–15 on 2026-10-27, see the Wave 3 section); card 16 (docs and repo hygiene) in progress. Cards 1–11: (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75; 8s/8a/8b/8c: 2026-10-27, commits d95f759 through 13b9ebf; 8d: 2026-10-27, commits a923124 through 4895824; 9: 2026-10-27, commits 4d67e6f and c6ea146; 10: 2026-10-27, commit 0505d94; 11: 2026-10-27, commit cf9d672, see the phase 2 closeout table). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Open: the lyrics panel shows a sentence instead of lines on HI's station (station side, not a blocker); v0.3.4.0 is released (manifest de8d8dd); 0.4.0.0 is on `wave3-hardening` and untagged until card 16 is accepted. Wave 3 (second security review remediation, cards 12–18) approved 2026-10-27; see the Wave 3 section at the end. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
 
-Kevin runs Jellyfin 12.3.0 on the Jellyfin test host and a SUB/WAVE internet-radio station ("IHateRadio") on the station host. Goal: a tile in Jellyfin's My Media row, alongside Live TV, that plays the station with transport controls on web, Android, and (bonus) Roku / Android TV. Stream audio is the must-have; the SUB/WAVE web player is a later phase.
+HI runs Jellyfin 12.3.0 on the Jellyfin test host and a SUB/WAVE internet-radio station ("IHateRadio") on the station host. Goal: a tile in Jellyfin's My Media row, alongside Live TV, that plays the station with transport controls on web, Android, and (bonus) Roku / Android TV. Stream audio is the must-have; the SUB/WAVE web player is a later phase.
 
 Decisions already made by HI (2026-10-26):
 
@@ -29,9 +29,9 @@ Decisions already made by HI (2026-10-26):
 - Clients: jellyfin-web opens a channel through the legacy list controller (`src/apps/legacy/controllers/list.js`); Roku `HomeItem.bs` accepts item type `channel` and `MainEventHandlers.bs` opens it as a generic library and plays `audio` items; Android TV `GenericFolderFragment.kt` handles `CHANNEL`; Android mobile wraps jellyfin-web.
 - Channel visibility per user: `Channel.IsVisible` requires `EnableAllChannels` permission or the channel in `EnabledChannels`. Admin users have it; verify for other users during testing.
 - Toolchain: local `dotnet` SDK 10.0.113; NuGet `Jellyfin.Controller` and `Jellyfin.Model` 12.3.0 exist; Jellyfin 12 targets `net10.0`; the official plugin template is still on 10.11.5 / net9.0 and must be bumped. Official webhook plugin (12.x) is the reference for `IPluginServiceRegistrator` + `net10.0` csproj.
-- the Jellyfin test host: Jellyfin 12.3.0 as systemd service, plugins in `/var/lib/jellyfin/plugins/<Name>_<ver>/` owned `jellyfin:jellyfin`, `kevin` has sudo with password, ffmpeg at `/usr/lib/jellyfin-ffmpeg/ffmpeg`. Existing `meta.json` shape: see SeerrFin's (`targetAbi` "12.0.0.0", `assemblies` list, `status` Active).
+- the Jellyfin test host: Jellyfin 12.3.0 as systemd service, plugins in `/var/lib/jellyfin/plugins/<Name>_<ver>/` owned `jellyfin:jellyfin`, ffmpeg at `/usr/lib/jellyfin-ffmpeg/ffmpeg`. Existing `meta.json` shape: see SeerrFin's (`targetAbi` "12.0.0.0", `assemblies` list, `status` Active).
 - Station: SUB/WAVE 1.26.0: station "IHateRadio", public (no listener auth, no private player), MP3 192 kbps 44.1 kHz stereo at `http://<station-host>:7700/stream.mp3`, CORS `*`, ICY headers present. Public JSON: `GET /api/now-playing` (`nowPlaying.title/artist/album/subsonic_id/duration`, `context.activeShow.name`), `GET /api/state` (`station.name`, `privacy`), `GET /api/health` (`{"status":"on-air"}`). Tune-in files at `/listen.pls`, `/listen.m3u`.
-- Access: `kevin@<station-host>` works (docker group). `claude@<station-host>` needs `~/.ssh/claude_framework`, absent on this machine. Not needed for v1; SUB/WAVE is not modified.
+- SUB/WAVE is not modified by this plugin; it only reads the station's public API and stream.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 ~/DEV/jellywave
 ├── Jellyfin.Plugin.Jellywave.slnx
 ├── Directory.Build.props            # version 0.1.0.0
-├── build.yaml                       # jprm-style metadata (name, guid, targetAbi 12.0.0.0, framework net10.0)
+├── build.yaml                       # jprm-style metadata (name, guid, targetAbi 12.0.0.0 (corrected in card 12: 12.3.0.0), framework net10.0)
 ├── README.md, LICENSE (MIT), .gitignore, .editorconfig   # from template
 ├── manifest.json                    # plugin repository manifest, served raw from GitHub main (see Manifest)
 ├── .github/workflows/release.yml    # on tag v*: build, zip, attach to GitHub release, update manifest.json
@@ -62,7 +62,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 │   ├── update-manifest.sh                 # writes the version entry (checksum, sourceUrl, timestamp) into manifest.json
 │   └── (untracked) local/deploy-jellyfin.sh  # dev helper HI runs on the test host; local/ is gitignored, not a deliverable
 └── docs/
-    ├── PLAN.md                            # this plan, committed to the repo on approval
+    ├── dev/PLAN.md                        # this plan, committed to the repo on approval (docs/PLAN.md until card 16)
     └── DESIGN.md                          # behaviour doc, closed out with the code (Charter: docs in same wave)
 ```
 
@@ -141,7 +141,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 
 `scripts/build.sh` (run here): `dotnet publish Jellyfin.Plugin.Jellywave -c Release -o dist/stage`, then assemble `dist/Jellywave_<version>/` with `Jellyfin.Plugin.Jellywave.dll`, `meta.json` (generated from `build.yaml` + version + timestamp, same field set as SeerrFin's), `thumb.png`, and zip it as `dist/Jellywave_<version>.zip`. **Changed 2026-10-27:** it no longer touches `manifest.json`; the release workflow writes the entry from the zip it publishes, so a local build cannot overwrite a published checksum (`UPDATE_MANIFEST=1` opts in).
 
-`local/deploy-jellyfin.sh` (untracked dev helper; HI runs it on the Jellyfin test host): modeled on `~/DEV/seerrfin-teststack/deploy/setup.sh`. Steps: confirm systemd Jellyfin is active; show what it found; `sudo systemctl stop jellyfin`; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`.
+`local/deploy-jellyfin.sh` (untracked dev helper; HI runs it on the Jellyfin test host): modeled on the SeerrFin test stack's deploy script. Steps: confirm systemd Jellyfin is active; show what it found; stop the service; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`.
 
 ## Task cards (DA implements one at a time; RA accepts each)
 
@@ -149,7 +149,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 2. **Channel + stream.** `JellywaveChannel`, embedded logo, config class with defaults (no page yet). Exit: deployed on the Jellyfin test host; `GET /Channels` lists it; `GET /UserViews` includes it; web My Media shows the tile with logo; click → one item → play → audio in browser, Relay mode (ffmpeg job visible in dashboard / log).
 3. **Config page.** `configPage.html` with the fields above and "Fetch from station"; `LastChangedUtc` on save. Exit: switching Delivery to Direct and back changes `PlaybackInfo` output (`SupportsDirectPlay`, `TranscodingUrl`) after cache bust.
 4. **Now-playing service.** `NowPlayingState`, `NowPlayingService`, registrator (`StationClient` already landed with card 3). Exit: after a track change on the station host, reopening the tile shows the new "Now playing" overview within one poll interval; log shows no errors over 30 min.
-5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
+5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` (now `docs/dev/PLAN.md`) current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
 
 Cross-client checks after card 4 (HI performs, MI supplies the checklist): Android app (web wrapper) plays; Roku and Android TV open the tile and play. Roku/Android TV are bonus and may need a follow-up card.
 
@@ -233,8 +233,8 @@ Open after card 8d: the lyrics panel on HI's station (see the 8d row) and the po
 
 ## Post-approval housekeeping (MI)
 
-- Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit.
-- Save memory notes: the Agent Charter URL and response contract; host roles (the Jellyfin test host = Jellyfin 12.3 test server, user access + sudo password; the station host = SUB/WAVE, `kevin@<station-host>` works, `claude@<station-host>` needs `~/.ssh/claude_framework`).
+- Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit (moved to `docs/dev/PLAN.md` in card 16).
+- Save memory notes: the Agent Charter URL and response contract; host roles and access (kept in memory and `local/`, never in tracked files).
 
 ## Phase 2: live station page (decided 2026-10-27)
 
@@ -389,3 +389,274 @@ acceptance.
 6a. `AccessGranter` service + tests + config field + startup and user-created hooks.
 6b. Config page section + admin endpoint + README/DESIGN update. Exit: fresh non-admin user on the test
     host sees the tile without any admin action; counts shown on the page; LESSONS block.
+
+## Wave 3: remediation of the second security / integrity review (v0.3.4.0)
+
+Role at writing: PA. Track: full process (authorization, release pipeline, public interface, many modules).
+
+### Context
+
+An independent reviewer checked main de8d8dd (v0.3.4.0) and recommends holding the next release.
+MI verified the main claims against the repo and Jellyfin 12.3 source on 2026-10-27. All are **facts**:
+
+- `DefaultAuthorizationHandler` (12.3) returns `Succeed` for any API key and never checks channel visibility. Every `/Jellywave` station route uses plain `[Authorize]`.
+- `NamedClient.Default` uses a `SocketsHttpHandler` that keeps `AllowAutoRedirect` at its default (on). `StationClient` uses this client for every call.
+- `ChannelManager.GetInternalChannelId` = `GetNewItemId("Channel " + name)`. `LiveItemFinder.FindChannel` and `LibraryChannelLocator` also match by name, case-insensitively.
+- The csproj references Jellyfin 12.3.0 packages, but `build.yaml` says `targetAbi: "12.0.0.0"`.
+- The File Transformation catalog returns `[]` to `User-Agent: Jellyfin-Server/12.3.0`; its newest entry targets 12.2.0.0.
+- `TryGetServerStreamUrl` compares only `Host`. `TryParseBaseUrl` accepts userinfo, query and fragment.
+- `BuildToday` uses `ToDictionary`, so duplicate ids throw. A null feed records neither success nor failure (`NowPlayingService.cs:187`).
+- `ScheduleCache`, `NowPlayingState.StationState` and `LiveItemArtwork.Applied` carry no station identity. In `ui.js`, `fetchLike` does not check the song id, and the observer is a global `MutationObserver` with no debounce.
+- The README contradicts itself (lines 62 and 82). `configPage.html:77` still mentions an "album line". PLAN.md lines 32 and 34 hold host-access notes (removed in card 16).
+
+HI decisions (2026-10-27):
+
+| Question | Decision |
+|---|---|
+| ABI | Claim **12.3 only**: `targetAbi 12.3.0.0`. |
+| API keys on station routes | **Deny on every** `/Jellywave` user route (403). |
+| Request name | **The listener keeps a free-text name for the DJ.** The server keeps the real Jellyfin user id with each request, for accounting behind the scenes. No plugin-side limiter; the shared station budget stays an accepted, documented risk. |
+| Docs packet | Keep the packet and **move PLAN.md and LESSONS_LEARNED.md to `docs/dev/`**. Remove the host-access notes, fix the contradictions, add SECURITY.md, a threat model and a support matrix. No history rewrite. |
+
+Settled earlier, not reopened: Relay is the default, the access grant is off by default, File Transformation stays optional.
+
+### Finding triage
+
+| ID | Finding | Disposition | Card |
+|---|---|---|---|
+| O1 | Built against 12.3, claims 12.0 | Fix: targetAbi 12.3.0.0, plus a check that the DLL's references and targetAbi agree | 12 |
+| S5 | Release job holds a write token throughout | Fix: read-only build job, separate publish job, actions pinned by SHA, Dependabot | 12 |
+| O13 | No push/PR CI | Fix: `ci.yml` with read-only token | 12 |
+| S1/O2 | Station routes skip channel visibility; API keys get in | Fix: one access filter on every user route | 13 |
+| S2 | Request receipts not bound to a user | Fix: receipt → user id map; any other caller gets 403 | 13 |
+| T4 | Shared station identity, free-text name | Mitigate per HI: user id kept per request; budget accepted, documented | 13, 16 |
+| S3/O5 | Redirect SSRF | Fix: plugin's own HTTP client, redirects refused | 14 |
+| S4/O4 | URL authority / credentials | Fix: reject userinfo, query and fragment; compare scheme, host, port and userinfo | 14 |
+| S6/O7 | Image MIME trusted, no decode limits | Fix: check magic bytes and header dimensions. Accept: GIF frame count (documented) | 14 |
+| D1/O3 | Channel-name collision | Fix: find the channel by its derived id and fail closed when another channel has the same name. Accept: the name-derived id itself (Jellyfin API) | 15 |
+| D3/O8 | User policy lost update | Mitigate: serialize the plugin's own grant passes. Accept: the window against other writers | 15 |
+| O9 | Live-item whole-row write vs channel refresh | Accept: already narrowed (prepare first, then apply; reconciled every poll); Jellyfin has no partial update | — (threat model) |
+| O10 | verify-jellyfin.sh can report another channel as success | Fix: select the channel by name; fail when it is missing or there is more than one | 15 |
+| T1/O6 | File Transformation not offered for 12.3 | Mitigate: support matrix and README say so, with the upstream issue link; vendor side | 16 |
+| O14 | Doc drift, internal diary | Fix per HI decision | 16 |
+| D2 | Data from two stations mixed after a station switch | Fix: caches keyed by station origin; browser state keyed by server and user | 17, 18 |
+| D4/O11 | Missing art refetched every poll | Fix: negative cache with a bounded TTL | 17 |
+| D5 | Null feed leaves stale state | Fix: a null feed counts as a station failure | 17 |
+| D6 | Duplicate schedule ids → 500 | Fix: first id wins | 17 |
+| T2 | Global MutationObserver | Fix: boot guard, debounce, cheap checks | 18 |
+| T3 | Like response applied to the wrong track | Fix: capture the song id and discard stale replies | 18 |
+| O12 | Test gaps | Fix: tests land with each card (listed per card) | all |
+| — | Public `wip:`/`accept:` history | Accept: the charter forbids history rewrites | — |
+| — | CHANGELOG.md | Not added: GitHub releases and the manifest changelog already record each version | — |
+
+### Branch and release
+
+- Work happens on the branch `wave3-hardening`, cut from main. HI pushes the branch and merges it with `--no-ff`, which keeps the `wip:` trail.
+- Each card bumps `Directory.Build.props`. **No tag until cards 12–16 are accepted**, because those cover every P0 item. Then merge to main, test on the host, and tag `v0.4.0.0`. Cards 17 and 18 follow as v0.4.1.0 and v0.4.2.0, one tag each, as usual.
+- One card at a time. RA must be a different session or vendor than DA.
+
+### Cards
+
+#### 12. ABI, release pipeline, CI (O1, S5, O13)
+
+**Accepted 2026-10-27** (ec952e7 plus review fixes in the acceptance commit). RA: no Blocker, nothing Required; folded in: the publish job refuses a manifest entry whose targetAbi differs from the zip's (Suggested 1), DESIGN/README wording (Nits). Deferred to Dependabot: moving the v4 action pins to current majors (Node 20 deprecation notice). CI run 40547909389 green. Still open until the v0.4.0.0 tag: the release path itself.
+
+- `build.yaml`: set `targetAbi: "12.3.0.0"`. Published manifest entries are not touched.
+- `scripts/check-manifest.sh`: assert that the Jellyfin.Controller and Jellyfin.Model package versions in **both** csproj files equal targetAbi's first three parts. It already reads build.yaml through `scripts/lib.sh`.
+- Test `AbiTests`: every `Jellyfin.*` and `MediaBrowser.*` entry in `typeof(Plugin).Assembly.GetReferencedAssemblies()` must have a version ≤ targetAbi. Read targetAbi with one anchored regex over the single-line `build.yaml`; that file's values are single-line by rule. This is the DLL-level check the reviewer asked for.
+- `release.yml`:
+  - Top level: `permissions: {}`.
+  - Job `build` (`contents: read`): checkout with `persist-credentials: false`, tests, `build.sh`, `check-manifest.sh`, then upload the zip and `meta.json` as an artifact.
+  - Job `publish` (`needs: build`, `contents: write`): download the artifact, check out main, run `gh release create`/`upload` and `update-manifest.sh`, then push. These are the existing steps moved, with the same logic.
+  - Every `uses:` pinned to a full commit SHA, with the tag in a comment. Resolve the SHAs with `gh api` at implementation time; do not take them from memory.
+- `.github/workflows/ci.yml`: runs on `push` and `pull_request` with `contents: read` and pinned actions. Steps: build (warnings are errors), test, `check-manifest.sh`, `node --check Jellyfin.Plugin.Jellywave/Web/ui.js`, `bash -n scripts/*.sh`, `dotnet format --verify-no-changes`.
+- `.github/dependabot.yml`: `github-actions` ecosystem, weekly.
+- Exit: build and tests are clean locally, and check-manifest prints only ok lines. Make check-manifest fail once on purpose with a csproj/targetAbi mismatch. HI pushes the branch and CI goes green. The release path is proven at the v0.4.0.0 tag.
+
+#### 13. Station route authorization (S1, S2, API keys, request accounting)
+
+**Accepted 2026-10-27** (5614428, cfb334f; review fixes ac3ca88, 6de1e04, 3a8c8f8, 52866ce). RA first pass: CHANGES REQUIRED, one Required item (receipt wiring had no route-level test); Suggested: content-hash asset version, channel reused by Feed, 404 while the channel is missing, receipt-cap note; all fixed and re-reviewed: ACCEPT, 140/140 tests. Moved to card 18: clear an already-rendered header when the feed starts answering 404. Host checks pending (with cards 14–15).
+
+- New `StationAccess` service plus an action filter attribute. They run on Feed, Avatar, Like GET/POST, Schedule, Lyrics, Request POST and Request/{id}. The `ui.js` and `ui.css` assets stay anonymous; WebUi stays RequiresElevation. The rules:
+  1. The API-key claim is set → 403.
+  2. No user id claim, or the user is not found (reuse `IUserStore`) → 403.
+  3. The channel entity is not found → 403 (fail closed).
+  4. Jellyfin's own `channel.IsVisible(user)` is false → 403. This is the authoritative rule: blocked list, enabled list or EnableAllChannels, and the parental check. Admins get no exemption, same as Jellyfin.
+  5. Otherwise, the user id goes into `HttpContext.Items` for the action.
+- Verify the claim names (`Jellyfin-UserId`, `Jellyfin-IsApiKey`) in the 12.3 source `Jellyfin.Api/Constants/InternalClaimTypes.cs`.
+- New `RequestReceipts` singleton: request id → (user id, expiry). Lifetime 30 min and at most 1000 entries, both as named constants; entries are pruned on insert.
+  - `SubmitRequest` records the receipt.
+  - `RequestStatus` returns 403 for another user's id. An unknown id gets "unknown" without calling the station.
+  - After a restart the receipts are gone, so the page shows "lost track". Documented.
+- The free-text name still goes to the station unchanged. Accounting: the receipt holds the user id, and the existing Information line already logs the request id with the user id (never the name).
+- `ui.js`: a 403 from the feed stops polling quietly (longer backoff). No feed means no header and no drawer link, so blocked users stop seeing the page.
+- A reflection test: every action that is neither AllowAnonymous nor RequiresElevation carries the filter.
+- Tests:
+  - API key → 403; no user → 403; user not found → 403; no channel → 403; not visible → 403; visible → passes.
+  - User A submits, user B polls → 403; the owner polls → passes; an expired receipt → "unknown".
+  - If `Channel.IsVisible` cannot run in a unit test, because of the parental check's static dependencies, put the visibility call behind a seam. The rest of the decision is still tested.
+- Docs: README "Who can use the station page"; DESIGN gets an authorization section.
+
+#### 14. Outbound hardening (S3, S4, S6)
+
+**Accepted 2026-10-27** (91ff06f, 8d9e17c, f5e03e6; review follow-ups 6c69545, bd5c0c2). RA: ACCEPT, no Blocker or Required; folded in: a refused saved station URL is reported as "set but not allowed: <reason>", redirect suggestions only for acceptable addresses, the authority check documented as load-bearing, animation risk widened to APNG and WebP, a test race. 245/245 tests. Host check pending: an admin probe of a redirecting URL.
+
+- `PluginServiceRegistrator`: register the named client `Jellywave` with `SocketsHttpHandler { AllowAutoRedirect = false, AutomaticDecompression = All }` and a User-Agent header. If `AddHttpClient` does not compile with the current references, add `Microsoft.Extensions.Http` with `ExcludeAssets runtime`.
+- `StationClient`: every call goes through one private `CreateClient()` helper. That also removes the six copies of the timeout and buffer setup.
+- A 3xx is never followed:
+  - `GetJsonAsync` → `EnsureSuccessStatusCode` throws.
+  - Images → null.
+  - Like, request and lyrics replies map to unavailable or refused.
+  - The admin probe (`JellywaveController`) says "the station redirected to <Location>; use that address".
+- `StationUrls`:
+  - The base URL rejects userinfo, query and fragment. Check the raw parse before the slash is appended.
+  - `StreamPath` is rejected when it parses as an absolute URI.
+  - The built stream URL must equal the base on `SchemeAndServer | UserInfo`, which covers scheme, host, port and userinfo (`Uri.Compare`).
+  - `ClientStreamUrl` rejects userinfo. Any host stays allowed: Direct mode discloses it to clients on purpose (documented).
+  - HTTP stays allowed; the station runs on plain HTTP on the LAN. Documented.
+- New `ImageSniffer`:
+  - Detects JPEG, PNG, GIF and WebP from magic bytes and uses the detected MIME. The declared MIME only has to be image/* or missing.
+  - Reads width and height from the headers: PNG IHDR, the GIF screen descriptor, WebP VP8/VP8L/VP8X, JPEG SOFn.
+  - Rejects unknown types, a side over `MaxImageDimension` (4096) or an area over `MaxImagePixels` (16 777 216).
+  - Applies to covers and avatars. GIF frame count is not checked; that is an accepted risk.
+- Tests:
+  - URLs: same host on another port, another scheme, userinfo, query, fragment, an absolute StreamPath, userinfo in the client URL.
+  - Redirects: 302 to another host for JSON, image and POST, using a fake handler as in `StationClientCoverTests`.
+  - Images: a sniffer fixture per format, oversize dimensions, a mismatched MIME, a missing MIME with PNG bytes.
+
+#### 15. Channel identity, grant serialization, verify script (D1, D3, O10)
+
+**Accepted 2026-10-27** (623bf69, f109957, 6b900f5, 6b82c18, 9be708f; follow-up 354536c). RA: ACCEPT, no Blocker or Required; deadlock ruled out against the 12.3 source (UpdateUserAsync publishes no event; policy/create events fire outside any lock). Folded in: the no-publish rule on IUserStore.SaveAsync, the collision status read live, DESIGN wording. Accepted: the cover is re-downloaded each poll during a collision. 270/270 tests. Host check pending: verify-jellyfin.sh.
+
+- `LiveItemFinder.FindChannel`:
+  - Computes the id the way Jellyfin does, `_libraryManager.GetNewItemId("Channel " + name, typeof(Channel))`, and loads it with `GetItemById`. The name scan goes.
+  - `LibraryChannelLocator` reuses it instead of its own copy.
+- Collision check:
+  - Compare our name with every other registered `IChannel` from `IEnumerable<IChannel>`. Resolve it lazily to avoid a DI cycle through `JellywaveChannel`. Check whether `GetNewItemId` is case-sensitive and compare to match.
+  - On a collision: the poller writes nothing, the granter grants nothing, and `StationAccess` denies.
+  - Log one Warning per streak, and show "channel name collides with another plugin's channel" on the config page's status line through `PollerHealth`.
+- The default name stays "SUB/WAVE". Renaming changes the id and drops existing grants. README: pick a unique station name, because Jellyfin's API cannot make the id collision-proof.
+- `AccessGranter`: one `SemaphoreSlim` serializes `GrantAllAsync` and `GrantAsync`, and each user is re-read under it. The remaining window against other writers (dashboard saves) is accepted and documented.
+- `scripts/verify-jellyfin.sh`:
+  - Takes `JELLYWAVE_CHANNEL` (default `SUB/WAVE`) and selects that channel by exact name. It FAILs when the channel is missing or there is more than one.
+  - Item and PlaybackInfo checks run against that channel only.
+- Tests: collision → fail closed; derived-id lookup; two concurrent grant calls do not overlap (the fake store records overlap).
+
+#### 16. Docs and repo hygiene (O14, T1, T4 docs, HI decision on the packet)
+
+**Accepted 2026-10-27** (283f1d5, 61410bd, c1b4ad3, bf87822, 83d94d9, 48a1272; review fixes 1b0406a). RA: first pass CHANGES REQUIRED (PlaybackInfo wording, redirect control scoped to the plugin's own requests with the stream fetch as an accepted risk, one grep hit); fixes re-checked: ACCEPT. Condition before merge: HI enables private vulnerability reporting (SECURITY.md relies on it).
+
+- Move `docs/PLAN.md` and `docs/LESSONS_LEARNED.md` to `docs/dev/` with `git mv`. Grep every reference and update it: CLAUDE.md, README, DESIGN and the scripts.
+- Remove the host-access notes from PLAN.md (the admin-rights note, remote-login user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
+- README:
+  - A support matrix: Jellyfin 12.3.x; File Transformation 3.0.x works when installed, but its catalog does not offer it to 12.3 servers as of 2026-10-27 (upstream issue #87). No 12.0–12.2.
+  - The playing bar line: standard clients do not update mid-track; the station page does.
+  - Who can use the page.
+  - Requests: one shared station identity, a free-text name, and the user id kept for accounting.
+- `configPage.html:77`: remove "and the track as its album line".
+- `SECURITY.md`: report through GitHub private vulnerability reporting. HI enables it under repo Settings → Security. Supported: the latest release.
+- `docs/THREAT-MODEL.md`:
+  - Trust boundaries: admin config is trusted; station data is untrusted and is never allowed to redirect; users must be signed in and see the channel; API keys are denied; the browser.
+  - Accepted risks: the shared station budget; the free-text DJ name; the HTTP station URL; the station URL disclosed to clients in Direct mode; the name-derived channel id; the user-save window; the live-item row race; GIF frames; jellyfin-web selectors that can move between releases.
+- DESIGN.md: a consistency pass over cards 12–15. Each card has already closed its own section.
+- Exit: the docs match the code, a grep for host-access strings comes back empty, and the links resolve.
+- Changelog must mention: station URLs with credentials, a query or a fragment are refused (card 14).
+
+#### 15b. Access grant as a one-shot admin action (found in the 0.4.0.0 host test)
+
+**Accepted 2026-10-27** (4ec324b, 4828310, f77fa8a, 6efa974; review fixes 4589d57, 7f742e1). RA first pass: CHANGES REQUIRED (the dashboard's Add User form unticks all channels; a press re-adds users the admin unticked); fixed and re-checked: ACCEPT, 279/279 tests. Host check pending.
+
+Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the station on a user's Jellyfin Access page saw it re-added at once (`UserUpdatedConsumer` → `GrantAsync`, log 18:50:04 and 18:52:09); the startup pass would also re-add it after each restart. Blocker for v0.4.0.0. HI decision 2026-10-27: trade the always-on shortcut for stability ("I'm willing to trade that shortcut... if it makes the end product more stable"); MI recommendation adopted: one-shot admin action.
+
+- Remove the background writers: `AccessGrantService` (startup pass), `UserCreatedConsumer`, `UserUpdatedConsumer` and their registrations; remove the `GrantAccessToAllUsers` setting (an old saved value must load without error).
+- Keep `AccessGranter.GrantAllAsync` (with card 15's gate, collision check and block-list rule) behind the existing admin-only `POST /Jellywave/GrantAccess`, now triggered only by a button on the plugin page: "Add the station to every user now", showing granted / already visible / blocked counts. It never removes access and never sets EnableAllChannels.
+- Plugin page text: Jellyfin's own Channel Access setting on each user decides from then on; new users see the station when their policy allows all channels (Jellyfin's default), when a provisioning tool's template includes it, or after another click.
+- Docs: README, DESIGN (card 6 section rewritten as history plus current behaviour), THREAT-MODEL (no background policy writes; the user-save window risk goes away or narrows to the button), build.yaml changelog line.
+- Tests: no consumer or hosted grant service is registered (registrator test); the button route grants and reports counts; an existing config file containing `GrantAccessToAllUsers` still deserializes.
+- Host check: untick a test user → stays hidden after the save and after a restart; the button reports counts.
+
+**Then: merge to main, deploy to the host, and tag v0.4.0.0.**
+
+**Host evidence for v0.4.0.0 (2026-10-27, build from 858bc05, installed dll md5 2ad07da7 equals the local build; plugin source unchanged up to the tag).** HI on the test host: the station page works for a non-admin user (play, like, a request answered by the DJ); a user unticked on the Access page stays without the tile and page after the save and after a restart; the "Add the station to every user now" button reports its counts and re-adds that user, as the page warns; an API key gets 403 from `/Jellywave/Feed`; "Fetch from station" works with the saved URL and reports the redirect for `http://github.com`; `scripts/verify-jellyfin.sh` (after ebfda78: tile name from the plugin configuration, PlaybackInfo with an mp3 profile) ends with ALL CHECKS PASSED. Server log after the 0.4.0.0 load: poller started, cover updated, 0 ERR/WRN from Jellywave. Private vulnerability reporting enabled (API: `enabled: true`). CI green on the branch.
+
+#### 17. Station data consistency (D2 server, D4, D5, D6) — v0.4.1.0
+
+- From the card 15b review: README/DESIGN note that saving a user's Access page clears any BlockedChannels entry (jellyfin-web `Access.tsx` posts `BlockedChannels = null`); `PolicyWriterDependencyTests` lists `IServiceProvider` as allowed only in `LiveItemFinder` (and `StationAccessAttribute` if it resolves services that way), so a new service locator is noticed.
+
+- Cleanup from card 15: `PollerHealth.SetNameCollision` and `PollerHealthSnapshot.NameCollision` are written by the poller but no longer read (Health resolves the collision live); remove them and their test.
+
+- The station origin is `baseUrl.AbsoluteUri`.
+  - `NowPlayingState` stores the origin with each update and clears `StationState` when the origin changes.
+  - `ScheduleCache` stores the origin with the schedule. A change of origin drops the cache, and a failure for a new origin returns null, never the old station's copy.
+- `LiveItemArtwork`:
+  - The applied key is origin + cover id.
+  - A negative cache holds the missing cover key. While it holds, the logo is used without a fetch, until the cover id changes or `MissingCoverRetry` (30 min, a named constant) passes.
+- A null feed → the failure path: health records the failure and the state is cleared.
+- `BuildToday`: `TryAdd`, so the first id wins.
+- Tests:
+  - ScheduleCache: fresh, stale after a failure, origin switch, retry delay. No tests exist today.
+  - NowPlayingState origin switch; the artwork negative cache and its TTL; a duplicate schedule id; a null feed.
+
+#### 18. Web client (T2, T3, D2 browser) — v0.4.2.0
+
+- From the card 13 review: when the feed starts answering 404 or 403 while a header is rendered (station renamed, access revoked), remove the header and the drawer link instead of leaving them stale.
+
+- `ui.js`:
+  - A boot guard: one observer and one set of listeners.
+  - The observer is debounced through one pending timer (`DOM_DEBOUNCE_MS` 250) and runs only cheap selector checks.
+  - Check whether jellyfin-web 12.3 dispatches `viewshow`. If it does, use it and keep the observer only for the drawer.
+- `fetchLike`: captures the song id and discards the reply when the current feed's `SongId` has changed.
+- State is keyed by `serverId + userId`. When either changes, the feed, like, lyrics and schedule state and the header references reset.
+- Exit, checked by HI on the host:
+  - The page works, likes work, and a log-out with log-in as another user shows fresh state.
+  - A blocked user sees no header and no drawer link.
+  - Playback in another library shows no slowdown.
+
+### Validation (every card)
+
+```bash
+set -o pipefail
+dotnet build Jellyfin.Plugin.Jellywave.slnx -c Release
+dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release
+dotnet format Jellyfin.Plugin.Jellywave.slnx --verify-no-changes
+node --check Jellyfin.Plugin.Jellywave/Web/ui.js
+bash -n scripts/*.sh
+scripts/check-manifest.sh            # only "ok" lines
+git grep -nE '<host patterns from local/>' -- . ':!local'   # empty
+```
+
+Host checks (HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`):
+
+- Card 13: a non-admin user with access gets 200 from `/Jellywave/Feed`. A user with the channel in BlockedChannels gets 403. An API key gets 403. User B polling user A's request id gets 403.
+- Card 14: an admin probe of a URL that redirects gets the redirect message.
+- Card 15: `scripts/verify-jellyfin.sh` passes (set `JELLYWAVE_CHANNEL` to the tile name when it is not `SUB/WAVE`).
+- Every card: 0 ERR/WRN lines mentioning Jellywave after the restart.
+
+### Risks
+
+| Risk | Handling |
+|---|---|
+| `Channel.IsVisible` parental check denies a user who can see the tile | Same rule Jellyfin uses for the tile; the host test covers a normal user |
+| Station page breaks for API-key scripts | None known; verify-jellyfin.sh does not call /Jellywave routes |
+| Redirect refusal breaks an install whose station URL redirects (http→https) | Probe message tells the admin the right URL; README notes it |
+| targetAbi 12.3 hides new versions from 12.0–12.2 servers | Intended; README support matrix |
+| Workflow split breaks the release | Same steps, moved; exercised at v0.4.0.0; rollback = revert the workflow commit and re-run `gh workflow run Release -f tag=…` |
+| Receipts lost on restart | Page says "lost track"; documented |
+
+### Hard Stops in this wave
+
+- Authorization change (cards 13, 15): HI approved the direction through the decisions above. HI reviews before merge (Elevated Risk).
+- Release workflow change (card 12): HI reviews before merge.
+- `git push`, the merge to main and enabling private vulnerability reporting are HI's.
+- No history rewrite. The host-access notes stay in old commits.
+
+### Rollback
+
+Each card is its own commits on `wave3-hardening`. Revert a card's commits, or do not merge the branch. Published releases and manifest entries are untouched until v0.4.0.0.
+
+### First steps after approval (MI)
+
+1. `git switch -c wave3-hardening`.
+2. Add this plan as the "Wave 3" section of `docs/PLAN.md` with a `wip:` commit (the move to docs/dev/ happens in card 16).
+3. Append the reviewer's report summary and the HI decisions to LESSONS_LEARNED when card 12 closes.
+4. Start card 12 as DA. RA for each card is a different session or vendor.

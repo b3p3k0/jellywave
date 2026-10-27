@@ -11,6 +11,7 @@ using Jellyfin.Plugin.Jellywave.Configuration;
 using Jellyfin.Plugin.Jellywave.Services;
 using Jellyfin.Plugin.Jellywave.Web;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -22,20 +23,16 @@ using Microsoft.Net.Http.Headers;
 namespace Jellyfin.Plugin.Jellywave.Api;
 
 /// <summary>
-/// Endpoints behind the station page: the injected assets (anonymous, like the web client itself), the feed
-/// (any signed-in user) and the injection status (administrators, for the configuration page).
+/// Endpoints behind the station page: the injected assets (anonymous, like the web client itself), the station
+/// routes (signed-in users who can see the channel, see <see cref="StationAccessAttribute"/>; API keys are refused)
+/// and the injection status (administrators, for the configuration page).
 /// </summary>
 [ApiController]
 [Route("Jellywave")]
 public class JellywaveWebController : ControllerBase
 {
-    private const string ScriptResource = "Jellyfin.Plugin.Jellywave.Web.ui.js";
-    private const string StyleResource = "Jellyfin.Plugin.Jellywave.Web.ui.css";
     private const int MaxRequestText = 280;
     private const int MaxRequestName = 40;
-
-    /// <summary>Jellyfin's claim carrying the signed-in user's id (Jellyfin.Api.Constants.InternalClaimTypes.UserId).</summary>
-    private const string UserIdClaim = "Jellyfin-UserId";
     private const int MaxRecent = 8;
     private static readonly TimeSpan AssetCacheLifetime = TimeSpan.FromDays(1);
     private static readonly TimeSpan AvatarCacheLifetime = TimeSpan.FromHours(1);
@@ -45,25 +42,46 @@ public class JellywaveWebController : ControllerBase
     private readonly IImageProcessor _imageProcessor;
     private readonly StationClient _stationClient;
     private readonly ScheduleCache _schedule;
+    private readonly RequestReceipts _receipts;
     private readonly ILogger<JellywaveWebController> _logger;
+    private readonly Func<PluginConfiguration?> _configuration;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class.
+    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class (DI constructor).
     /// </summary>
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="finder">The live item finder.</param>
     /// <param name="imageProcessor">The image processor, for image tags.</param>
     /// <param name="stationClient">The station client, for requests.</param>
     /// <param name="schedule">The schedule cache.</param>
+    /// <param name="receipts">Which user owns which listener request.</param>
     /// <param name="logger">The logger.</param>
-    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, ILogger<JellywaveWebController> logger)
+    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger)
+        : this(state, finder, imageProcessor, stationClient, schedule, receipts, logger, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class with an explicit configuration source (tests).
+    /// </summary>
+    /// <param name="state">The shared now-playing state.</param>
+    /// <param name="finder">The live item finder.</param>
+    /// <param name="imageProcessor">The image processor, for image tags.</param>
+    /// <param name="stationClient">The station client, for requests.</param>
+    /// <param name="schedule">The schedule cache.</param>
+    /// <param name="receipts">Which user owns which listener request.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configuration">Returns the current configuration, or null when the plugin is not ready.</param>
+    internal JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger, Func<PluginConfiguration?> configuration)
     {
         _state = state;
         _finder = finder;
         _imageProcessor = imageProcessor;
         _stationClient = stationClient;
         _schedule = schedule;
+        _receipts = receipts;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -73,7 +91,7 @@ public class JellywaveWebController : ControllerBase
     [HttpGet("ui.js")]
     [AllowAnonymous]
     [Produces("text/javascript")]
-    public IActionResult Script() => Asset(ScriptResource, "text/javascript");
+    public IActionResult Script() => Asset(WebUiTransforms.ScriptResource, "text/javascript");
 
     /// <summary>
     /// The injected stylesheet.
@@ -82,19 +100,22 @@ public class JellywaveWebController : ControllerBase
     [HttpGet("ui.css")]
     [AllowAnonymous]
     [Produces("text/css")]
-    public IActionResult Style() => Asset(StyleResource, "text/css");
+    public IActionResult Style() => Asset(WebUiTransforms.StyleResource, "text/css");
 
     /// <summary>
-    /// What is on air, for the station page. Any signed-in user.
+    /// What is on air, for the station page (users who can see the channel).
     /// </summary>
     /// <returns>The feed.</returns>
     [HttpGet("Feed")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<FeedResponse> Feed()
     {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var config = _configuration() ?? new PluginConfiguration();
         var feed = _state.Feed();
         var stationState = _state.StationState();
         var next = feed?.Context?.ShowHandover?.NextShow;
@@ -124,9 +145,9 @@ public class JellywaveWebController : ControllerBase
             FetchedUtc = feed is null ? null : _state.FetchedUtc
         };
 
-        var channel = _finder.FindChannel(config);
-        response.ChannelId = channel?.Id;
-        var item = channel is null ? null : _finder.FindLiveItem(channel);
+        var channel = CallerChannel();
+        response.ChannelId = channel.Id;
+        var item = _finder.FindLiveItem(channel);
         if (item is not null)
         {
             response.ItemId = item.Id;
@@ -138,18 +159,20 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// The DJ's portrait, proxied from the station (any signed-in user). A transparent PNG when the persona has none.
+    /// The DJ's portrait, proxied from the station (users who can see the channel). A transparent PNG when the persona has none.
     /// </summary>
     /// <param name="personaId">The persona id from the feed.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The image.</returns>
     [HttpGet("Avatar/{personaId}")]
     [Authorize]
+    [StationAccess]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Avatar([FromRoute] string personaId, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(personaId))
         {
             return NotFound();
@@ -174,17 +197,20 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// Like status of the track on air (any signed-in user).
+    /// Like status of the track on air (users who can see the channel).
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The status.</returns>
     [HttpGet("Like")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LikeOutcome>> LikeStatus(CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new LikeOutcome { Enabled = false };
@@ -202,19 +228,22 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// Likes the track on air (any signed-in user). The station counts this server as one caller.
+    /// Likes the track on air (users who can see the channel). The station counts this server as one caller.
     /// </summary>
     /// <param name="submission">The song id the listener saw.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The result.</returns>
     [HttpPost("Like")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LikeOutcome>> Like([FromBody] LikeSubmission submission, CancellationToken cancellationToken)
     {
         var songId = submission?.SongId?.Trim() ?? string.Empty;
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
         {
             return new LikeOutcome { Enabled = false, Message = "Nothing to like right now." };
@@ -232,17 +261,20 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// Today's programme in the station's time zone (any signed-in user; cached a few minutes server-side).
+    /// Today's programme in the station's time zone (users who can see the channel; cached a few minutes server-side).
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The blocks.</returns>
     [HttpGet("Schedule")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ScheduleResponse>> Schedule(CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null)
         {
             return new ScheduleResponse();
@@ -264,18 +296,21 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// Lyrics of the track on air (any signed-in user).
+    /// Lyrics of the track on air (users who can see the channel).
     /// </summary>
     /// <param name="songId">The song id from the feed.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The lines, or why there are none.</returns>
     [HttpGet("Lyrics")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
         {
             return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "No track to look up." };
@@ -321,10 +356,14 @@ public class JellywaveWebController : ControllerBase
     /// <returns>The receipt or refusal; always 200 so the page can show the station's words.</returns>
     [HttpPost("Request")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestOutcome>> SubmitRequest([FromBody] RequestSubmission submission, CancellationToken cancellationToken)
     {
+        var caller = CallerId();
         var text = Collapse(submission?.Text);
         var name = Collapse(submission?.Name);
         if (text.Length == 0)
@@ -342,7 +381,7 @@ public class JellywaveWebController : ControllerBase
             name = name[..MaxRequestName];
         }
 
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
@@ -354,9 +393,11 @@ public class JellywaveWebController : ControllerBase
             var body = reply.Body;
             if (reply.StatusCode == StatusCodes.Status202Accepted && body?.RequestId is not null)
             {
-                // One line per accepted request, never the text: ties the station's id to the Jellyfin user,
-                // which the station cannot do (it sees this server as one caller).
-                _logger.LogInformation("Listener request {RequestId} accepted for user {UserId}", body.RequestId, User.FindFirst(UserIdClaim)?.Value ?? "?");
+                // One line per accepted request, never the text or the name: ties the station's id to the Jellyfin
+                // user, which the station cannot do (it sees this server as one caller). The receipt lets only that
+                // user poll the outcome.
+                _receipts.Record(body.RequestId, caller);
+                _logger.LogInformation("Listener request {RequestId} accepted for user {UserId}", body.RequestId, caller);
                 return new RequestOutcome { Accepted = true, RequestId = body.RequestId, Status = "pending", Message = "Sent. Waiting for the DJ…" };
             }
 
@@ -381,18 +422,35 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
-    /// Polls the outcome of a submitted request.
+    /// Polls the outcome of a submitted request. Only the user who submitted it may poll it (403 for anyone else);
+    /// an id with no live receipt here is "unknown" without asking the station.
     /// </summary>
     /// <param name="requestId">The id from the receipt.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The outcome so far.</returns>
     [HttpGet("Request/{requestId}")]
     [Authorize]
+    [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestOutcome>> RequestStatus([FromRoute] string requestId, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        switch (_receipts.Check(requestId, CallerId()))
+        {
+            case ReceiptOwnership.Owner:
+                break;
+            case ReceiptOwnership.OtherUser:
+                _logger.LogDebug("Request status refused: request {RequestId} belongs to another user", requestId);
+                return StatusCode(StatusCodes.Status403Forbidden);
+            case ReceiptOwnership.Unknown:
+                return LostTrack(requestId);
+            default:
+                throw new InvalidOperationException("Unknown receipt ownership");
+        }
+
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
@@ -402,9 +460,15 @@ public class JellywaveWebController : ControllerBase
         {
             var reply = await _stationClient.GetRequestStatusAsync(baseUrl, requestId, cancellationToken).ConfigureAwait(false);
             var body = reply.Body;
+            if (reply.StatusCode is >= StatusCodes.Status300MultipleChoices and < StatusCodes.Status400BadRequest)
+            {
+                // Not followed; the receipt stays, so a later poll can still reach the station.
+                return new RequestOutcome { RequestId = requestId, Status = "unavailable", Message = "The station did not answer." };
+            }
+
             if (reply.StatusCode == StatusCodes.Status404NotFound || body is null)
             {
-                return new RequestOutcome { RequestId = requestId, Status = "unknown", Message = "The station lost track of that request." };
+                return LostTrack(requestId);
             }
 
             var track = body.Track is null ? null : string.Join(" – ", new[] { body.Track.Artist, body.Track.Title }.Where(p => !string.IsNullOrWhiteSpace(p)));
@@ -516,6 +580,9 @@ public class JellywaveWebController : ControllerBase
         return response;
     }
 
+    private static RequestOutcome LostTrack(string requestId)
+        => new() { RequestId = requestId, Status = "unknown", Message = "The station lost track of that request." };
+
     private static LikeOutcome MapLike(StationReply<LikeStatus> reply)
     {
         var body = reply.Body;
@@ -530,7 +597,8 @@ public class JellywaveWebController : ControllerBase
             SongId = StationClient.IsValidId(body?.SongId) ? body!.SongId : null,
             Liked = body?.Liked == true,
             Count = body?.Count ?? 0,
-            Message = reply.StatusCode >= StatusCodes.Status400BadRequest ? (body?.Error ?? "The station did not take the like.") : null,
+            // A redirect (3xx) is not followed and its body is not read: it shows as a refusal, never as a like.
+            Message = reply.StatusCode >= StatusCodes.Status300MultipleChoices ? (body?.Error ?? "The station did not take the like.") : null,
             RetryAfterSeconds = body?.RetryAfter
         };
     }
@@ -562,6 +630,23 @@ public class JellywaveWebController : ControllerBase
 
     private static string Collapse(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    /// <summary>
+    /// The caller's user id, left by <see cref="StationAccessAttribute"/>. Throws when the filter did not run,
+    /// so an action that forgot the attribute fails instead of serving an unchecked caller.
+    /// </summary>
+    private Guid CallerId()
+        => HttpContext.Items.TryGetValue(StationAccess.UserIdItem, out var value) && value is Guid id
+            ? id
+            : throw new InvalidOperationException("The station access filter did not run for this action.");
+
+    /// <summary>
+    /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
+    /// </summary>
+    private Channel CallerChannel()
+        => HttpContext.Items.TryGetValue(StationAccess.ChannelItem, out var value) && value is Channel channel
+            ? channel
+            : throw new InvalidOperationException("The station access filter did not run for this action.");
 
     private IActionResult Asset(string resource, string contentType)
     {

@@ -3,6 +3,7 @@
 #   scripts/update-manifest.sh <version> [changelog] [timestamp]
 # Reads dist/Jellywave_<version>.zip for the checksum (uppercase MD5, as Jellyfin expects).
 # REPO_SLUG (default b3p3k0/jellywave) builds the GitHub release sourceUrl.
+# TARGET_ABI overrides build.yaml's (the release workflow passes the one from the zip's meta.json).
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 
@@ -21,7 +22,7 @@ jq -e 'type == "array" and length >= 1 and (.[0].versions | type == "array")' "$
 CHECKSUM="$(md5sum "$ZIP" | awk '{print toupper($1)}')"
 SOURCE_URL="https://github.com/$REPO_SLUG/releases/download/v$VERSION/${NAME}_${VERSION}.zip"
 
-jq --arg version "$VERSION" --arg changelog "$CHANGELOG" --arg targetAbi "$(yaml_get targetAbi)" \
+jq --arg version "$VERSION" --arg changelog "$CHANGELOG" --arg targetAbi "${TARGET_ABI:-$(yaml_get targetAbi)}" \
    --arg sourceUrl "$SOURCE_URL" --arg checksum "$CHECKSUM" --arg timestamp "$TIMESTAMP" '
   .[0].versions = (
     [ .[0].versions[] | select(.version != $version) ]

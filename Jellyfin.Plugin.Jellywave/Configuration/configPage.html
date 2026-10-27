@@ -14,7 +14,8 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
                             <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
-                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash.</div>
+                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash, credentials, query or fragment.</div>
+                            <div class="fieldDescription" id="stationUrlWarning" style="display:none"></div>
                         </div>
                         <div class="inputContainer">
                             <button is="emby-button" type="button" id="btnProbe" class="raised block emby-button"><span>Fetch from station</span></button>
@@ -23,7 +24,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
                             <input id="StationName" name="StationName" type="text" is="emby-input" required />
-                            <div class="fieldDescription">Shown in My Media. Renaming creates a new channel entry; the old one is cleaned up by the "Refresh Internet Channels" task.</div>
+                            <div class="fieldDescription">Shown in My Media. Jellyfin derives the channel id from this name, so pick one no other channel plugin uses. Renaming creates a new channel entry: access granted to the old one does not carry over, and the old one is cleaned up by the "Refresh Internet Channels" task.</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationTagline">Description</label>
@@ -74,7 +75,7 @@
                                 <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
                                 <span>Show the current track on the live item</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description, and the track as its album line. Clients show it when they reload the list or start playback.</div>
+                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description. Clients show it when they reload the list or start playback; the playing bar keeps what it copied at playback start unless the station page below is active.</div>
                         </div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -96,21 +97,16 @@
 
                     <div class="verticalSection">
                         <h2 class="sectionTitle">Who can see it</h2>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="GrantAccessToAllUsers" name="GrantAccessToAllUsers" type="checkbox" is="emby-checkbox" />
-                                <span>Make the station visible to every user</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                Jellyfin shows a channel only to users whose policy allows all channels or lists this one.
-                                With this on, the plugin adds this channel to each user's channel list: now, at startup, and whenever a user is created or a user's policy is saved.
-                                It never changes anything else in a user's policy, and users with an explicit block list stay blocked.
-                                Turning it off stops future grants and removes nothing. While it is on, un-ticking this channel on one user's policy is undone on save; to exclude a user, put the channel in that user's block list.
-                            </div>
+                        <div class="fieldDescription">
+                            Jellyfin's own Channel Access setting on each user (Dashboard → Users → user → Access) decides who sees the station.
+                            The button below adds the station to everyone who cannot see it right now, including anyone you unticked earlier; after pressing, untick those users again.
+                            It never removes the station from anyone, changes nothing else in a user's policy, and skips users whose block list names the station.
+                            New users do not get it automatically. The dashboard's Add User page leaves "Enable access to all channels" unticked, so tick that or the station on the form; for users from a provisioning tool, include the station in the tool's template; or press the button again.
+                            To hide the station from one user, untick it on their Access page. Nothing in the background re-adds it, but the next press of the button does.
                         </div>
                         <div class="inputContainer">
-                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Run now</span></button>
-                            <div class="fieldDescription" id="grantResult">Save first; the pass also runs automatically after saving with the box ticked.</div>
+                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Add the station to every user now</span></button>
+                            <div class="fieldDescription" id="grantResult">Save the station settings first.</div>
                         </div>
                     </div>
 
@@ -118,8 +114,9 @@
                         <h2 class="sectionTitle">Station page</h2>
                         <div class="fieldDescription">
                             Optional. With the <a is="emby-linkbutton" class="button-link" href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener noreferrer">File Transformation</a>
-                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), every signed-in user gets a station entry in the
-                            web client's menu, Android app included: cover, track, DJ, show, what is next, play and stop. Without it the tile keeps working; only the page is missing.
+                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), users who can see the channel get a live header on the
+                            channel's page in the web client, Android app included: cover, track, DJ, show, what is next, play and stop, and a request box. Without it the tile keeps working; only the page is missing.
+                            As of 2026-10-27 that repository offers no File Transformation build to Jellyfin 12.3 servers (its newest entry targets 12.2), so it does not show in the catalog here.
                         </div>
                         <div class="fieldDescription" id="webUiStatus">Checking…</div>
                     </div>
@@ -146,13 +143,11 @@
                     fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
                     el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
                     el('CoverArtEnabled').checked = config.CoverArtEnabled !== false;
-                    el('GrantAccessToAllUsers').checked = !!config.GrantAccessToAllUsers;
                 }
 
                 function describeGrant(r) {
                     if (r.Error) { return 'Nothing done: ' + r.Error + '.'; }
-                    if (!r.Enabled) { return 'Nothing done: the setting is off, or the channel does not exist yet (set the station URL and save).'; }
-                    return 'Granted to ' + r.Granted + ' user(s) just now; ' + r.AlreadyVisible + ' could already see it; ' + r.Blocked + ' blocked by an explicit block list.';
+                    return 'Done: granted ' + r.Granted + ', already visible ' + r.AlreadyVisible + ', blocked by a block list ' + r.Blocked + '.';
                 }
 
                 function runGrant(out) {
@@ -177,7 +172,6 @@
                     config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
                     config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
                     config.CoverArtEnabled = el('CoverArtEnabled').checked;
-                    config.GrantAccessToAllUsers = el('GrantAccessToAllUsers').checked;
                     config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
                     config.LastChangedUtc = new Date().toISOString();
                     return config;
@@ -208,14 +202,18 @@
                     var out = el('pollerHealth');
                     ApiClient.getJSON(ApiClient.getUrl('Jellywave/Health')).then(function (h) {
                         var parts = [];
-                        if (!h.StationConfigured) { parts.push('no station URL configured'); }
+                        var warn = el('stationUrlWarning');
+                        warn.textContent = h.StationUrlRefusal ? 'Warning: the saved ' + h.StationUrlStatus + '. The station is not used until this is fixed.' : '';
+                        warn.style.display = h.StationUrlRefusal ? '' : 'none';
+                        if (!h.StationConfigured) { parts.push(h.StationUrlStatus || 'no station URL configured'); }
                         else if (!h.PollingEnabled) { parts.push('polling is off'); }
                         else if (!h.Running) { parts.push('poller not running (starts after server startup)'); }
                         else if (h.Reachable === null || h.Reachable === undefined) { parts.push('waiting for the first poll'); }
                         else { parts.push(h.Reachable ? 'station reachable' : 'station NOT reachable'); }
                         parts.push('last success ' + ago(h.LastSuccessUtc));
                         if (h.LastErrorUtc) { parts.push('last error ' + ago(h.LastErrorUtc) + (h.LastError ? ': ' + h.LastError : '')); }
-                        parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)');
+                        if (h.ChannelStatus) { parts.push(h.ChannelStatus + ' (change the tile name; nothing is written or granted until then)'); }
+                        else { parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)'); }
                         out.textContent = 'Poller status: ' + parts.join(' · ');
                     }).catch(function () { out.textContent = 'Poller status: unavailable.'; });
                 }
@@ -227,7 +225,7 @@
                     if (!baseUrl) { out.textContent = 'Enter the station base URL first.'; return; }
                     out.textContent = 'Contacting the station from the server…';
                     ApiClient.getJSON(ApiClient.getUrl('Jellywave/Station', { baseUrl: baseUrl })).then(function (r) {
-                        if (!r.Ok) { out.textContent = 'Station did not answer: ' + (r.Error || 'unknown error'); return; }
+                        if (!r.Ok) { out.textContent = 'Station probe failed: ' + (r.Error || 'unknown error') + '.'; return; }
                         if (r.Name) { el('StationName').value = r.Name; }
                         if (r.Tagline) { el('StationTagline').value = r.Tagline; }
                         if (r.StreamMount) { el('StreamPath').value = r.StreamMount; }
@@ -241,6 +239,7 @@
                         if (r.NowPlaying) { notes.push('now playing: ' + r.NowPlaying); }
                         out.textContent = 'Fetched "' + (r.Name || '?') + '": ' + notes.join('; ') + '. Save to apply.';
                     }).catch(function (e) {
+                        if (e && e.status === 400) { out.textContent = 'The station base URL must be an absolute http(s) URL without credentials, a query or a fragment.'; return; }
                         out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
                     });
                 });
@@ -254,7 +253,7 @@
                         var updated = collect(config);
                         ApiClient.updatePluginConfiguration(pluginId, updated).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
-                            if (updated.GrantAccessToAllUsers) { runGrant(el('grantResult')); }
+                            loadHealth();   // shows a refused URL right after saving; the save itself is never blocked
                         });
                     });
                     return false;

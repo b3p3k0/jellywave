@@ -61,7 +61,7 @@ public class LiveItemArtworkTests
         {
             Handler.Respond = _ =>
             {
-                var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([9, 9, 9]) };
+                var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(ImageFixtures.For(mime)) };
                 r.Content.Headers.ContentType = new MediaTypeHeaderValue(mime);
                 return r;
             };

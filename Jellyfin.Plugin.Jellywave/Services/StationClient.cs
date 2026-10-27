@@ -1,20 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using MediaBrowser.Common.Net;
 
 namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
-/// Reads SUB/WAVE's public JSON endpoints (no credentials involved).
+/// Reads SUB/WAVE's public JSON endpoints (no credentials involved). Every call goes through the plugin's own named
+/// client (<see cref="HttpClientName"/>), which never follows a redirect: a 3xx is the station's answer, not a hop.
 /// </summary>
 public class StationClient
 {
+    /// <summary>
+    /// The named <see cref="HttpClient"/> registered by <see cref="PluginServiceRegistrator"/>, with redirects off.
+    /// </summary>
+    public const string HttpClientName = "Jellywave";
+
     /// <summary>
     /// Largest body accepted. The feeds are a few KB; anything bigger is not a SUB/WAVE answer.
     /// </summary>
@@ -31,9 +37,9 @@ public class StationClient
     private const int MaxIdLength = 64;
 
     /// <summary>
-    /// Cover media types saved as the item's image; Jellyfin's image processor decodes these.
+    /// Prefix a declared image content type must have; the type itself comes from <see cref="ImageSniffer"/>.
     /// </summary>
-    private static readonly string[] AcceptedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    private const string ImageTypePrefix = "image/";
 
     /// <summary>
     /// Whole-request budget (connect, headers and body) per call.
@@ -82,8 +88,9 @@ public class StationClient
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>
     /// The image, or null when the track has no usable art: the station answers 502 with an empty body when it has none,
-    /// and an unknown id, a non-success status, a media type outside <see cref="AcceptedImageTypes"/>, an empty body or a
-    /// declared length over the cap count the same way. A missing content type is taken as JPEG, the station's default.
+    /// and an unknown id, a non-success status (a redirect included), a declared type that is set but not
+    /// <c>image/*</c>, a declared length over the cap, or bytes that <see cref="ImageSniffer"/> does not accept (unknown
+    /// type, oversize dimensions, empty) count the same way. The media type is the sniffed one, never the declared one.
     /// Transport failures (timeouts, a chunked body that overruns the cap) throw and are retried by the caller.
     /// </returns>
     public Task<StationImage?> GetCoverAsync(Uri baseUrl, string coverId, CancellationToken cancellationToken)
@@ -95,7 +102,7 @@ public class StationClient
     /// <param name="baseUrl">The station base URL with a trailing slash.</param>
     /// <param name="personaId">The persona id (3 to 32 characters of lowercase letters, digits and underscore).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The image, or null when the id is invalid or the answer is unusable.</returns>
+    /// <returns>The image, or null when the id is invalid or the answer is unusable (the same rules as covers).</returns>
     public Task<StationImage?> GetAvatarAsync(Uri baseUrl, string personaId, CancellationToken cancellationToken)
         => IsValidId(personaId) ? GetImageAsync(baseUrl, "api/persona-avatar/" + personaId, cancellationToken) : Task.FromResult<StationImage?>(null);
 
@@ -107,11 +114,9 @@ public class StationClient
     /// <returns>The status code and body.</returns>
     public async Task<StationReply<LikeStatus>> GetLikeAsync(Uri baseUrl, CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
         using var response = await client.GetAsync(new Uri(baseUrl, "api/like"), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
-        return new StationReply<LikeStatus>((int)response.StatusCode, await ReadBodyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false));
+        return await ReadReplyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -123,12 +128,10 @@ public class StationClient
     /// <returns>The status code and body.</returns>
     public async Task<StationReply<LikeStatus>> PostLikeAsync(Uri baseUrl, string songId, CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
         using var content = JsonContent.Create(new Dictionary<string, string> { ["songId"] = songId }, options: JsonOptions);
         using var response = await client.PostAsync(new Uri(baseUrl, "api/like"), content, cancellationToken).ConfigureAwait(false);
-        return new StationReply<LikeStatus>((int)response.StatusCode, await ReadBodyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false));
+        return await ReadReplyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -156,18 +159,14 @@ public class StationClient
             return new StationReply<LyricsPayload>(400, null);
         }
 
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
         using var response = await client.GetAsync(new Uri(baseUrl, "api/lyrics/current?songId=" + Uri.EscapeDataString(songId)), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
-        return new StationReply<LyricsPayload>((int)response.StatusCode, await ReadBodyAsync<LyricsPayload>(response, cancellationToken).ConfigureAwait(false));
+        return await ReadReplyAsync<LyricsPayload>(response, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<StationImage?> GetImageAsync(Uri baseUrl, string relativePath, CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxImageBytes;
+        using var client = CreateClient(MaxImageBytes);
 
         // Headers first: a declared oversize or a wrong type is "no art", decided without reading the body.
         using var response = await client.GetAsync(new Uri(baseUrl, relativePath), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -176,8 +175,9 @@ public class StationClient
             return null;
         }
 
-        var mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-        if (Array.IndexOf(AcceptedImageTypes, mimeType.ToLowerInvariant()) < 0)
+        // The declared type only has to look like an image (or be missing); the bytes decide which one it is.
+        var declaredType = response.Content.Headers.ContentType?.MediaType;
+        if (declaredType is not null && !declaredType.StartsWith(ImageTypePrefix, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -194,7 +194,7 @@ public class StationClient
         timeout.CancelAfter(RequestTimeout);
         await response.Content.LoadIntoBufferAsync(MaxImageBytes, timeout.Token).ConfigureAwait(false);
         var bytes = await response.Content.ReadAsByteArrayAsync(timeout.Token).ConfigureAwait(false);
-        return bytes.Length == 0 ? null : new StationImage(mimeType, bytes);
+        return ImageSniffer.TryAccept(bytes, out var mimeType) ? new StationImage(mimeType, bytes) : null;
     }
 
     /// <summary>
@@ -233,12 +233,10 @@ public class StationClient
     /// <returns>The status code and the parsed body.</returns>
     public async Task<StationReply<RequestReceipt>> SubmitRequestAsync(Uri baseUrl, string text, string name, CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
         using var content = JsonContent.Create(new Dictionary<string, string> { ["text"] = text, ["name"] = name }, options: JsonOptions);
         using var response = await client.PostAsync(new Uri(baseUrl, "api/request"), content, cancellationToken).ConfigureAwait(false);
-        return new StationReply<RequestReceipt>((int)response.StatusCode, await ReadBodyAsync<RequestReceipt>(response, cancellationToken).ConfigureAwait(false));
+        return await ReadReplyAsync<RequestReceipt>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -255,12 +253,25 @@ public class StationClient
             return new StationReply<RequestStatus>(404, null);
         }
 
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
         using var response = await client.GetAsync(new Uri(baseUrl, "api/request/" + requestId), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
-        return new StationReply<RequestStatus>((int)response.StatusCode, await ReadBodyAsync<RequestStatus>(response, cancellationToken).ConfigureAwait(false));
+        return await ReadReplyAsync<RequestStatus>(response, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The status and body of a station answer. A redirect's body is not the station's answer and is not read, so
+    /// the callers see only the 3xx status and map it to unavailable or refused.
+    /// </summary>
+    private static async Task<StationReply<T>> ReadReplyAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
+        where T : class
+    {
+        var status = (int)response.StatusCode;
+        var body = IsRedirect(response.StatusCode) ? null : await ReadBodyAsync<T>(response, cancellationToken).ConfigureAwait(false);
+        return new StationReply<T>(status, body);
+    }
+
+    private static bool IsRedirect(HttpStatusCode status)
+        => (int)status is >= 300 and < 400;
 
     private static async Task<T?> ReadBodyAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
         where T : class
@@ -278,14 +289,31 @@ public class StationClient
     private async Task<T?> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken)
         where T : class
     {
-        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
-        client.Timeout = RequestTimeout;
-        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var client = CreateClient(MaxResponseBytes);
 
         // ResponseContentRead (the default) makes Timeout cover the body as well as the headers,
         // and MaxResponseContentBufferSize rejects oversized bodies before they are buffered.
         using var response = await client.GetAsync(url, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        if (IsRedirect(response.StatusCode))
+        {
+            var location = response.Headers.Location;
+            throw new StationRedirectException(response.StatusCode, location is null ? null : new Uri(url, location));
+        }
+
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Creates the plugin's named client (redirects off) with the per-call budget and body cap.
+    /// </summary>
+    /// <param name="maxResponseBytes">Largest body buffered.</param>
+    /// <returns>The client; dispose it when done.</returns>
+    private HttpClient CreateClient(long maxResponseBytes)
+    {
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = maxResponseBytes;
+        return client;
     }
 }

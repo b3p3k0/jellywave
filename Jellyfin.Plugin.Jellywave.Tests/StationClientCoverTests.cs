@@ -12,6 +12,7 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 public class StationClientCoverTests
 {
     private static readonly Uri Base = new("http://station.example/");
+    private static readonly byte[] Png = ImageFixtures.Png(ImageFixtures.CoverSide, ImageFixtures.CoverSide);
 
     private sealed class StubHandler : HttpMessageHandler
     {
@@ -61,21 +62,53 @@ public class StationClientCoverTests
         var (client, handler) = Client(r =>
         {
             Assert.Equal("http://station.example/api/cover/abc-123", r.RequestUri!.ToString());
-            return Response(HttpStatusCode.OK, [1, 2, 3], "image/png");
+            return Response(HttpStatusCode.OK, Png, "image/png");
         });
         var image = await client.GetCoverAsync(Base, "abc-123", CancellationToken.None);
         Assert.NotNull(image);
         Assert.Equal("image/png", image.MimeType);
-        Assert.Equal(3, image.Length);
+        Assert.Equal(Png.Length, image.Length);
         Assert.Equal(1, handler.Requests);
     }
 
     [Fact]
-    public async Task Missing_content_type_is_taken_as_jpeg()
+    public async Task Missing_content_type_uses_the_sniffed_type()
     {
-        var (client, _) = Client(_ => Response(HttpStatusCode.OK, [1], mime: null));
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, Png, mime: null));
         var image = await client.GetCoverAsync(Base, "x", CancellationToken.None);
-        Assert.Equal("image/jpeg", image!.MimeType);
+        Assert.Equal("image/png", image!.MimeType);
+    }
+
+    [Fact]
+    public async Task Missing_content_type_is_no_longer_assumed_to_be_jpeg()
+    {
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, [1, 2, 3], mime: null));
+        Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_declared_type_that_disagrees_with_the_bytes_loses_to_the_bytes()
+    {
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, ImageFixtures.Gif(64, 64), "image/jpeg"));
+        var image = await client.GetCoverAsync(Base, "x", CancellationToken.None);
+        Assert.Equal("image/gif", image!.MimeType);
+    }
+
+    [Fact]
+    public async Task Oversize_dimensions_count_as_no_art()
+    {
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, ImageFixtures.Png(ImageSniffer.MaxImageDimension + 1, 16), "image/png"));
+        Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Avatars_are_sniffed_too()
+    {
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, [0x3C, 0x73, 0x76, 0x67], "image/png"));
+        Assert.Null(await client.GetAvatarAsync(Base, "dj_one", CancellationToken.None));
+
+        (client, _) = Client(_ => Response(HttpStatusCode.OK, Png, "image/jpeg"));
+        Assert.Equal("image/png", (await client.GetAvatarAsync(Base, "dj_one", CancellationToken.None))!.MimeType);
     }
 
     [Fact]
@@ -87,11 +120,18 @@ public class StationClientCoverTests
 
     [Theory]
     [InlineData("text/html")]
-    [InlineData("image/svg+xml")]
     [InlineData("application/octet-stream")]
-    public async Task Types_outside_the_allowlist_count_as_no_art(string mime)
+    public async Task A_declared_type_outside_image_counts_as_no_art_even_with_image_bytes(string mime)
     {
-        var (client, _) = Client(_ => Response(HttpStatusCode.OK, [1, 2], mime));
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, Png, mime));
+        Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task An_image_type_the_sniffer_does_not_know_counts_as_no_art()
+    {
+        var svg = System.Text.Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, svg, "image/svg+xml"));
         Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
     }
 
@@ -105,7 +145,7 @@ public class StationClientCoverTests
     [Fact]
     public async Task Declared_oversize_counts_as_no_art_without_reading_the_body()
     {
-        var (client, _) = Client(_ => Response(HttpStatusCode.OK, [1], declaredLength: 5L * 1024 * 1024));
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, Png, declaredLength: 5L * 1024 * 1024));
         Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
     }
 

@@ -19,4 +19,7 @@ public sealed class PollerHealthSnapshot
 
     /// <summary>Gets or sets the last failure's message.</summary>
     public string? LastError { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the last poll found the channel name colliding with another plugin's channel.</summary>
+    public bool NameCollision { get; set; }
 }

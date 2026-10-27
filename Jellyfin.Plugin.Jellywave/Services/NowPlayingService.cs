@@ -291,7 +291,16 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
         }
 
-        var channel = _finder.FindChannel(config);
+        // A collision withholds the entity (it may be another plugin's channel), so nothing below is written.
+        var resolution = _finder.Resolve(config);
+        _health.SetNameCollision(resolution.Collides);
+        var channel = resolution.Channel;
+        if (resolution.Collides)
+        {
+            _logger.LogDebug("Channel name collides with another plugin's channel; nothing to update");
+            return;
+        }
+
         if (channel is null)
         {
             _logger.LogDebug("Channel entity not created yet; nothing to update");

@@ -14,17 +14,25 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// Makes the station visible to users by adding the plugin's channel id to their
 /// <see cref="PreferenceKind.EnabledChannels"/> preference. That is the only policy field ever written:
 /// <see cref="PermissionKind.EnableAllChannels"/> is never set, other channels are never added or removed,
-/// and <see cref="PreferenceKind.BlockedChannels"/> is respected (an explicit block wins).
-/// Each user is re-read immediately before it is written, so a pass never saves a stale copy over a
-/// concurrent edit.
+/// and <see cref="PreferenceKind.BlockedChannels"/> is respected (an explicit block wins). Nothing is ever removed.
+/// Runs only when an administrator asks (<c>POST /Jellywave/GrantAccess</c>); there is no background writer, so an
+/// admin who takes the channel away from a user is never overruled (card 15b). One gate serializes the passes, and
+/// each user is re-read under it immediately before it is written, so two presses never save a stale copy over each
+/// other. A dashboard save between that read and the write can still be lost; accepted (DESIGN.md).
 /// </summary>
-public sealed class AccessGranter
+public sealed class AccessGranter : IDisposable
 {
+    /// <summary>The <see cref="GrantResult.Error"/> text when the plugin configuration is not loaded.</summary>
+    public const string NotReadyError = "the plugin is not ready yet";
+
+    /// <summary>The <see cref="GrantResult.Error"/> text when the channel entity does not exist.</summary>
+    public const string MissingChannelError = "the channel does not exist yet (set the station URL and save)";
+
     private readonly IUserStore _users;
     private readonly IChannelLocator _channels;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly ILogger<AccessGranter> _logger;
-    private bool _missingChannelLogged;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AccessGranter"/> class (DI constructor).
@@ -111,19 +119,38 @@ public sealed class AccessGranter
     }
 
     /// <summary>
-    /// Grants access to every user who needs it, when the setting is on.
+    /// Grants access once to every user who cannot see the channel yet. Serialized: a second call waits for the first.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Counts for the run; <see cref="GrantResult.Enabled"/> false when the setting is off or the channel is unknown.</returns>
+    /// <returns>
+    /// Counts for the run, or <see cref="GrantResult.Error"/> set (and nothing written) when the plugin is not ready,
+    /// the channel does not exist yet, or its name collides with another plugin's channel.
+    /// </returns>
     public async Task<GrantResult> GrantAllAsync(CancellationToken cancellationToken)
     {
-        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GrantAllUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _gate.Dispose();
+
+    private async Task<GrantResult> GrantAllUnderGateAsync(CancellationToken cancellationToken)
+    {
+        var (channelId, error) = await ChannelIdAsync(cancellationToken).ConfigureAwait(false);
         if (channelId is null)
         {
-            return GrantResult.Disabled;
+            return new GrantResult { Error = error };
         }
 
-        var result = new GrantResult { Enabled = true };
+        var result = new GrantResult();
         foreach (var id in _users.UserIds().ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -160,58 +187,31 @@ public sealed class AccessGranter
     }
 
     /// <summary>
-    /// Grants access to one user (created or updated hooks), when the setting is on. The user is re-read by id.
+    /// The channel id to grant, or null with the reason: the configuration is not loaded, the entity is missing, or
+    /// the name collides with another plugin's channel (then nothing is granted, because the id may be the other
+    /// plugin's channel; the finder logs that once per streak at Warning).
     /// </summary>
-    /// <param name="userId">The user id.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>True when a grant was written.</returns>
-    public async Task<bool> GrantAsync(Guid userId, CancellationToken cancellationToken)
-    {
-        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
-        if (channelId is null)
-        {
-            return false;
-        }
-
-        var user = _users.GetUser(userId);
-        if (user is null || Classify(user, channelId.Value) != Standing.NeedsGrant)
-        {
-            return false;
-        }
-
-        AddToEnabledChannels(user, channelId.Value);
-        await _users.SaveAsync(user).ConfigureAwait(false);
-        _logger.LogInformation("Channel access granted to one user after a create or policy update");
-        return true;
-    }
-
-    private async Task<Guid?> ChannelIdIfEnabledAsync(CancellationToken cancellationToken)
+    private async Task<(Guid? ChannelId, string? Error)> ChannelIdAsync(CancellationToken cancellationToken)
     {
         var config = _configuration();
-        if (config is null || !config.GrantAccessToAllUsers)
+        if (config is null)
         {
-            return null;
+            return (null, NotReadyError);
         }
 
-        var channelId = await _channels.FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
-        if (channelId is null)
+        var resolution = await _channels.LocateAsync(config, cancellationToken).ConfigureAwait(false);
+        if (resolution.Collides)
         {
-            // Once per process at Warning; every user event afterwards would repeat the same advice.
-            if (!_missingChannelLogged)
-            {
-                _missingChannelLogged = true;
-                _logger.LogWarning("Cannot grant channel access: the channel entity does not exist yet (is the station URL configured?)");
-            }
-            else
-            {
-                _logger.LogDebug("Channel access skipped: the channel entity still does not exist");
-            }
-        }
-        else
-        {
-            _missingChannelLogged = false;
+            _logger.LogInformation("Channel access run skipped: the channel name collides with another plugin's channel");
+            return (null, ChannelResolution.CollisionStatus);
         }
 
-        return channelId;
+        if (resolution.Channel is null)
+        {
+            _logger.LogInformation("Channel access run skipped: the channel entity does not exist yet (is the station URL configured?)");
+            return (null, MissingChannelError);
+        }
+
+        return (resolution.Channel.Id, null);
     }
 }

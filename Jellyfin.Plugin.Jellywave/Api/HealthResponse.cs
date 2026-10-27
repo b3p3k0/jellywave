@@ -11,6 +11,24 @@ public sealed class HealthResponse
     /// <summary>Gets or sets a value indicating whether a station base URL is configured.</summary>
     public bool StationConfigured { get; set; }
 
+    /// <summary>
+    /// Gets or sets why a non-empty station base URL is refused (a fixed sentence, never part of the value), or null
+    /// when the URL is usable or blank.
+    /// </summary>
+    public string? StationUrlRefusal { get; set; }
+
+    /// <summary>
+    /// Gets or sets the status line's station part when the URL is not usable: "no station URL configured" or
+    /// "station URL is set but not allowed: …"; null when it is usable.
+    /// </summary>
+    public string? StationUrlStatus { get; set; }
+
+    /// <summary>
+    /// Gets or sets the status line's channel part when the channel name collides with another plugin's channel
+    /// ("channel name collides with another plugin's channel"), resolved when the health is read; null otherwise.
+    /// </summary>
+    public string? ChannelStatus { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the poll loop is running.</summary>
     public bool Running { get; set; }
 

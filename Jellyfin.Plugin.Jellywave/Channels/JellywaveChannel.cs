@@ -114,7 +114,13 @@ public class JellywaveChannel : IChannel
 
         if (!StationUrls.TryGetServerStreamUrl(config, out var serverUrl) || serverUrl is null)
         {
-            _logger.LogWarning("Station base URL or stream path is not configured, not http(s), or the path escapes the base URL; the channel has no items until Dashboard > Plugins > Jellywave is set");
+            if (StationUrls.BaseUrlRefusal(config.StationBaseUrl) is { } refusal)
+            {
+                _logger.LogWarning("Station base URL is set but not allowed: {Reason}; the channel has no items until Dashboard > Plugins > Jellywave is fixed", refusal);
+                return Task.FromResult(new ChannelItemResult { Items = [], TotalRecordCount = 0 });
+            }
+
+            _logger.LogWarning("Station base URL or stream path is not configured, not http(s), carries credentials, a query or a fragment, or the path leaves the base URL; the channel has no items until Dashboard > Plugins > Jellywave is set");
             return Task.FromResult(new ChannelItemResult { Items = [], TotalRecordCount = 0 });
         }
 
@@ -203,7 +209,7 @@ public class JellywaveChannel : IChannel
 
         if (StationUrls.HasClientStreamUrl(config))
         {
-            _logger.LogWarning("Client stream URL is set but is not an absolute http(s) URL; Direct mode is using the server URL instead");
+            _logger.LogWarning("Client stream URL is set but is not an absolute http(s) URL without credentials; Direct mode is using the server URL instead");
         }
 
         return serverUrl;

@@ -1,7 +1,8 @@
 # Jellywave design
 
 How the plugin works, what it relies on in Jellyfin, and why it is shaped this way.
-Written against Jellyfin 12.3; file references are to the Jellyfin server source.
+Written against Jellyfin 12.3; file references are to the Jellyfin server source. Trust boundaries
+and accepted risks are collected in [`THREAT-MODEL.md`](THREAT-MODEL.md).
 
 ## The tile
 
@@ -17,9 +18,51 @@ Without that line the plugin loads but no tile appears.
 
 The channel's internal id is derived from its name (`ChannelManager.GetInternalChannelId`),
 which is why renaming the tile creates a new channel; the "Refresh Internet Channels"
-scheduled task removes channels whose plugin no longer reports them.
+scheduled task removes channels whose plugin no longer reports them. See "Channel identity".
 
 The tile image is the embedded `Assets/logo.png`, served through `IChannel.GetChannelImage`.
+
+## Channel identity (card 15)
+
+Jellyfin has no identity for a channel other than its name. `ChannelManager.GetInternalChannelId(name)`
+is `ILibraryManager.GetNewItemId("Channel " + name, typeof(Channel))`, and `LibraryManager.GetNewItemId`
+lowercases the key unless `EnableCaseSensitiveItemIds` is on (the 12.3 default), then hashes the type's
+full name plus the key (MD5). So whether `SUB/WAVE` and `sub/wave` are one channel is a server setting.
+
+`LiveItemFinder.Resolve` computes the same id through the same call and loads it with `GetItemById`;
+only a `Channel` counts. There is no name scan any more: the old case-insensitive scan over every
+channel entity could return an entity that is not the one Jellyfin serves for the name.
+`LibraryChannelLocator` (the granter's lookup) uses the finder, creates a missing entity through
+`IChannelManager.GetChannelsInternalAsync` when the station is configured, then resolves by id again.
+
+**Collisions.** `ChannelManager` maps an entity back to its provider with
+`Channels.FirstOrDefault(i => GetInternalChannelId(i.Name) == id)`, so two `IChannel`s whose names derive
+one id share one entity: it is listed once per provider, keeps the name of whichever created it, and the
+first provider serves its items. The finder compares the id of every other registered `IChannel`
+(`IEnumerable<IChannel>` from DI, `JellywaveChannel` excluded) with ours. Comparing derived ids, not
+names, applies the server's case rule exactly. The list is resolved from `IServiceProvider` on first
+use: `JellywaveChannel` itself is one of them. Its constructor needs only a logger and
+`NowPlayingState`, so there is no cycle today, but building every plugin's channel while the finder is
+constructed would be out of order.
+
+On a collision the resolution carries no entity, so every consumer fails closed:
+
+- The poller writes nothing to the live item (no overview, no image) and sets `PollerHealth`'s collision
+  flag. `GET /Jellywave/Health` resolves the channel itself when read, so a rename shows at once, and sets
+  `ChannelStatus` = "channel name collides with another plugin's channel", which the configuration page
+  shows in the status line (as text).
+- The granter grants nothing; a pass returns that sentence as `Error`, and the page shows
+  "Nothing done: …".
+- `StationAccess` refuses with `NameCollision`, which the filter answers with 404, like a missing channel:
+  the station has no channel of its own to serve, and a rename by the admin ends it.
+- One Warning per streak names both channels and the id; one Information line when it clears.
+
+Accepted: the id stays name-derived (Jellyfin's API), so a plugin installed later with the same name
+starts a collision. The README asks for a unique tile name and says that renaming changes the id, so
+grants (and block lists) naming the old id do not apply to the new one.
+
+`scripts/verify-jellyfin.sh` selects the channel by exact name (`JELLYWAVE_CHANNEL`, default
+`SUB/WAVE`) and fails when it is missing or listed more than once.
 
 ## The live item
 
@@ -57,8 +100,11 @@ carry the server-side URL so ffmpeg still has a usable input if a client falls b
 transcoding. The web client's universal audio endpoint redirects the browser straight to
 `Path` in this mode.
 
-In both modes the station URLs are part of the playback info every signed-in user can
-fetch. SUB/WAVE streams are public by design; the plugin does not support listener auth.
+In both modes the station URLs are part of the live item's playback info, which Jellyfin's
+`Items/{id}/PlaybackInfo` returns to any signed-in user who can see the item (for a channel item that
+includes `Channel.IsVisible`) and to any API key; no playback permission is checked. In Direct mode
+the client then fetches the URL itself. The plugin's own station routes never return it. SUB/WAVE streams are public by design; the plugin does
+not support listener auth.
 
 ## Why the media source advertises a runtime
 
@@ -96,15 +142,17 @@ field differs), so a re-save by Jellyfin's own channel refresh, which can overwr
 from an older in-memory copy, is repaired on the next poll rather than the next track.
 Jellyfin does not raise the library-changed event for channel items, so nothing is pushed;
 clients show the new text and art on their next list load or playback start, and the
-playing bar keeps what it copied at playback start.
+playing bar keeps what it copied at playback start (the station page repaints it in the web
+client and the Android app; see "Station page").
 
 Not written, on purpose: `Album`. The playing bar would show it as its first line, but
 `Audio.GetUserDataKeys()` prefixes the item's user-data key with `Album`, and
 `UserDataManager.SaveUserData` writes one row per key and keeps rows under old keys, so a
 value that changes every track would leave an orphan user-data row per track and listener.
-`Name` and `AlbumArtists` are in the same key and are left alone for the same reason. The channel entity is looked up with a
-plain item query, not through the channel manager, because the latter creates channel
-entities on demand and the poller must not race Jellyfin's startup channel refresh.
+`Name` and `AlbumArtists` are in the same key and are left alone for the same reason. The channel
+entity is loaded by its derived id (`LiveItemFinder.Resolve`, see "Channel identity"), not through
+the channel manager, because the latter creates channel entities on demand and the poller must not
+race Jellyfin's startup channel refresh.
 
 Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
 channel item's `ImageUrl` only when it creates the item, so the poller saves the image
@@ -113,9 +161,9 @@ file under the item's metadata folder, deletes the previous one, and stamps the 
 `DateModified`, which is what the client-facing image tag hashes, so clients refetch. The
 station answers 502 with an empty body when a track has no art; then, and when cover art is
 off, polling is off, or the station is unreachable, the logo is saved instead so the item
-never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF (a missing content type
-counts as JPEG, the station's default) of at most 4 MB, judged from the headers before the
-body is read; anything else is "no art". The download happens before the item is looked up,
+never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF of at most 4 MB and at most
+4096 px a side, identified from their bytes (see "Outbound requests"); anything else is "no
+art". The download happens before the item is looked up,
 so the item is held for milliseconds. A transport failure (timeout, a chunked body over the
 cap) keeps the text update and is retried on the next poll; a failure to write the file is
 logged once per streak and the text still goes out. Because the item's parent is a `Channel`,
@@ -129,26 +177,61 @@ validator create a Music-library artist for every track the station plays.
 Failure handling: one warning when the station becomes unreachable, one info line when it
 answers again; the loop never throws; while unreachable or disabled the item falls back to
 the default overview. Clients show the text when they reload the list or start playback;
-the playing bar does not update mid-track.
+on standard clients the playing bar does not update mid-track (the station page's repaint is the
+only exception).
 
 ## Who can see the channel
 
 `Channel.IsVisible` (Jellyfin) shows a channel to a user when the user has a block list that does
 not name it, or, with no block list, when the user has `EnableAllChannels` or the channel in
-`EnabledChannels`. Administrators are not exempt. Provisioning tools often create users with none
-of these, so the plugin offers "Make the station visible to every user" (off by default).
+`EnabledChannels`. Administrators are not exempt. Server-side user creation turns
+`EnableAllChannels` on (the `AddDefaultPermissions` extension in `UserEntityExtensions`, called from
+`UserManager.CreateUserInternalAsync`), but jellyfin-web 12.3's Add User page
+(`src/apps/dashboard/routes/users/add.tsx`) leaves "Enable access to all channels" unticked and then
+posts the policy, so a user added in the dashboard cannot see the station; templates and provisioning
+tools often do the same. That per-user Channel Access setting is the only ongoing
+authority; the plugin never changes it on its own (card 15b).
 
-`AccessGranter.Classify` mirrors that rule exactly and `AddToEnabledChannels` writes the one
-channel id into `EnabledChannels`, persisted with `IUserManager.UpdateUserAsync`. Nothing else in
-the policy is touched; `EnableAllChannels` is never set; explicit blocks win. Passes run after core
-startup (`AccessGrantService`), after a save with the box ticked (`POST /Jellywave/GrantAccess`,
-admin only, also behind "Run now"), and on `UserCreatedEventArgs` and `UserUpdatedEventArgs` (the dashboard and provisioning tools
-post a policy right after creating a user, and `UpdatePolicyAsync` replaces the enabled-channel list;
-the plugin's own `UpdateUserAsync` saves publish no event, and a re-grant on a visible user writes
-nothing, so there is no loop). Each user is re-read by id immediately before it is written, because
-`GetUsers` hands out untracked snapshots and `UpdateUserAsync` saves the whole entity. Turning
-the setting off stops future passes and revokes nothing. One Information line per pass carries
-counts, never user names.
+For users who cannot see the station, the plugin page has a one-shot button, "Add the station to every
+user now", which calls `POST /Jellywave/GrantAccess` (admin only, `RequiresElevation`).
+`AccessGranter.GrantAllAsync` resolves the channel through `LibraryChannelLocator`, then walks every
+user: `Classify` mirrors `Channel.IsVisible` exactly, and for a user who needs it
+`AddToEnabledChannels` adds the one channel id to `EnabledChannels`, persisted with
+`IUserManager.UpdateUserAsync`. Nothing else in the policy is touched: `EnableAllChannels` is never
+set, no id is ever removed, and a user whose block list names the channel is skipped and counted.
+The result carries the counts (granted, already visible, blocked), or an `Error` and no writes when
+the configuration is not loaded, the channel entity does not exist yet, or its name collides
+(card 15). One Information line per press carries the counts, never user names.
+
+Nothing else writes a policy: no hosted startup pass, no user event consumer, no setting. Users created
+later see the station when the admin ticks "Enable access to all channels" or the station on the
+dashboard's Add User form, when the provisioning tool's template includes it, or after another press.
+An admin who unticks the station on a user's Access page is not overruled in the background, but the
+next press re-adds it: an unticked user looks the same as one never granted. Only a `BlockedChannels`
+entry survives a press, and jellyfin-web has no screen for it; the page tells the admin to untick
+those users again after pressing.
+
+Each user is re-read by id immediately before it is written, because `GetUsers` hands out untracked
+snapshots and `UpdateUserAsync` saves the whole entity. Presses are serialized (card 15): one
+`SemaphoreSlim` in `AccessGranter` (a DI singleton, disposed with the container) covers the channel
+lookup, every user read and every save, so a second press waits and then re-reads every user after the
+first has saved; the plugin never saves a stale copy over its own write. `UpdateUserAsync` publishes no
+event (`IUserStore.SaveAsync` must stay that way: an event consumer that called back into the granter
+under the gate would wait on it forever). Accepted: a dashboard policy save that lands between the
+plugin's read and its `UpdateUserAsync` (milliseconds, and only while a press is running) is
+overwritten, because `UpdateUserAsync` copies the whole entity and `IUserManager` has no partial
+update; the admin sees the old value on reload and saves again.
+
+**History.** 0.2.0.0 to 0.3.4.0 (card 6) had a setting, `GrantAccessToAllUsers`, that re-granted
+after core startup (`AccessGrantService`), after every configuration save, and on
+`UserCreatedEventArgs` and `UserUpdatedEventArgs` (`UserCreatedConsumer`, `UserUpdatedConsumer`),
+because creation flows post a policy right after creating the user and that replaces the enabled
+list. The 0.4.0.0 host test showed the cost: Jellyfin's policy save publishes `UserUpdated`, so an
+admin who unticked the station for one user saw it re-added within milliseconds, and the startup pass
+would re-add it after every restart. A background writer must never undo the policy owner's explicit
+choice, so card 15b removed the setting and all three writers; HI traded the always-on shortcut for
+that stability. A saved configuration that still holds `<GrantAccessToAllUsers>` loads normally:
+`XmlSerializer` ignores the unknown element, and the next save drops it.
 
 ## Station page (optional, cards 8s–9)
 
@@ -180,8 +263,10 @@ property name and takes the returned string.
   injected code to drive Jellyfin's player.
 
 `JellywaveWebController` serves the two assets anonymously (they are part of the page load, before
-sign-in; ETag and a day of caching keyed on the assembly version), `GET /Jellywave/Feed` to any
-signed-in user (the poller's last feed reduced to display fields plus the channel id, the live
+sign-in; ETag and a day of caching keyed on a content hash, the first 12 hex characters of a SHA-256
+over the embedded `ui.js` and `ui.css`, used for the `?v=` query too, so a changed script reaches
+browsers even while the plugin version stays the same), `GET /Jellywave/Feed` to users
+who can see the channel (see "Station route authorization"; the poller's last feed reduced to display fields plus the channel id, the live
 item id and its image tag; never the station URL), `POST /Jellywave/Request` and
 `GET /Jellywave/Request/{id}` for listener requests, and `GET /Jellywave/WebUi` (admin) for the
 status line on the configuration page.
@@ -201,15 +286,18 @@ The script (`Web/ui.js`) does three things:
    visible grid, and the browser `MediaSession` metadata (lock-screen art) every five seconds from
    the feed. `playbackManager.currentItem(player)` throws when no player exists, so the script asks
    `getCurrentPlayer()` first and guards each step.
-3. **Requests.** The form posts text and a name (prefilled with the Jellyfin user name) to the
+3. **Requests.** The form posts text and a free-text name (prefilled with the Jellyfin user name;
+   the listener can change it; the plugin collapses its whitespace, cuts it at 40 characters and
+   otherwise passes it on unchanged) to the
    plugin, which forwards them to the station's `POST /api/request` and maps the receipt (202) or
    the refusal (400, 429 with `retryAfter`, 503) into one outcome object; the page then polls
    `GET /Jellywave/Request/{id}` every three seconds until the station resolves it and shows the
    DJ's acknowledgement, the queued track and its position. The station limits by caller IP, and
    every Jellyfin user is one caller to it; HI chose to honour that and explain it under the box
-   rather than add a limiter in the plugin.
+   rather than add a limiter in the plugin. The server keeps the real user id with each accepted
+   request (see "Station route authorization").
 
-Extras (card 8d), each a signed-in endpoint on `JellywaveWebController` and a block in the header:
+Extras (card 8d), each an endpoint on `JellywaveWebController` behind the same access filter and a block in the header:
 
 | Feature | Server side | Page |
 |---|---|---|
@@ -234,11 +322,139 @@ jellyfin-web internals and can move between releases; the page degrades to "noth
 rather than breaking the client. The Android app wraps the web client and needs a force-close to
 refetch `index.html` after the plugin is first installed.
 
+## Station route authorization (card 13)
+
+Jellyfin's default policy (`DefaultAuthorizationHandler`, 12.3) lets any API key through unrestricted and
+never looks at channel visibility, so plain `[Authorize]` is not enough for the station routes. Every
+user route on `JellywaveWebController` (Feed, Avatar, Like GET and POST, Schedule, Lyrics, Request POST,
+Request/{id}) also carries `[StationAccess]`, an `IAuthorizationFilter` attribute. It runs after
+Jellyfin's authentication and before model binding, so a refused caller's body is never read, and asks
+the `StationAccess` singleton, which refuses in this order:
+
+1. `Jellyfin-IsApiKey` is anything but `False` (Jellyfin sets it with `bool.ToString` on every request).
+2. `Jellyfin-UserId` is missing, unreadable or empty (API keys carry an empty id), or names no user
+   (`IUserStore.GetUser`).
+3. The channel name collides with another plugin's channel (`NameCollision`, see "Channel identity"), or
+   the channel entity is missing (`LiveItemFinder.Resolve`; a fresh install, or a rename before the
+   channel refresh): fail closed with **404** instead of 403, so the page keeps its short retry.
+4. Jellyfin's own `Channel.IsVisible(user)` is false: block list, enabled list or `EnableAllChannels`,
+   then the parental check (tags and rating). Administrators are not exempt, same as in Jellyfin.
+
+Every other refusal is a plain 403 with no `X-Application-Error-Code` (jellyfin-web logs a user out on a
+403 that carries `ParentalControl`); each refusal writes one Debug line with the rule. An allowed caller's
+user id and the resolved `Channel` are left in `HttpContext.Items` for the action, so `Feed` does not
+look the channel up a second time. The user entity is not passed on. The assets stay anonymous and `WebUi` stays admin-only; a reflection
+test fails when an action is neither anonymous, admin-only nor filtered.
+
+Listener requests: the station sees this server as one caller, so the plugin keeps the user binding
+itself. `RequestReceipts` (a singleton, in memory) maps each accepted request id to the submitting
+user, for 30 minutes and at most 1000 entries (the oldest goes), pruned on every insert, under a lock.
+`GET /Jellywave/Request/{id}` answers 403 when the receipt belongs to someone else, and "unknown"
+("The station lost track of that request.") without calling the station when there is no live
+receipt. Receipts do not survive a restart: a request pending across one shows that same message. The
+free-text name still goes to the station unchanged (HI decision); accounting is the receipt plus the
+existing Information line with the request id and user id, never the name or the text.
+
+The cap is shared: one user who submits many requests can fill it and evict other users' receipts,
+whose polls then show "lost track". The impact is low, because the station's own rate limit (a few
+requests per hour for the whole server) keeps the map far below 1000 in practice. A 403 versus
+"unknown" does reveal whether a request id exists here; accepted, since the ids are station-generated.
+
+The page: a 403 from `Jellywave/Feed` (ApiClient rejects with the fetch `Response`, so the script reads
+its `status`) drops the feed, the header and the drawer link, and the next feed request waits
+`FEED_FORBIDDEN_RETRY_MS` (five minutes) instead of the usual 15 seconds; a 404 (no channel yet) keeps
+the 15 seconds. The other routes are only called once a feed exists; a 403 on a request submit or poll
+says "You don't have access to this station." instead of a connection error.
+
+## Outbound requests (card 14)
+
+Every request the plugin itself makes to the station (feed, state, schedule, likes, requests,
+lyrics, images) goes through `StationClient`, and every `StationClient` call goes through one
+private `CreateClient`, which asks for the plugin's own named client `Jellywave` and
+sets the 8 s budget and the body cap (256 KB for JSON, 4 MB for images).
+
+**Own client, redirects refused.** Jellyfin's `NamedClient.Default` keeps `SocketsHttpHandler`'s
+default `AllowAutoRedirect = true`, so a station answer could send the server to any host or port
+(SSRF). `PluginServiceRegistrator` registers `Jellywave` with `AllowAutoRedirect = false`,
+`AutomaticDecompression = All` and the User-Agent `Jellywave/<assembly version>`. `AddHttpClient`
+comes from the ASP.NET Core shared framework the server already loads, so no package is added and
+the zip stays the DLL, `meta.json` and `thumb.png`. Jellyfin's own clients also set its dual-stack
+`ConnectCallback` (`HttpClientExtension.OnConnect`, which honours the server's IPv6 setting); it lives
+in a server assembly the plugin does not reference, so the plugin uses the default connect. The
+station is a LAN host; a name that resolves to an unreachable IPv6 address first costs part of the
+8 s budget before IPv4 is tried. A 3xx is the station's answer, not a hop, for those requests. The stream is not one of them: in
+Relay mode Jellyfin's ffmpeg fetches it and in Direct mode the client does, so neither goes through
+this client, and ffmpeg's http input probably follows a redirect (untested). That is an accepted risk
+(see `THREAT-MODEL.md`).
+
+For the plugin's own requests:
+
+- JSON reads (now playing, state, schedule) throw `StationRedirectException`, an
+  `HttpRequestException` with the status and the resolved `Location`, so every existing failure path
+  handles it. Its message is generic and never carries the location, because it reaches the poller
+  status line.
+- Images are "no art" (null), like any other non-success.
+- Like, lyrics and the request routes get the status without the body (a redirect's body is not
+  the station's answer). Like shows a refusal ("The station did not take the like."), lyrics are
+  "unavailable", a request submit is "refused" with no receipt recorded, and a request poll is
+  "unavailable" with the receipt kept.
+- The admin probe (`GET /Jellywave/Station`) answers `Ok = false` with "the station redirected to
+  <base>; use that address instead". The base is the `Location` with the `api/…` path the probe
+  asked for, and any query or fragment, cut off. It is suggested only when it passes the base URL
+  rules below (http or https, no userinfo); otherwise the probe says the station redirected "to an
+  address the plugin does not accept" and shows none of it. Only this admin-only route shows it.
+
+**URL rules** (`StationUrls`, pure functions; every caller treats a rejected value as "not
+configured", exactly as before, but a refused non-empty base URL says why, see below):
+
+- Base URL: absolute http or https, with no userinfo (not even an empty `@`), no query and no
+  fragment. The value is checked as typed, before the trailing slash is added (otherwise
+  `http://host/radio?x=1` would turn into a query of `?x=1/`). The probe answers 400 for such a value,
+  and the configuration page says why.
+- A refused non-empty base URL (an install saved before card 14 as `http://host:7700/?`, or with
+  `user:pass@`) is not shown as "not configured". `StationUrls.BaseUrlRefusal` returns a fixed reason
+  (not an absolute URL, not http(s), credentials, query, fragment) that never repeats any part of the
+  value. `GET /Jellywave/Health` carries it as `StationUrlRefusal` and `StationUrlStatus` ("station URL
+  is set but not allowed: <reason>"). The configuration page shows it in the poller status line and
+  as a warning under the field, on load and after each save; the save itself is not blocked. The
+  channel's listing warning names the reason too.
+- Stream path: leading slashes are trimmed, so `//x` stays a path under the base. A path that still
+  parses as an absolute URI (it has a scheme) is refused. Then the built URL must equal the base on
+  scheme, host, effective port and userinfo (`Uri.Compare(..., SchemeAndServer | UserInfo, ...)`)
+  and stay under the base's path, with no `..` segment. The authority check is load-bearing, not a
+  backstop: on Linux `\/radio.example:8000/stream.mp3` is not an absolute URI (a `file:` host cannot
+  carry a port), yet `Uri` resolves it against the base as a network path to the same host on
+  another port. Only the `Uri.Compare` step refuses it, and a host-only compare would let it through
+  (a test fails when the compare is reverted). A query or fragment in the stream path stays allowed.
+- Client stream URL (Direct mode): absolute http or https without userinfo. Any host and port stays
+  allowed, because Direct mode hands this URL to clients on purpose. A rejected value logs the
+  existing warning, and Direct mode falls back to the server URL.
+- Plain HTTP stays allowed: the station normally runs on plain HTTP on the LAN.
+
+**Image checks** (`ImageSniffer`, covers and avatars). The declared content type must be missing
+or start with `image/`; it no longer decides the type, and a missing type is no longer taken as
+JPEG. The type comes from the magic bytes (JPEG `FF D8 FF`, PNG's 8-byte signature, `GIF87a` and
+`GIF89a`, `RIFF`…`WEBP`). The size comes from the header: PNG IHDR, the GIF logical screen
+descriptor, WebP VP8 (lossy keyframe), VP8L and VP8X, and for JPEG a bounds-checked marker walk to
+the first SOF0–SOF15 frame header (DHT `C4`, JPG `C8` and DAC `CC` are skipped). An unknown type, a
+side of 0, a side over `MaxImageDimension` (4096), or an area over `MaxImagePixels` (16 777 216) is
+"no art". With the side limit the area limit cannot trigger on its own; it is kept as a named
+bound in case the side limit is ever raised. Every read is bounds-checked, and malformed or
+truncated input is "unknown", never an exception. The sniffed type is what Jellyfin saves and what
+the avatar route serves.
+
+Accepted risk: animation is not checked. A GIF, an animated PNG (APNG, whose frames sit in `acTL`/
+`fcTL` chunks after IHDR) or an animated WebP (the VP8X animation flag) within 4096 × 4096 and 4 MB
+can still carry many frames. Only the first frame's header is sized. Jellyfin's image processor
+decodes it, and the station is admin-configured.
+
 ## Poller health (card 10)
 
 `PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
 error with time) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
-description and image key and whether the item exists. The configuration page shows it under
+description and image key and whether the item exists. The route resolves a channel-name collision
+itself when read (card 15); the poller still records a collision flag the route does not read,
+which card 17 removes. The configuration page shows it under
 "Now playing" with a "Refresh status" button, so an admin never has to read the server log to know
 whether the station is being reached.
 
@@ -247,9 +463,11 @@ whether the station is being reached.
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional
 client URL, tile name and tagline, stream format (filled by the config page's "Fetch from
 station" button through the admin-only `GET /Jellywave/Station?baseUrl=` endpoint),
-now-playing toggle and interval, and `LastChangedUtc`, set by the page on save. All URL
+now-playing toggle and interval, the cover-art toggle, and
+`LastChangedUtc`, set by the page on save. All URL
 handling lives in `StationUrls`, which resolves the stream path under the base URL and
-rejects anything that escapes it (different host, `..`).
+rejects anything that escapes it (another scheme, host, port or userinfo, an absolute path, `..`);
+see "Outbound requests".
 
 No environment-specific value lives in source: the base URL is empty until configured,
 and the channel publishes no items while it is empty.
@@ -263,3 +481,23 @@ refreshes it locally on purpose). `scripts/check-manifest.sh` asserts the GUID, 
 across `Plugin.cs`, the config page, `build.yaml`, `manifest.json`,
 `Directory.Build.props` and the staged `meta.json`. The release workflow builds the
 tagged commit and commits the manifest to `main`.
+
+`targetAbi` (12.3.0.0) is the oldest server Jellyfin offers a build to, and the runtime binds an
+assembly reference only to a loaded assembly of the same or a newer version. A build compiled
+against the 12.3.0 packages references 12.3.0.0 assemblies, which a 12.0–12.2 server cannot load, so
+`targetAbi` must name the packages the plugin is compiled against. Two checks keep them together:
+`check-manifest.sh` compares the `Jellyfin.Controller` and `Jellyfin.Model` versions in both csproj
+files with `targetAbi`, and `AbiTests` fails when any `Jellyfin.*` or `MediaBrowser.*` reference in
+the built assembly is newer than `targetAbi`. Releases up to v0.3.4.0 claimed 12.0.0.0 while
+referencing 12.3.0.0; their manifest entries are left as published.
+
+The release workflow has two jobs. `build` (token `contents: read`, checkout without stored
+credentials) restores packages, runs the analyzers, tests, `build.sh` and `check-manifest.sh`, and
+uploads the zip and `meta.json` as an artifact. `publish` (`contents: write`) downloads that
+artifact, creates or updates the GitHub release and writes the manifest entry, taking changelog,
+timestamp and `targetAbi` from the zip's own `meta.json`. While the write token is present only
+`gh`, `jq` and main's `scripts/update-manifest.sh` run: no package restore, analyzer or build. The
+job then refuses to commit an entry whose `targetAbi` differs from the zip's (main's script predating
+the release), so tag only after the release's branch is merged. `ci.yml` runs build, tests, `dotnet format --verify-no-changes`,
+`node --check`, `bash -n` and `check-manifest.sh` on every push and pull request with a read-only
+token. Every action is pinned to a full commit SHA; `.github/dependabot.yml` proposes updates.
