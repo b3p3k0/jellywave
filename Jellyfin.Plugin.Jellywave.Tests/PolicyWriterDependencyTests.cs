@@ -13,7 +13,8 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 /// Card 15b: only the admin route may reach the code that writes user policies. A hosted service or event consumer
 /// that took <see cref="AccessGranter"/> (or the user store under it) could grant in the background again, and the
 /// registrator test would not see it. Every constructor in the plugin assembly is checked, generic arguments included
-/// (<c>Func&lt;AccessGranter&gt;</c>, <c>Lazy&lt;IUserStore&gt;</c>).
+/// (<c>Func&lt;AccessGranter&gt;</c>, <c>Lazy&lt;IUserStore&gt;</c>). A service locator (<see cref="IServiceProvider"/>)
+/// can resolve anything at run time, out of this scan's sight, so it is guarded the same way (card 17).
 /// </summary>
 public class PolicyWriterDependencyTests
 {
@@ -23,6 +24,7 @@ public class PolicyWriterDependencyTests
         [typeof(AccessGranter)] = [typeof(JellywaveController)],   // POST /Jellywave/GrantAccess, admin only
         [typeof(IUserStore)] = [typeof(AccessGranter), typeof(StationAccess)],   // StationAccess reads users for the route check
         [typeof(IUserManager)] = [typeof(UserManagerStore)],
+        [typeof(IServiceProvider)] = [typeof(LiveItemFinder)],   // resolves the registered channels lazily; a new service locator could reach the granter unseen
     };
 
     private static IEnumerable<Type> Mentioned(Type type)
@@ -70,5 +72,6 @@ public class PolicyWriterDependencyTests
                 .SelectMany(c => c.GetParameters()),
             p => p.ParameterType == typeof(AccessGranter));
         Assert.Contains(typeof(UserManagerStore).GetConstructors().Single().GetParameters(), p => p.ParameterType == typeof(IUserManager));
+        Assert.Contains(typeof(LiveItemFinder).GetConstructors().SelectMany(c => c.GetParameters()), p => p.ParameterType == typeof(IServiceProvider));
     }
 }

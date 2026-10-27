@@ -128,11 +128,10 @@ public class ChannelCollisionTests
 
         Assert.Equal(new BaseItem[] { server.LiveItem }, server.Library.Updated);
         Assert.Single(server.ImagesSaved);
-        Assert.False(server.Health.Snapshot().NameCollision);
     }
 
     [Fact]
-    public async Task On_a_collision_the_poller_writes_nothing_and_health_says_why()
+    public async Task On_a_collision_the_poller_writes_nothing()
     {
         var server = new Server(collides: true);
         await server.Poller().PollOnceAsync(CancellationToken.None);
@@ -140,11 +139,10 @@ public class ChannelCollisionTests
         Assert.Empty(server.Library.Updated);
         Assert.Empty(server.ImagesSaved);
         Assert.Null(server.LiveItem.Overview);
-        Assert.True(server.Health.Snapshot().NameCollision);
     }
 
     [Fact]
-    public async Task The_health_flag_clears_when_the_collision_ends()
+    public async Task The_poller_writes_again_when_the_collision_ends()
     {
         var server = new Server(collides: true);
         var poller = server.Poller();
@@ -153,7 +151,6 @@ public class ChannelCollisionTests
 
         await poller.PollOnceAsync(CancellationToken.None);
 
-        Assert.False(server.Health.Snapshot().NameCollision);
         Assert.Single(server.Library.Updated);
     }
 
@@ -239,7 +236,6 @@ public class ChannelCollisionTests
     public void Without_a_collision_the_health_route_has_no_channel_status()
     {
         var server = new Server(collides: false);
-        server.Health.SetNameCollision(true);   // the last poll saw a collision, then the admin renamed the tile
         var station = new StationClient(null!);
         var controller = new JellywaveController(
             station,

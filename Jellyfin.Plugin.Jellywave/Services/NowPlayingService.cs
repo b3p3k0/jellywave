@@ -293,7 +293,6 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
         // A collision withholds the entity (it may be another plugin's channel), so nothing below is written.
         var resolution = _finder.Resolve(config);
-        _health.SetNameCollision(resolution.Collides);
         var channel = resolution.Channel;
         if (resolution.Collides)
         {
