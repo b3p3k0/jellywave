@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -80,6 +81,20 @@ public class NowPlayingPollTests
         }
     }
 
+    private sealed class RecordingLogger : ILogger<NowPlayingService>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
     private sealed class StubFactory : IHttpClientFactory
     {
         private readonly HttpMessageHandler _handler;
@@ -107,7 +122,7 @@ public class NowPlayingPollTests
                 Health,
                 Library.Manager,
                 null!,
-                NullLogger<NowPlayingService>.Instance,
+                Log,
                 () => Config);
         }
 
@@ -116,6 +131,8 @@ public class NowPlayingPollTests
         public Stations Stations { get; } = new();
 
         public NowPlayingState State { get; } = new();
+
+        public RecordingLogger Log { get; } = new();
 
         public PollerHealth Health { get; } = new();
 
@@ -268,5 +285,19 @@ public class NowPlayingPollTests
 
         Assert.Equal(new[] { "image/jpeg" }, server.ImagesSaved);
         Assert.Equal("cov1", server.Artwork.Applied);
+    }
+
+    [Fact]
+    public async Task Consecutive_null_feeds_stay_one_unreachable_streak()
+    {
+        var server = new Server();
+        server.Stations.NowPlaying[HostA] = "null";
+
+        await server.PollAsync();
+        await server.PollAsync();
+
+        Assert.Equal(false, server.Health.Snapshot().Reachable);
+        Assert.DoesNotContain(server.Log.Entries, e => e.Message.Contains("answering again", StringComparison.Ordinal));
+        Assert.Single(server.Log.Entries, e => e.Level == LogLevel.Warning);
     }
 }
