@@ -307,20 +307,32 @@ station is a LAN host; a name that resolves to an unreachable IPv6 address first
   "unavailable" with the receipt kept.
 - The admin probe (`GET /Jellywave/Station`) answers `Ok = false` with "the station redirected to
   <base>; use that address instead". The base is the `Location` with the `api/…` path the probe
-  asked for, and any query, cut off. Only this admin-only route shows it.
+  asked for, and any query or fragment, cut off. It is suggested only when it passes the base URL
+  rules below (http or https, no userinfo); otherwise the probe says the station redirected "to an
+  address the plugin does not accept" and shows none of it. Only this admin-only route shows it.
 
 **URL rules** (`StationUrls`, pure functions; every caller treats a rejected value as "not
-configured", exactly as before):
+configured", exactly as before, but a refused non-empty base URL says why, see below):
 
 - Base URL: absolute http or https, with no userinfo (not even an empty `@`), no query and no
   fragment. The value is checked as typed, before the trailing slash is added (otherwise
   `http://host/radio?x=1` would turn into a query of `?x=1/`). The probe answers 400 for such a value,
   and the configuration page says why.
+- A refused non-empty base URL (an install saved before card 14 as `http://host:7700/?`, or with
+  `user:pass@`) is not shown as "not configured". `StationUrls.BaseUrlRefusal` returns a fixed reason
+  (not an absolute URL, not http(s), credentials, query, fragment) that never repeats any part of the
+  value. `GET /Jellywave/Health` carries it as `StationUrlRefusal` and `StationUrlStatus` ("station URL
+  is set but not allowed: <reason>"). The configuration page shows it in the poller status line and
+  as a warning under the field, on load and after each save; the save itself is not blocked. The
+  channel's listing warning names the reason too.
 - Stream path: leading slashes are trimmed, so `//x` stays a path under the base. A path that still
-  parses as an absolute URI (it has a scheme, or is a backslash network path) is refused. The built
-  URL must equal the base on scheme, host, effective port and userinfo
-  (`Uri.Compare(..., SchemeAndServer | UserInfo, ...)`) and stay under the base's path, with no `..`
-  segment. A query or fragment in the stream path stays allowed.
+  parses as an absolute URI (it has a scheme) is refused. Then the built URL must equal the base on
+  scheme, host, effective port and userinfo (`Uri.Compare(..., SchemeAndServer | UserInfo, ...)`)
+  and stay under the base's path, with no `..` segment. The authority check is load-bearing, not a
+  backstop: on Linux `\/radio.example:8000/stream.mp3` is not an absolute URI (a `file:` host cannot
+  carry a port), yet `Uri` resolves it against the base as a network path to the same host on
+  another port. Only the `Uri.Compare` step refuses it, and a host-only compare would let it through
+  (a test fails when the compare is reverted). A query or fragment in the stream path stays allowed.
 - Client stream URL (Direct mode): absolute http or https without userinfo. Any host and port stays
   allowed, because Direct mode hands this URL to clients on purpose. A rejected value logs the
   existing warning, and Direct mode falls back to the server URL.
@@ -338,8 +350,10 @@ bound in case the side limit is ever raised. Every read is bounds-checked, and m
 truncated input is "unknown", never an exception. The sniffed type is what Jellyfin saves and what
 the avatar route serves.
 
-Accepted risk: the GIF frame count is not checked. A GIF of at most 4096 × 4096 and 4 MB can still
-carry many frames. Jellyfin's image processor decodes it, and the station is admin-configured.
+Accepted risk: animation is not checked. A GIF, an animated PNG (APNG, whose frames sit in `acTL`/
+`fcTL` chunks after IHDR) or an animated WebP (the VP8X animation flag) within 4096 × 4096 and 4 MB
+can still carry many frames. Only the first frame's header is sized. Jellyfin's image processor
+decodes it, and the station is admin-configured.
 
 ## Poller health (card 10)
 

@@ -51,7 +51,8 @@ Dashboard → Plugins → Jellywave.
 | Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
 
 The station base URL must not contain credentials (`user:password@`), a query (`?…`) or a
-fragment (`#…`). Such a value counts as "not configured". The plugin never follows a redirect from the
+fragment (`#…`). Such a value is not used. The plugin page warns "station URL is set but not allowed",
+with the reason, on load and after saving. The plugin never follows a redirect from the
 station. If the URL redirects (for example http to https, or to a new host), "Fetch from station"
 says "the station redirected to …; use that address instead". Enter that address. Plain `http://`
 is fine. A *Client stream URL* must not contain credentials either; it may name any host.

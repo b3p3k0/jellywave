@@ -554,6 +554,7 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
   - Accepted risks: the shared station budget; the free-text DJ name; the HTTP station URL; the station URL disclosed to clients in Direct mode; the name-derived channel id; the user-save window; the live-item row race; GIF frames; jellyfin-web selectors that can move between releases.
 - DESIGN.md: a consistency pass over cards 12–15. Each card has already closed its own section.
 - Exit: the docs match the code, a grep for host-access strings comes back empty, and the links resolve.
+- Changelog must mention: station URLs with credentials, a query or a fragment are refused (card 14).
 
 **Then: merge to main, deploy to the host, and tag v0.4.0.0.**
 

@@ -7,8 +7,8 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// <summary>
 /// Identifies a station image from its bytes (JPEG, PNG, GIF or WebP) and reads its size from the headers, so an
 /// image is only handed to Jellyfin's decoder when its type is known and its dimensions are bounded. Every read is
-/// bounds-checked; malformed or truncated input is "unknown", never an exception. GIF frame count is not checked
-/// (accepted risk, see DESIGN.md).
+/// bounds-checked; malformed or truncated input is "unknown", never an exception. Animation (GIF frames, APNG, the
+/// WebP VP8X animation flag) is not checked: an accepted risk, see DESIGN.md.
 /// </summary>
 public static class ImageSniffer
 {
