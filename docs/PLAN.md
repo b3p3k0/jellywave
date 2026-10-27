@@ -293,7 +293,9 @@ HI decisions 2026-10-27:
    3", "no match", "cooldown, try in 40 s"); helper text explains the shared budget.
 8d. **Small extras on the page** (after 8c, each its own `wip:`): DJ portrait (`/api/persona-avatar/{id}`
    proxied), recent tracks (`/api/state.history`), like button (`/api/like`), today's schedule strip
-   (`/api/schedule`), lyrics when the station enables them.
+   (`/api/schedule`), lyrics when the station enables them. **Implemented 2026-10-27** in a923124
+   (portrait, up next, recent, like) and 427ced9 (schedule, lyrics); lyrics are shown as plain lines
+   without a timing highlight (stream buffering makes a client-side clock unreliable).
 
 Also queued, not on the page: poller health on the config page (last successful poll, last error).
 

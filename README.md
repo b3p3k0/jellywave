@@ -81,12 +81,18 @@ page is missing. What users get, in the web client and the Android app (which wr
 - While the station plays, the playing bar's thumbnail and text, the item's card in the grid and the
   browser's media session follow the track. Jellyfin itself copies the item when playback starts and
   never re-reads it; the page repaints those spots every five seconds.
+- The DJ's portrait, what is up next, a collapsible list of recently played tracks (with who
+  requested them), a like button with the station's count, lyrics when the station has them
+  switched on, and today's programme in the station's time zone with the current show marked.
 - A request box: text and a name (prefilled with the Jellyfin user name), sent to the station's DJ.
   The station's own limits apply, a short wait between requests and a few per hour, and everyone on
   the Jellyfin server counts as one caller to the station. The page explains that under the box.
 
-The page talks only to the Jellyfin server (`/Jellywave/Feed`, `/Jellywave/Request`), never to the
-station, so the station can be closed to the world while Jellyfin users keep access.
+The page talks only to the Jellyfin server (`/Jellywave/Feed`, `/Jellywave/Request`,
+`/Jellywave/Like`, `/Jellywave/Lyrics`, `/Jellywave/Schedule`, `/Jellywave/Avatar/{id}`), never to the
+station, so the station can be closed to the world while Jellyfin users keep access. Likes and
+lyrics follow the station's own switches; the station counts this server as one caller, so "liked"
+is shared by everyone on it.
 
 ## Tested on
 
