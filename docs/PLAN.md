@@ -1,6 +1,6 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: cards 1–6 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: `accept: card 6 visible to every user`, 2026-10-27). Release v0.1.0.0 is published; the install-from-manifest check on the test host is the one open item of card 5. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–6 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24, 2026-10-27). Release v0.1.0.0 is published; the install-from-manifest check on the test host is the one open item of card 5. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
@@ -198,7 +198,7 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 | 3 config page + probe | b096685 | "Fetch from station" filled tagline and stream format on the test host |
 | 4 now-playing poller | 9953caf | 24 overview updates in 64 min, 0 errors |
 | 5 docs, release | docs accepted ec8efde | release half: GitHub release v0.1.0.0 published with `Jellywave_0.1.0.0.zip` on 2026-10-27; the workflow's manifest commit step is being fixed (21da132); install from the manifest URL on the test host still pending |
-| 6 visible to every user | accepted 2026-10-27 (`accept: card 6 visible to every user`) | plugin 0.2.0.0 on the test host: first pass 39 granted, 2 already visible, 0 blocked; pass after the next restart 0 granted, 41 already visible, 0 blocked; no ERR/WRN from the plugin; HI confirmed in the admin interface and as a regular user on another device |
+| 6 visible to every user | c370a24 (2026-10-27) | plugin 0.2.0.0 on the test host: first pass 39 granted, 2 already visible, 0 blocked; pass after the next restart 0 granted, 41 already visible, 0 blocked; no ERR/WRN from the plugin; HI confirmed in the admin interface and as a regular user on another device |
 
 Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. The interim bulk script was removed once card 6 (in-plugin grant) landed; HI wanted no scripts or manual passes for end users.
 

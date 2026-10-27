@@ -24,6 +24,7 @@ public sealed class AccessGranter
     private readonly IChannelLocator _channels;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly ILogger<AccessGranter> _logger;
+    private bool _missingChannelLogged;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AccessGranter"/> class (DI constructor).
@@ -195,7 +196,20 @@ public sealed class AccessGranter
         var channelId = await _channels.FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
         if (channelId is null)
         {
-            _logger.LogWarning("Cannot grant channel access: the channel entity does not exist yet (is the station URL configured?)");
+            // Once per process at Warning; every user event afterwards would repeat the same advice.
+            if (!_missingChannelLogged)
+            {
+                _missingChannelLogged = true;
+                _logger.LogWarning("Cannot grant channel access: the channel entity does not exist yet (is the station URL configured?)");
+            }
+            else
+            {
+                _logger.LogDebug("Channel access skipped: the channel entity still does not exist");
+            }
+        }
+        else
+        {
+            _missingChannelLogged = false;
         }
 
         return channelId;
