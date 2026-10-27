@@ -1,6 +1,6 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: v1 implemented and accepted (cards 1–4: 3ebcd03, c63aa14, b096685, 9953caf); card 5 closeout in progress. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–6 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: `accept: card 6 visible to every user`, 2026-10-27). Release v0.1.0.0 is published; the install-from-manifest check on the test host is the one open item of card 5. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
@@ -182,7 +182,7 @@ Manual: web My Media → tile → item → play; confirm audio, pause/stop work,
 | Roku / Android TV behaviour inferred from source, untested | Suggested | Bonus scope; test after card 4. |
 | ICY in-stream titles are dropped by relay | Nit | Now-playing poller covers it. |
 | Renaming the station changes the channel id and orphans the old entry | Suggested | Document; Jellyfin's "Refresh Internet Channels" task cleans uninstalled channels. |
-| Non-admin users need `EnableAllChannels` or the channel enabled | Suggested | Note in README; check on the Jellyfin test host test users. |
+| Non-admin users need `EnableAllChannels` or the channel enabled | Suggested | Note in README; check on the Jellyfin test host test users. Closed by card 6 (`GrantAccessToAllUsers`). |
 | Private station mode (listener auth) on SUB/WAVE | Out of scope v1 | Would need `?auth=` on the stream URL and a secret in config → Hard Stop review when it comes. |
 
 ## Hard Stops in this wave
@@ -197,7 +197,8 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 | 2 channel + stream | c63aa14 | tile in My Media, Relay playback in web; "fatal playback error" fixed by the nominal runtime |
 | 3 config page + probe | b096685 | "Fetch from station" filled tagline and stream format on the test host |
 | 4 now-playing poller | 9953caf | 24 overview updates in 64 min, 0 errors |
-| 5 docs, release | docs accepted ec8efde | release half needs HI: GitHub remote, push, tag v0.1.0.0, install from manifest on the test host |
+| 5 docs, release | docs accepted ec8efde | release half: GitHub release v0.1.0.0 published with `Jellywave_0.1.0.0.zip` on 2026-10-27; the workflow's manifest commit step is being fixed (21da132); install from the manifest URL on the test host still pending |
+| 6 visible to every user | accepted 2026-10-27 (`accept: card 6 visible to every user`) | plugin 0.2.0.0 on the test host: first pass 39 granted, 2 already visible, 0 blocked; pass after the next restart 0 granted, 41 already visible, 0 blocked; no ERR/WRN from the plugin; HI confirmed in the admin interface and as a regular user on another device |
 
 Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. The interim bulk script was removed once card 6 (in-plugin grant) landed; HI wanted no scripts or manual passes for end users.
 
@@ -209,7 +210,7 @@ Found during closeout: users need channel access (`EnableAllChannels` or the cha
 ## Phase 2 candidates (not in this plan)
 
 - Custom in-Jellyfin station page (HI's pick): top-bar tab with a mini-player, cover, now playing, requests; likely via the File Transformation plugin as SeerrFin does. SUB/WAVE sends X-Frame-Options SAMEORIGIN, so no iframe; its API has CORS * so the page can read now-playing directly.
-- Plugin-side "make visible to all users" control, and a hook for newly created users (authorization change; HI decision).
+- ~~Plugin-side "make visible to all users" control, and a hook for newly created users~~ (shipped as wave 2, card 6).
 - Plugin-hosted byte-for-byte stream proxy endpoint (keeps ICY, avoids ffmpeg).
 - Multi-station support (SUB/WAVE profiles) as multiple channels.
 
