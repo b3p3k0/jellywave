@@ -475,6 +475,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 13. Station route authorization (S1, S2, API keys, request accounting)
 
+**Accepted 2026-10-27** (5614428, cfb334f; review fixes ac3ca88, 6de1e04, 3a8c8f8, 52866ce). RA first pass: CHANGES REQUIRED, one Required item (receipt wiring had no route-level test); Suggested: content-hash asset version, channel reused by Feed, 404 while the channel is missing, receipt-cap note; all fixed and re-reviewed: ACCEPT, 140/140 tests. Moved to card 18: clear an already-rendered header when the feed starts answering 404. Host checks pending (with cards 14–15).
+
 - New `StationAccess` service plus an action filter attribute. They run on Feed, Avatar, Like GET/POST, Schedule, Lyrics, Request POST and Request/{id}. The `ui.js` and `ui.css` assets stay anonymous; WebUi stays RequiresElevation. The rules:
   1. The API-key claim is set → 403.
   2. No user id claim, or the user is not found (reuse `IUserStore`) → 403.
@@ -570,6 +572,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
   - NowPlayingState origin switch; the artwork negative cache and its TTL; a duplicate schedule id; a null feed.
 
 #### 18. Web client (T2, T3, D2 browser) — v0.4.2.0
+
+- From the card 13 review: when the feed starts answering 404 or 403 while a header is rendered (station renamed, access revoked), remove the header and the drawer link instead of leaving them stale.
 
 - `ui.js`:
   - A boot guard: one observer and one set of listeners.
