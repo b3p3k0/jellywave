@@ -65,4 +65,20 @@ public class NowPlayingStateOriginTests
         Assert.False(state.UpdateStationState(OriginA, History("a1")));
         Assert.Null(state.StationState());
     }
+
+    [Fact]
+    public void A_snapshot_carries_the_origin_with_the_feed_and_the_state()
+    {
+        var state = new NowPlayingState();
+        Assert.Null(state.Snapshot().Origin);
+        state.Update(OriginA, new NowPlayingFeed { NowPlaying = new TrackInfo { Artist = "A", Title = "one", SubsonicId = "c1" }, StreamOnline = true }, DateTime.UtcNow);
+        state.UpdateStationState(OriginA, History("a1"));
+
+        var snapshot = state.Snapshot();
+
+        Assert.Equal((OriginA, "one", "a1", "c1", "A – one"), (snapshot.Origin, snapshot.Feed?.NowPlaying?.Title, snapshot.StationState?.History?[0].Title, snapshot.CoverId, snapshot.TrackLine));
+        Assert.Equal(state.Description(), snapshot.Description);
+        state.Clear();
+        Assert.Null(state.Snapshot().Origin);
+    }
 }

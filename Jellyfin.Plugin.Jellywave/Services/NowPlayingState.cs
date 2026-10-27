@@ -141,6 +141,19 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
+    /// Reads the feed, the station state, their origin and the values derived from the feed under one lock, so a caller
+    /// never pairs one station's feed with another's history.
+    /// </summary>
+    /// <returns>The snapshot.</returns>
+    public NowPlayingSnapshot Snapshot()
+    {
+        lock (_gate)
+        {
+            return new NowPlayingSnapshot(_origin, _feed, _stationState, _fetchedUtc, CoverIdOf(_feed), TrackLineOf(_feed), Describe(_feed));
+        }
+    }
+
+    /// <summary>
     /// Gets the last feed as fetched, or null when nothing is known. Callers must not modify it.
     /// </summary>
     /// <returns>The feed.</returns>

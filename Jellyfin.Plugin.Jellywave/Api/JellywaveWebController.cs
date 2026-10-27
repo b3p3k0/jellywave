@@ -116,14 +116,17 @@ public class JellywaveWebController : ControllerBase
     public ActionResult<FeedResponse> Feed()
     {
         var config = _configuration() ?? new PluginConfiguration();
-        var feed = _state.Feed();
-        var stationState = _state.StationState();
+        var snapshot = _state.Snapshot();
+        var otherStation = FromOtherStation(snapshot, config);
+        var heard = otherStation ? NowPlayingSnapshot.Nothing : snapshot;
+        var feed = heard.Feed;
+        var stationState = heard.StationState;
         var next = feed?.Context?.ShowHandover?.NextShow;
         var upcoming = stationState?.Upcoming;
         var upNext = upcoming is { Count: > 0 } ? upcoming[0] : null;
         var response = new FeedResponse
         {
-            SongId = _state.CoverId(),
+            SongId = heard.CoverId,
             DjAvatarId = AvatarIdOf(feed?.Dj?.Avatar),
             UpNext = TrackLineOf(upNext),
             Recent = (stationState?.History ?? []).Take(MaxRecent).Select(t => TrackLineOf(t) + (string.IsNullOrWhiteSpace(t?.RequestedBy) ? string.Empty : " · requested by " + t.RequestedBy.Trim())).Where(l => l.Length > 0).ToList(),
@@ -133,8 +136,8 @@ public class JellywaveWebController : ControllerBase
             Title = feed?.NowPlaying?.Title,
             Artist = feed?.NowPlaying?.Artist,
             Album = feed?.NowPlaying?.Album,
-            TrackLine = _state.TrackLine(),
-            Description = _state.Description() ?? JellywaveChannel.DefaultOverview,
+            TrackLine = heard.TrackLine,
+            Description = heard.Description ?? JellywaveChannel.DefaultOverview,
             Dj = feed?.Dj?.Name,
             DjTagline = feed?.Dj?.Tagline,
             Show = feed?.ActiveShow?.Name,
@@ -142,7 +145,7 @@ public class JellywaveWebController : ControllerBase
             NextShowPresenter = next?.Presenter,
             NextShowStartsAt = next?.StartsAt,
             Listeners = feed?.Listeners?.Current,
-            FetchedUtc = feed is null ? null : _state.FetchedUtc
+            FetchedUtc = feed is null ? null : heard.FetchedUtc
         };
 
         var channel = CallerChannel();
@@ -151,7 +154,9 @@ public class JellywaveWebController : ControllerBase
         if (item is not null)
         {
             response.ItemId = item.Id;
-            var image = item.GetImageInfo(ImageType.Primary, 0);
+
+            // Until the poller has heard the configured station, the item still carries the previous station's cover.
+            var image = otherStation ? null : item.GetImageInfo(ImageType.Primary, 0);
             response.ImageTag = image is null ? null : _imageProcessor.GetImageCacheTag(item, image);
         }
 
@@ -291,7 +296,8 @@ public class JellywaveWebController : ControllerBase
             return new ScheduleResponse();
         }
 
-        var feed = _state.Feed();
+        var snapshot = _state.Snapshot();
+        var feed = FromOtherStation(snapshot, config) ? null : snapshot.Feed;
         return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow, feed?.Context?.ActiveShow?.Id, feed?.Context?.ActiveShow?.Name ?? feed?.ActiveShow?.Name);
     }
 
@@ -661,6 +667,16 @@ public class JellywaveWebController : ControllerBase
     /// <summary>
     /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
     /// </summary>
+    /// <summary>
+    /// Whether the snapshot holds another station's data than the configured one (the station URL changed or was
+    /// cleared since the last poll). The routes then answer as if nothing has been heard until the poller has fetched
+    /// the configured station, instead of serving the old one's track, history and cover.
+    /// </summary>
+    private static bool FromOtherStation(NowPlayingSnapshot snapshot, PluginConfiguration config)
+        => snapshot.Origin is not null
+            && !(StationUrls.TryGetBaseUrl(config, out var baseUrl) && baseUrl is not null
+                && string.Equals(snapshot.Origin, StationUrls.Origin(baseUrl), StringComparison.Ordinal));
+
     private Channel CallerChannel()
         => HttpContext.Items.TryGetValue(StationAccess.ChannelItem, out var value) && value is Channel channel
             ? channel

@@ -85,7 +85,7 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Grant passes serialized under one lock; each user re-read before it is saved | 15 |
 | No background policy writer: no startup pass, no user event consumer, no setting. The grant runs only from the admin-only `POST /Jellywave/GrantAccess` button, so an admin's removal of the channel from a user stands until the next press; registrator and constructor-reflection tests | 15b |
 | `verify-jellyfin.sh` selects the channel by exact name and fails on none or more than one | 15 |
-| Station data cached on the server (now-playing state, schedule, applied cover, missing-cover memory) is keyed by station origin, so a station URL change never serves the old station's data; a JSON `null` feed is a failure; repeated ids and null list entries from the station never fail a route | 17 |
+| Station data cached on the server (now-playing state, schedule, applied cover, missing-cover memory) is keyed by station origin, and the station routes compare that origin with the configured station's, so after a station URL change no route serves the old station's data (until the next poll the feed answers as if nothing has been heard; the live item's own text and cover follow on that poll); a JSON `null` feed is a failure; repeated ids and null list entries from the station never fail a route | 17 |
 
 ## Accepted risks
 

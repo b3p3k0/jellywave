@@ -160,7 +160,13 @@ change of the station URL never mixes two stations. `NowPlayingState.Update` tak
 each feed and clears the `/api/state` data (history, up next, the lyrics flag) when it differs from
 the last one; `UpdateStationState` stores a state only for the current feed's origin. A failed
 `/api/state` fetch therefore keeps the last state of the same station, and none after a switch.
-`ScheduleCache` and the applied cover (below) are keyed the same way.
+`ScheduleCache` and the applied cover (below) are keyed the same way. The station routes read the
+state through `NowPlayingState.Snapshot()` (feed, state, derived lines and their origin under one
+lock) and compare its origin with the configured station's: after a URL change, until the poller
+has fetched the new station (at most one poll interval), `Feed` answers as if nothing has been
+heard (no track, DJ, history, song id or cover tag; the station name and the channel and item ids
+still answer) and `Schedule` names no takeover. The live item itself keeps the old station's text
+and cover until that poll writes it.
 
 Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
 channel item's `ImageUrl` only when it creates the item, so the poller saves the image
