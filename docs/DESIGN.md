@@ -166,7 +166,10 @@ lock) and compare its origin with the configured station's: after a URL change, 
 has fetched the new station (at most one poll interval), `Feed` answers as if nothing has been
 heard (no track, DJ, history, song id or cover tag; the station name and the channel and item ids
 still answer) and `Schedule` names no takeover. The live item itself keeps the old station's text
-and cover until that poll writes it.
+and cover until that poll writes it. The image tag `Feed` returns once the new station answers is the item's
+current Primary, so for the few seconds between that feed and the new cover being saved (the state
+fetch and the cover download come first) the page can still show the previous cover, the same lag as
+an ordinary track change; a failing logo save keeps it longer and is logged once.
 
 Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
 channel item's `ImageUrl` only when it creates the item, so the poller saves the image

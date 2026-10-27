@@ -22,7 +22,7 @@ public class ServiceLocatorSourceTests
         ("LiveItemFinder", "IChannel"),   // registered channels resolved lazily (startup order)
     ];
 
-    private static readonly Regex Call = new(@"\b(?:GetRequiredService|GetServices|GetService)\b\s*(?:<\s*(?<type>[\w.]+)\s*>|\(\s*typeof\s*\(\s*(?<type>[\w.]+)\s*\))?", RegexOptions.Compiled);
+    private static readonly Regex Call = new(@"\b(?:GetRequiredKeyedService|GetKeyedServices|GetKeyedService|GetRequiredService|GetServices|GetServiceOrCreateInstance|GetService|CreateInstance|CreateFactory)\b\s*(?:<\s*(?<type>[\w.]+)\s*>|\(\s*typeof\s*\(\s*(?<type>[\w.]+)\s*\))?", RegexOptions.Compiled);
 
     private static IReadOnlyList<(string File, string Type)> Sites()
     {

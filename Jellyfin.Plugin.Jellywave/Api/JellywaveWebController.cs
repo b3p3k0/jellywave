@@ -665,9 +665,6 @@ public class JellywaveWebController : ControllerBase
             : throw new InvalidOperationException("The station access filter did not run for this action.");
 
     /// <summary>
-    /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
-    /// </summary>
-    /// <summary>
     /// Whether the snapshot holds another station's data than the configured one (the station URL changed or was
     /// cleared since the last poll). The routes then answer as if nothing has been heard until the poller has fetched
     /// the configured station, instead of serving the old one's track, history and cover.
@@ -677,6 +674,9 @@ public class JellywaveWebController : ControllerBase
             && !(StationUrls.TryGetBaseUrl(config, out var baseUrl) && baseUrl is not null
                 && string.Equals(snapshot.Origin, StationUrls.Origin(baseUrl), StringComparison.Ordinal));
 
+    /// <summary>
+    /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
+    /// </summary>
     private Channel CallerChannel()
         => HttpContext.Items.TryGetValue(StationAccess.ChannelItem, out var value) && value is Channel channel
             ? channel
