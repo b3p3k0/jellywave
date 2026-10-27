@@ -23,18 +23,31 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 public class JellywaveController : ControllerBase
 {
     private readonly StationClient _stationClient;
+    private readonly AccessGranter _accessGranter;
     private readonly ILogger<JellywaveController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JellywaveController"/> class.
     /// </summary>
     /// <param name="stationClient">The station client.</param>
+    /// <param name="accessGranter">The access granter.</param>
     /// <param name="logger">The logger.</param>
-    public JellywaveController(StationClient stationClient, ILogger<JellywaveController> logger)
+    public JellywaveController(StationClient stationClient, AccessGranter accessGranter, ILogger<JellywaveController> logger)
     {
         _stationClient = stationClient;
+        _accessGranter = accessGranter;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Runs one access-grant pass now (the config page calls this after saving with the setting on).
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The counts; <c>Enabled</c> false when the setting is off or the channel does not exist yet.</returns>
+    [HttpPost("GrantAccess")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<GrantResult>> GrantAccess(CancellationToken cancellationToken)
+        => await _accessGranter.GrantAllAsync(cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Probes a SUB/WAVE station from the server and reports what the plugin can learn from it.

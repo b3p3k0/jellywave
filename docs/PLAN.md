@@ -199,7 +199,7 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 | 4 now-playing poller | 9953caf | 24 overview updates in 64 min, 0 errors |
 | 5 docs, release | docs accepted ec8efde | release half needs HI: GitHub remote, push, tag v0.1.0.0, install from manifest on the test host |
 
-Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. `scripts/grant-channel-access.sh` grants it in bulk; a plugin-side "visible to all users" control is a phase-2 candidate (it would write user policies, so HI decides).
+Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. The interim bulk script was removed once card 6 (in-plugin grant) landed; HI wanted no scripts or manual passes for end users.
 
 ## Post-approval housekeeping (MI)
 

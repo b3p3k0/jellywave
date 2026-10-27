@@ -94,6 +94,21 @@ answers again; the loop never throws; while unreachable or disabled the item fal
 the default overview. Clients show the text when they reload the list or start playback;
 the playing bar does not update mid-track.
 
+## Who can see the channel
+
+`Channel.IsVisible` (Jellyfin) shows a channel to a user when the user has a block list that does
+not name it, or, with no block list, when the user has `EnableAllChannels` or the channel in
+`EnabledChannels`. Administrators are not exempt. Provisioning tools often create users with none
+of these, so the plugin offers "Make the station visible to every user" (off by default).
+
+`AccessGranter.Classify` mirrors that rule exactly and `AddToEnabledChannels` writes the one
+channel id into `EnabledChannels`, persisted with `IUserManager.UpdateUserAsync`. Nothing else in
+the policy is touched; `EnableAllChannels` is never set; explicit blocks win. Passes run after core
+startup (`AccessGrantService`), after a save with the box ticked (`POST /Jellywave/GrantAccess`,
+admin only, also behind "Run now"), and on `UserCreatedEventArgs` (`UserCreatedConsumer`). Turning
+the setting off stops future passes and revokes nothing. One Information line per pass carries
+counts, never user names.
+
 ## Configuration surface
 
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional

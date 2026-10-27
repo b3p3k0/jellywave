@@ -20,15 +20,12 @@ Status: v0.1 in test. See `docs/PLAN.md` and `docs/DESIGN.md`.
   who opens the item (it is part of Jellyfin's playback info). SUB/WAVE streams
   are public by design, so this is a hostname disclosure, not a credential one.
   Do not point the plugin at a private station until listener auth is supported.
-- Users see the channel only if their policy allows all channels or lists this one:
-  Dashboard → Users → user → Access → **Channel access** (the section appears once a
-  channel exists). Users created from a template or by a provisioning tool often have
-  neither. To grant everyone access in one go, with an administrator API key:
-
-  ```bash
-  JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=... scripts/grant-channel-access.sh          # dry run
-  JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=... scripts/grant-channel-access.sh --apply  # write
-  ```
+- Jellyfin shows a channel only to users whose policy allows all channels or lists this one
+  (Dashboard → Users → user → Access → **Channel access**). Users created from a template
+  or by a provisioning tool often have neither. Tick **Make the station visible to every
+  user** on the plugin page: the plugin then adds this channel to each user's channel list,
+  immediately, at startup, and whenever a user is created. It changes nothing else in a
+  policy, respects explicit block lists, and removes nothing when turned off.
 
 ## Configuration
 
@@ -45,6 +42,7 @@ Dashboard → Plugins → Jellywave.
 | Client stream URL | Direct only: the URL clients use when it differs from the server's |
 | Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
 | Now playing | Poll the station and show the current track on the live item |
+| Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
 
 After saving, the tile updates on the next reload. If you renamed it, run the
 "Refresh Internet Channels" scheduled task to drop the old entry.

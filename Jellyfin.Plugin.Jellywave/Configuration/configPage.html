@@ -83,6 +83,26 @@
                         </div>
                     </div>
 
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Who can see it</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="GrantAccessToAllUsers" name="GrantAccessToAllUsers" type="checkbox" is="emby-checkbox" />
+                                <span>Make the station visible to every user</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Jellyfin shows a channel only to users whose policy allows all channels or lists this one.
+                                With this on, the plugin adds this channel to each user's channel list (now, at startup, and when a user is created).
+                                It never changes anything else in a user's policy, and users with an explicit block list stay blocked.
+                                Turning it off stops future grants and removes nothing.
+                            </div>
+                        </div>
+                        <div class="inputContainer">
+                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Run now</span></button>
+                            <div class="fieldDescription" id="grantResult">Save first; the pass also runs automatically after saving with the box ticked.</div>
+                        </div>
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -104,6 +124,21 @@
                 function load(config) {
                     fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
                     el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
+                    el('GrantAccessToAllUsers').checked = !!config.GrantAccessToAllUsers;
+                }
+
+                function describeGrant(r) {
+                    if (!r.Enabled) { return 'Nothing done: the setting is off, or the channel does not exist yet (set the station URL and save).'; }
+                    return 'Granted to ' + r.Granted + ' user(s) just now; ' + r.AlreadyVisible + ' could already see it; ' + r.Blocked + ' blocked by an explicit block list.';
+                }
+
+                function runGrant(out) {
+                    out.textContent = 'Running…';
+                    return ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/GrantAccess'), dataType: 'json' }).then(function (r) {
+                        out.textContent = describeGrant(r);
+                    }).catch(function (e) {
+                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : e);
+                    });
                 }
 
                 function collect(config) {
@@ -118,6 +153,7 @@
                     config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 44100;
                     config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
                     config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
+                    config.GrantAccessToAllUsers = el('GrantAccessToAllUsers').checked;
                     config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
                     config.LastChangedUtc = new Date().toISOString();
                     return config;
@@ -155,12 +191,16 @@
                     });
                 });
 
+                el('btnGrant').addEventListener('click', function () { runGrant(el('grantResult')); });
+
                 page.querySelector('#JellywaveConfigForm').addEventListener('submit', function (e) {
                     e.preventDefault();
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        ApiClient.updatePluginConfiguration(pluginId, collect(config)).then(function (result) {
+                        var updated = collect(config);
+                        ApiClient.updatePluginConfiguration(pluginId, updated).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
+                            if (updated.GrantAccessToAllUsers) { runGrant(el('grantResult')); }
                         });
                     });
                     return false;
