@@ -37,7 +37,7 @@ Dashboard → Plugins → Jellywave.
 | Setting | Meaning |
 |---|---|
 | Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700` |
-| Fetch from station | Reads the name, tagline and stream format from the station's public API |
+| Fetch from station | Reads the name, tagline, stream path and stream format from the station's public API |
 | Tile name | Shown in My Media; renaming creates a new channel entry |
 | Description | Optional channel description; "Fetch from station" fills it with the on-air DJ's tagline |
 | Stream path | Mount under the base URL, normally `/stream.mp3` |
@@ -68,7 +68,7 @@ then install **Jellywave** from the catalog and restart Jellyfin.
 ```bash
 scripts/build.sh          # dist/Jellywave_<version>/ and .zip, refreshes manifest.json
 scripts/check-manifest.sh # GUID and version agree across all declarations
-dotnet test               # unit tests (URL handling, config clamps)
+dotnet test               # unit tests (URLs, data version, now-playing text, feed fixtures)
 ```
 
 Requires the .NET 10 SDK, `jq`, and `zip`.

@@ -18,7 +18,7 @@ Owned by RA. One short block per accepted card; append, do not rewrite.
 - Jellyfin's audio HLS path has no live mode: a media source with `RunTimeTicks == null` makes `DynamicHlsHelper` emit `Audio/{id}/live.m3u8`, a route that only exists under `Videos/`. Advertise a nominal runtime on the media source (the item keeps `IsLiveStream`) and document "do not seek".
 - jellyfin-web plays audio through `Audio/{id}/universal` with `mediaSource.StreamUrl`, not through PlaybackInfo's `TranscodingUrl`. A PlaybackInfo trace is necessary but not sufficient evidence for audio; follow the universal endpoint's branch too.
 - Jellyfin only re-saves a channel item's static media sources when `DateModified` advances. Carry a schema date in the plugin and use `max(configChanged, schemaDate)` for `DateModified` and `DataVersion`, so a rebuilt plugin replaces stale sources without an admin re-save.
-- Scrubbing hostnames with search/replace rewrote file names and command lines in the plan (`deploy-nordflix.sh` became a path with spaces). Re-read every changed line after a mechanical replace; grep for the old token proves absence, not correctness.
+- Scrubbing hostnames with search/replace rewrote file names and command lines in the plan (`deploy-<jellyfin-host>.sh` became a path with spaces). Re-read every changed line after a mechanical replace; grep for the old token proves absence, not correctness.
 - Server-side URLs in `MediaSourceInfo.Path` and `EncoderPath` are returned to every user who can play the item; Jellyfin strips neither. Decide and document the exposure up front rather than relying on a "client URL" field to hide it.
 
 ## Card 3: configuration page and station probe (44e678f, 3bca9aa, e8dea54, d4d8cd6)

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Grant every user access to one channel (default: the Jellywave station) by adding the channel
 # to each user's EnabledChannels. Users who already have "all channels" or the channel are skipped.
-# Dry run by default; --apply writes the policies. Administrators are left untouched.
+# Dry run by default; --apply writes the policies. Administrators are treated like everyone else:
+# Jellyfin's channel visibility check has no admin exemption.
 #
 #   JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=<admin api key> scripts/grant-channel-access.sh [--apply] [channel name]
 #
@@ -26,16 +27,16 @@ CHANNEL_ID="$(jq -r --arg n "$CHANNEL_NAME" '.Items[] | select(.Name == $n) | .I
 [ -n "$CHANNEL_ID" ] || { echo "channel '$CHANNEL_NAME' not found" >&2; exit 1; }
 echo "channel: $CHANNEL_NAME ($CHANNEL_ID); mode: $([ "$APPLY" = 1 ] && echo APPLY || echo dry-run)"
 
+USERS="$(get /Users)"   # fetched first so a failure stops the script instead of yielding an empty loop
 changed=0
-while IFS=$'\t' read -r id name admin all enabled; do
-    if [ "$admin" = true ]; then echo "skip  $name (administrator)"; continue; fi
+while IFS=$'\t' read -r id name all has; do
     if [ "$all" = true ]; then echo "skip  $name (all channels)"; continue; fi
-    if grep -q -i "$CHANNEL_ID" <<<"$enabled"; then echo "skip  $name (already enabled)"; continue; fi
+    if [ "$has" = true ]; then echo "skip  $name (already enabled)"; continue; fi
     echo "grant $name"
     changed=$((changed + 1))
     if [ "$APPLY" = 1 ]; then
         POLICY="$(get "/Users/$id" | jq --arg c "$CHANNEL_ID" '.Policy | .EnabledChannels = ((.EnabledChannels // []) + [$c] | unique)')"
         curl -sS -f -o /dev/null -X POST -H "$AUTH" -H 'Content-Type: application/json' "$JELLYFIN_URL/Users/$id/Policy" -d "$POLICY"
     fi
-done < <(get /Users | jq -r '.[] | [.Id, .Name, (.Policy.IsAdministrator // false), (.Policy.EnableAllChannels // false), ((.Policy.EnabledChannels // []) | join(","))] | @tsv')
+done < <(jq -r --arg c "$CHANNEL_ID" '.[] | [.Id, .Name, (.Policy.EnableAllChannels // false), (((.Policy.EnabledChannels // []) | map(ascii_downcase) | index($c | ascii_downcase)) != null)] | @tsv' <<<"$USERS")
 echo "$changed user(s) $([ "$APPLY" = 1 ] && echo updated || echo would be updated); re-run with --apply to write"

@@ -19,6 +19,9 @@ TARGET_ABI="$(yaml_get targetAbi)"
 ARTIFACT="$(yaml_get artifacts)"
 CHANGELOG="$(yaml_get changelog)"
 require VERSION "$VERSION"; require NAME "$NAME"; require GUID "$GUID"
+# A VERSION override (the release tag) must match Directory.Build.props, or the zip would claim one
+# version while the assembly metadata and manifest ordering follow another.
+[ "$VERSION" = "$(props_version)" ] || { echo "ERROR: VERSION $VERSION does not match Directory.Build.props $(props_version); bump the props first" >&2; exit 1; }
 require TARGET_ABI "$TARGET_ABI"; require ARTIFACT "$ARTIFACT"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")"
 STAGE="$DIST/${NAME}_${VERSION}"

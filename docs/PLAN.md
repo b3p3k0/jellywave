@@ -88,8 +88,8 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 - `IsEnabledFor` returns true. (Per-user hiding stays with Jellyfin's own channel permissions.)
 - `GetChannelItems`: ignores folder id; returns exactly one `ChannelItemInfo`:
   - `Id="live"`, `Type=Media`, `MediaType=Audio`, `ContentType=Song`, `IsLiveStream=true`
-  - `Name=$"{StationName} — Live"`, `Overview` = current now-playing line if the poller has one, `Artists`/`AlbumArtists` likewise
-  - `DateModified=LastChangedUtc`, `ImageUrl` null (inherits channel image)
+  - `Name=$"{StationName} — Live"`, `Overview` = current now-playing line if the poller has one. **Changed in card 4:** `Artists`/`AlbumArtists` are never set (see the NowPlayingService section).
+  - `DateModified` = max(`LastChangedUtc`, `MediaSourceSchemaDate`) (**changed in card 2** so an upgraded plugin re-saves its media sources), `ImageUrl` null (inherits channel image)
   - one `MediaSourceInfo`: `Path`=stream URL (base+path, or `ClientStreamUrl` in Direct mode), `Protocol=Http`, `IsRemote=true`, `IsInfiniteStream=true`, `Container="mp3"`, `Bitrate=192000`, `SupportsDirectPlay=(Delivery==Direct)`, `SupportsDirectStream=false`, `SupportsTranscoding=true`, `SupportsProbing=false`, `RunTimeTicks=null`, `MediaStreams=[audio: Codec "mp3", Channels 2, SampleRate 44100, BitRate 192000, Index 0]`. Bitrate, sample rate and channels come from the config (filled from `/api/now-playing`'s `stream` block by the config page), else these defaults.
 - `GetChannelImage(Primary)`: returns the embedded PNG as a `DynamicImageResponse` (`HasImage=true`, `Format=Png`, `Stream`). `GetSupportedChannelImages` = `[Primary]`.
 
