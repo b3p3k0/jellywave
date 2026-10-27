@@ -234,6 +234,14 @@ jellyfin-web internals and can move between releases; the page degrades to "noth
 rather than breaking the client. The Android app wraps the web client and needs a force-close to
 refetch `index.html` after the plugin is first installed.
 
+## Poller health (card 10)
+
+`PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
+error with time) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
+description and image key and whether the item exists. The configuration page shows it under
+"Now playing" with a "Refresh status" button, so an admin never has to read the server log to know
+whether the station is being reached.
+
 ## Configuration surface
 
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional

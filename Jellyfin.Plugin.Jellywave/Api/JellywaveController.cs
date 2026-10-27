@@ -24,6 +24,10 @@ public class JellywaveController : ControllerBase
 {
     private readonly StationClient _stationClient;
     private readonly AccessGranter _accessGranter;
+    private readonly NowPlayingState _state;
+    private readonly PollerHealth _health;
+    private readonly LiveItemArtwork _artwork;
+    private readonly LiveItemFinder _finder;
     private readonly ILogger<JellywaveController> _logger;
 
     /// <summary>
@@ -31,12 +35,45 @@ public class JellywaveController : ControllerBase
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     /// <param name="accessGranter">The access granter.</param>
+    /// <param name="state">The shared now-playing state.</param>
+    /// <param name="health">The poller health snapshot.</param>
+    /// <param name="artwork">The live item artwork keeper.</param>
+    /// <param name="finder">The live item finder.</param>
     /// <param name="logger">The logger.</param>
-    public JellywaveController(StationClient stationClient, AccessGranter accessGranter, ILogger<JellywaveController> logger)
+    public JellywaveController(StationClient stationClient, AccessGranter accessGranter, NowPlayingState state, PollerHealth health, LiveItemArtwork artwork, LiveItemFinder finder, ILogger<JellywaveController> logger)
     {
         _stationClient = stationClient;
         _accessGranter = accessGranter;
+        _state = state;
+        _health = health;
+        _artwork = artwork;
+        _finder = finder;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// The now-playing poller's health, for the configuration page: last success, last error, what the live item carries.
+    /// </summary>
+    /// <returns>The snapshot.</returns>
+    [HttpGet("Health")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<HealthResponse> Health()
+    {
+        var config = Plugin.Instance?.Configuration;
+        var channel = _finder.FindChannel(config);
+        return new HealthResponse
+        {
+            PollingEnabled = config?.NowPlayingEnabled == true,
+            StationConfigured = config is not null && StationUrls.TryGetBaseUrl(config, out _),
+            Running = _health.Running,
+            Reachable = _health.Reachable,
+            LastSuccessUtc = _health.LastSuccessUtc,
+            LastErrorUtc = _health.LastErrorUtc,
+            LastError = _health.LastError,
+            Description = _state.Description(),
+            Cover = _artwork.Applied,
+            LiveItemExists = channel is not null && _finder.FindLiveItem(channel) is not null
+        };
     }
 
     /// <summary>

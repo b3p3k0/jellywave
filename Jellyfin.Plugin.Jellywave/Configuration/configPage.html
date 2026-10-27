@@ -84,6 +84,10 @@
                             <div class="fieldDescription checkboxFieldDescription">Downloads the cover from the station on every track change and saves it as the live item's image. Tracks without art, and this box unticked, show the station logo instead. The tile in the My Media row always keeps the logo.</div>
                         </div>
                         <div class="inputContainer">
+                            <div class="fieldDescription" id="pollerHealth">Poller status: checking…</div>
+                            <button is="emby-button" type="button" id="btnHealth" class="raised emby-button"><span>Refresh status</span></button>
+                        </div>
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="NowPlayingPollSeconds">Poll interval (seconds)</label>
                             <input id="NowPlayingPollSeconds" name="NowPlayingPollSeconds" type="number" is="emby-input" min="5" max="300" step="1" />
                             <div class="fieldDescription">5 to 300. Tracks change every few minutes, so 20 is plenty.</div>
@@ -185,6 +189,7 @@
                         load(config);
                         Dashboard.hideLoadingMsg();
                     });
+                    loadHealth();
                     ApiClient.getJSON(ApiClient.getUrl('Jellywave/WebUi')).then(function (s) {
                         var text = { NotInstalled: 'Not active: the File Transformation plugin is not installed.',
                                      Active: 'Active with File Transformation ' + (s.FileTransformationVersion || '') + '. Users may need to reload the web client once.',
@@ -193,6 +198,27 @@
                         el('webUiStatus').textContent = text;
                     }).catch(function () { el('webUiStatus').textContent = 'Status unavailable.'; });
                 });
+
+                function ago(iso) {
+                    if (!iso) { return 'never'; }
+                    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+                    return s < 90 ? s + ' s ago' : Math.round(s / 60) + ' min ago';
+                }
+                function loadHealth() {
+                    var out = el('pollerHealth');
+                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/Health')).then(function (h) {
+                        var parts = [];
+                        if (!h.StationConfigured) { parts.push('no station URL configured'); }
+                        else if (!h.PollingEnabled) { parts.push('polling is off'); }
+                        else if (!h.Running) { parts.push('poller not running (starts after server startup)'); }
+                        else { parts.push(h.Reachable ? 'station reachable' : 'station NOT reachable'); }
+                        parts.push('last success ' + ago(h.LastSuccessUtc));
+                        if (h.LastErrorUtc) { parts.push('last error ' + ago(h.LastErrorUtc) + (h.LastError ? ': ' + h.LastError : '')); }
+                        parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)');
+                        out.textContent = 'Poller status: ' + parts.join(' · ');
+                    }).catch(function () { out.textContent = 'Poller status: unavailable.'; });
+                }
+                el('btnHealth').addEventListener('click', loadHealth);
 
                 el('btnProbe').addEventListener('click', function () {
                     var baseUrl = trimSlashes(el('StationBaseUrl').value);

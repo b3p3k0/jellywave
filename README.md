@@ -7,7 +7,7 @@ your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
 Jellyfin shows beside your libraries and Live TV on every client. Open it,
 press play, hear the station.
 
-Status: v0.3.2.0; v1 (stream tile, now playing, visible to every user) plus cover art and the optional station page with its extras. See `docs/PLAN.md` and `docs/DESIGN.md`.
+Status: v0.3.3.0; v1 (stream tile, now playing, visible to every user) plus cover art and the optional station page with its extras. See `docs/PLAN.md` and `docs/DESIGN.md`.
 
 ## How it works, and what users can see
 
@@ -45,6 +45,7 @@ Dashboard → Plugins → Jellywave.
 | Client stream URL | Direct only: the URL clients use when it differs from the server's |
 | Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
 | Now playing | Poll the station and show the current track, DJ, show and what is up next on the live item |
+| Poller status | Read-only line under Now playing: station reachable, last success, last error, what the live item carries. "Refresh status" re-reads it |
 | Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
 | Station page | Optional, needs the File Transformation plugin (see below). The channel's own page gets a live header with cover, track, DJ, show, what's next, listeners, Play/Stop and a request box; the playing bar and the grid card follow the track while it plays |
 | Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |

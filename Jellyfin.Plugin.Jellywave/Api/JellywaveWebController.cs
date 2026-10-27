@@ -259,7 +259,7 @@ public class JellywaveWebController : ControllerBase
             return new ScheduleResponse();
         }
 
-        return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow);
+        return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow, _state.Feed()?.ActiveShow?.Name);
     }
 
     /// <summary>
@@ -439,8 +439,9 @@ public class JellywaveWebController : ControllerBase
     /// </summary>
     /// <param name="info">The schedule.</param>
     /// <param name="nowUtc">The current time.</param>
+    /// <param name="activeShowName">The show the station says is on air (honours its timed takeovers), or null.</param>
     /// <returns>The response.</returns>
-    internal static ScheduleResponse BuildToday(ScheduleInfo info, DateTime nowUtc)
+    internal static ScheduleResponse BuildToday(ScheduleInfo info, DateTime nowUtc, string? activeShowName = null)
     {
         TimeZoneInfo zone;
         try
@@ -492,9 +493,18 @@ public class JellywaveWebController : ControllerBase
             blocks.Add(open);
         }
 
+        // "Now" is the block around the station's clock, unless the station says another show is on air
+        // (a timed takeover outranks the grid); then no grid block is current and the takeover is named.
+        var active = Collapse(activeShowName);
         foreach (var block in blocks)
         {
-            block.Now = local.Hour >= block.StartHour && local.Hour < block.EndHour;
+            block.Now = local.Hour >= block.StartHour && local.Hour < block.EndHour
+                && (active.Length == 0 || string.Equals(active, block.Show, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (active.Length > 0 && !blocks.Exists(b => b.Now))
+        {
+            response.Takeover = active;
         }
 
         response.Available = true;

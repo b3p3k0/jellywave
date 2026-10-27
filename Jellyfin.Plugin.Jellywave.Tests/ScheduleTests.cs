@@ -52,6 +52,19 @@ public class ScheduleTests
     }
 
     [Fact]
+    public void A_takeover_unmarks_the_grid_and_names_the_show_on_air()
+    {
+        var tuesday1030 = new DateTime(2026, 10, 27, 10, 30, 0, DateTimeKind.Utc);
+        var same = JellywaveWebController.BuildToday(Info(), tuesday1030, "the ville");
+        Assert.True(same.Today[1].Now);
+        Assert.Null(same.Takeover);
+
+        var takeover = JellywaveWebController.BuildToday(Info(), tuesday1030, "Pop-up Special");
+        Assert.DoesNotContain(takeover.Today, b => b.Now);
+        Assert.Equal("Pop-up Special", takeover.Takeover);
+    }
+
+    [Fact]
     public void Empty_day_or_unknown_zone_degrade_gracefully()
     {
         var wednesday1200 = new DateTime(2026, 10, 28, 12, 0, 0, DateTimeKind.Utc);

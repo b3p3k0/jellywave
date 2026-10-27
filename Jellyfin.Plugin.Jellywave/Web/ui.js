@@ -203,6 +203,9 @@
         if (!h) { return; }
         var body = h.querySelector('.jellywave-schedule-body');
         var s = state.schedule;
+        var signature = JSON.stringify(s || null);
+        if (body.getAttribute('data-signature') === signature) { return; }   // unchanged: leave the DOM alone
+        body.setAttribute('data-signature', signature);
         body.innerHTML = '';
         if (!s || !s.Available) { body.textContent = 'No schedule published.'; return; }
         if (!s.Today || !s.Today.length) { body.textContent = (s.Day || 'Today') + ': default programming all day.'; return; }
@@ -218,6 +221,12 @@
             row.appendChild(what);
             body.appendChild(row);
         });
+        if (s.Takeover) {
+            var tk = document.createElement('div');
+            tk.className = 'jellywave-schedule-row jellywave-schedule-now';
+            tk.textContent = 'On air now: ' + s.Takeover + ' (takeover)';
+            body.insertBefore(tk, body.firstChild);
+        }
         var note = document.createElement('div');
         note.className = 'jellywave-schedule-note';
         note.textContent = (s.Day || '') + (s.Timezone ? ' · station time (' + s.Timezone + ')' : '');
@@ -255,6 +264,8 @@
             avatar.style.display = avatarUrl && !avatar.getAttribute('data-failed') ? '' : 'none';
         } else {
             dj.style.display = 'none';
+            var hidden = dj.querySelector('.jellywave-dj-avatar');
+            if (hidden.src && hidden.src.indexOf('blob:') === 0) { URL.revokeObjectURL(hidden.src); hidden.removeAttribute('src'); hidden.removeAttribute('data-src'); }
         }
         var meta = [];
         if (f && f.Show) { meta.push('On air: ' + f.Show); }

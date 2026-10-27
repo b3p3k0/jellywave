@@ -297,6 +297,11 @@ HI decisions 2026-10-27:
    browser media session. DJ portrait and recent tracks are deferred to 8d.
 8c. **Requests.** Text box, optional name, submit, outcome from the status endpoint ("queued, position
    3", "no match", "cooldown, try in 40 s"); helper text explains the shared budget.
+10. **Poller health and the card 9 nits** (2026-10-27): `PollerHealth` snapshot plus `GET /Jellywave/Health`
+   and a status line with "Refresh status" on the configuration page; `BuildToday` takes the station's active
+   show so a timed takeover unmarks the grid and is named on the page; the schedule panel re-renders only
+   when its data changed; the portrait's blob URL is released when the DJ line hides; inert flex CSS removed.
+   Version 0.3.3.0.
 8d. **Small extras on the page** (after 8c, each its own `wip:`): DJ portrait (`/api/persona-avatar/{id}`
    proxied), recent tracks (`/api/state.history`), like button (`/api/like`), today's schedule strip
    (`/api/schedule`), lyrics when the station enables them. **Implemented 2026-10-27** in a923124

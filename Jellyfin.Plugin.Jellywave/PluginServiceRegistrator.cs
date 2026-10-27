@@ -21,6 +21,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StationClient>();
         serviceCollection.AddSingleton<NowPlayingState>();
         serviceCollection.AddSingleton<LiveItemArtwork>();
+        serviceCollection.AddSingleton<PollerHealth>();
         serviceCollection.AddSingleton<LiveItemFinder>();
         serviceCollection.AddSingleton<ScheduleCache>();
         serviceCollection.AddSingleton<IChannel, JellywaveChannel>();

@@ -8,4 +8,4 @@ description: "Adds a SUB/WAVE radio station tile to My Media on every Jellyfin c
 category: "General"
 owner: "b3p3k0"
 artifacts: "Jellyfin.Plugin.Jellywave.dll"
-changelog: "Station page layout: cover, now playing and the request box side by side, panels in a row; a refused like keeps the heart; schedule keeps its clock."
+changelog: "Poller status on the plugin page; schedule honours the station's takeovers; small page tidy-ups."

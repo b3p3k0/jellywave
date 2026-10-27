@@ -45,6 +45,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     private readonly NowPlayingState _state;
     private readonly LiveItemArtwork _artwork;
     private readonly LiveItemFinder _finder;
+    private readonly PollerHealth _health;
     private readonly ILibraryManager _libraryManager;
     private readonly IServerApplicationHost _applicationHost;
     private readonly Func<PluginConfiguration?> _configuration;
@@ -62,6 +63,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="artwork">The live item artwork keeper.</param>
     /// <param name="finder">The live item finder.</param>
+    /// <param name="health">The health snapshot for the configuration page.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
@@ -70,10 +72,11 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         NowPlayingState state,
         LiveItemArtwork artwork,
         LiveItemFinder finder,
+        PollerHealth health,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger)
-        : this(stationClient, state, artwork, finder, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
+        : this(stationClient, state, artwork, finder, health, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
     {
     }
 
@@ -84,6 +87,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="artwork">The live item artwork keeper.</param>
     /// <param name="finder">The live item finder.</param>
+    /// <param name="health">The health snapshot for the configuration page.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
@@ -93,6 +97,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         NowPlayingState state,
         LiveItemArtwork artwork,
         LiveItemFinder finder,
+        PollerHealth health,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger,
@@ -102,6 +107,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _state = state;
         _artwork = artwork;
         _finder = finder;
+        _health = health;
         _libraryManager = libraryManager;
         _applicationHost = applicationHost;
         _logger = logger;
@@ -160,6 +166,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
         {
+            _health.Failure(DateTime.UtcNow, ex.Message);
             if (_stationReachable)
             {
                 _logger.LogWarning("Station {Host} is unreachable or not answering with JSON: {Message}", baseUrl.Host, ex.Message);
@@ -179,6 +186,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
         if (feed is not null)
         {
+            _health.Success(DateTime.UtcNow);
             _state.Update(feed, DateTime.UtcNow);
             await FetchStationStateAsync(baseUrl, cancellationToken).ConfigureAwait(false);
             await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
@@ -230,6 +238,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         }
 
         _logger.LogInformation("Now-playing poller started");
+        _health.SetRunning(true);
         while (!cancellationToken.IsCancellationRequested)
         {
             var delay = IdleDelay;
@@ -245,6 +254,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             {
                 // The loop must survive anything; the next poll may succeed.
                 _logger.LogError(ex, "Now-playing poll failed unexpectedly");
+                _health.Failure(DateTime.UtcNow, ex.GetType().Name + ": " + ex.Message);
             }
 
             try
@@ -257,6 +267,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             }
         }
 
+        _health.SetRunning(false);
         _logger.LogInformation("Now-playing poller stopped");
     }
 

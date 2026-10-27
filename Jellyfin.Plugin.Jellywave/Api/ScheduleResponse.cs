@@ -17,6 +17,9 @@ public sealed class ScheduleResponse
     /// <summary>Gets or sets the station's current hour (0–23).</summary>
     public int? Hour { get; set; }
 
+    /// <summary>Gets or sets the show on air when it is not the grid's (a timed takeover), else null.</summary>
+    public string? Takeover { get; set; }
+
     /// <summary>Gets or sets today's blocks in order; gaps are hours with no show (default programming).</summary>
     public IReadOnlyList<ScheduleBlock> Today { get; set; } = [];
 }
