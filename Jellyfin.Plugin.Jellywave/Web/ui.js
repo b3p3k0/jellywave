@@ -8,7 +8,8 @@
     'use strict';
 
     var POLL_MS = 5000;
-    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null };
+    var FEED_RETRY_MS = 15000;
+    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0 };
 
     function api() { return window.ApiClient || null; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
@@ -16,10 +17,12 @@
     function fetchFeed() {
         var client = api();
         if (!client || !client.accessToken || !client.accessToken()) { return Promise.resolve(null); }
+        if (state.feedFailedAt && Date.now() - state.feedFailedAt < FEED_RETRY_MS) { return Promise.resolve(null); }
         return client.getJSON(client.getUrl('Jellywave/Feed')).then(function (feed) {
             state.feed = feed;
+            state.feedFailedAt = 0;
             return feed;
-        }).catch(function () { return null; });
+        }).catch(function () { state.feedFailedAt = Date.now(); return null; });
     }
 
     function imageUrl(feed, size) {
@@ -45,7 +48,8 @@
         var pm = state.deps && state.deps.playbackManager;
         var client = api();
         if (!pm || !client || !state.feed || !state.feed.ItemId) { return; }
-        pm.play({ ids: [state.feed.ItemId], serverId: client.serverId() });
+        var result = pm.play({ ids: [state.feed.ItemId], serverId: client.serverId() });
+        if (result && result.catch) { result.catch(function (e) { console.warn('[Jellywave] play failed', e); }); }
     }
 
     function stop() {
@@ -162,7 +166,7 @@
             '<input type="text" class="jellywave-request-name" maxlength="40" placeholder="Your name" autocomplete="off" />' +
             '<button is="emby-button" type="submit" class="raised emby-button jellywave-request-send"><span>Send</span></button>' +
             '<div class="jellywave-request-result"></div>' +
-            '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests and a few per hour for everyone on this server together.</div>' +
+            '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests, one pending at a time and a few per hour for everyone on this server together, so a "still queued" or "try again later" answer may be about someone else\'s request.</div>' +
             '</form></div>';
         header.querySelector('.jellywave-play').addEventListener('click', function () { play(); setTimeout(render, 800); });
         header.querySelector('.jellywave-stop').addEventListener('click', function () { stop(); setTimeout(render, 300); });
@@ -201,6 +205,7 @@
         }
         function poll(id, tries) {
             clearTimeout(pollTimer);
+            if (!document.body.contains(out)) { return; }   // page left; stop polling
             client.getJSON(client.getUrl('Jellywave/Request/' + encodeURIComponent(id))).then(function (r) {
                 say(describe(r));
                 if (r && r.Status === 'pending' && tries < 30) { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000); }
@@ -263,6 +268,14 @@
         if (deps && deps.events && deps.playbackManager) {
             deps.events.on(deps.playbackManager, 'playbackstart', function () {
                 fetchFeed().then(function () { if (isOurs()) { state.lastTag = null; ensureTimer(); tick(); } });
+            });
+            // jellyfin-web rebuilds the bar text and the media session from its snapshot on these events;
+            // repaint right away instead of waiting for the next tick.
+            ['pause', 'unpause', 'statechange'].forEach(function (name) {
+                deps.events.on(deps.playbackManager, name, function () {
+                    state.lastTag = null;
+                    setTimeout(function () { try { refreshBar(); } catch (e) { /* best effort */ } }, 50);
+                });
             });
         }
     }

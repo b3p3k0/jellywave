@@ -31,6 +31,9 @@ public class JellywaveWebController : ControllerBase
     private const string StyleResource = "Jellyfin.Plugin.Jellywave.Web.ui.css";
     private const int MaxRequestText = 280;
     private const int MaxRequestName = 40;
+
+    /// <summary>Jellyfin's claim carrying the signed-in user's id (Jellyfin.Api.Constants.InternalClaimTypes.UserId).</summary>
+    private const string UserIdClaim = "Jellyfin-UserId";
     private static readonly TimeSpan AssetCacheLifetime = TimeSpan.FromDays(1);
 
     private readonly NowPlayingState _state;
@@ -161,7 +164,16 @@ public class JellywaveWebController : ControllerBase
             var body = reply.Body;
             if (reply.StatusCode == StatusCodes.Status202Accepted && body?.RequestId is not null)
             {
+                // One line per accepted request, never the text: ties the station's id to the Jellyfin user,
+                // which the station cannot do (it sees this server as one caller).
+                _logger.LogInformation("Listener request {RequestId} accepted for user {UserId}", body.RequestId, User.FindFirst(UserIdClaim)?.Value ?? "?");
                 return new RequestOutcome { Accepted = true, RequestId = body.RequestId, Status = "pending", Message = "Sent. Waiting for the DJ…" };
+            }
+
+            if (reply.StatusCode is >= StatusCodes.Status200OK and < StatusCodes.Status300MultipleChoices)
+            {
+                // A success without a receipt is not something today's station sends; treat it as a failure, not a refusal.
+                return new RequestOutcome { Status = "unavailable", Message = "The station answered without a receipt." };
             }
 
             return new RequestOutcome

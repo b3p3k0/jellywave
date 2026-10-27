@@ -261,19 +261,24 @@ HI decisions 2026-10-27:
    hook. Output: a one-page decision in DESIGN.md and a throwaway proof on the test host. Exit: a
    non-admin user reaches a "Hello" page from the top bar in web and in the Android app.
 8a. **Feed endpoints.** Signed-in-user (not admin) endpoints under `/Jellywave/`: `Feed` (now playing,
-   DJ, show, next show, listeners, up next, recent history, with the station's ids but never its URL),
-   `Cover/{id}` and `Avatar/{id}` (byte proxies with the station's cache headers, size-capped, id
-   validated `^[\w-]{1,64}$`), `Request` (POST, forwards text and name, returns the station's status
-   code and `Retry-After` verbatim), `Request/{id}` (status). Tests on the id validation and the
-   pass-through mapping.
+   DJ, show, next show, listeners, the channel and live item ids and the item's image tag, never the
+   station URL), `Request` (POST) and `Request/{id}`. **Corrected in implementation:** no `Cover`/`Avatar`
+   byte proxies; the page draws the cover through Jellyfin's own image API from the live item's Primary
+   (card 7 already saves it), and the DJ portrait is deferred. `POST Request` always answers 200 with
+   one mapped outcome object (`Status`, the station's message, `RetryAfterSeconds`) rather than the
+   station's status code, so the page shows the station's words without handling HTTP errors.
 8b. **Station page.** Inside the Jellyfin web app (so the Android app gets it): cover, track, DJ with
-   portrait and tagline, show and what's next, listener count, recent tracks; play/stop drives
-   Jellyfin's own player on the live item so the bar, remote control and lock-screen controls keep
-   working; polls `Feed` every 5 s while visible.
+   tagline, show and what's next, listener count; play/stop drives Jellyfin's own player on the live
+   item so the bar, remote control and lock-screen controls keep working; polls `Feed` every 5 s while
+   visible. **Corrected in implementation:** the page is the channel's own library page (header above the
+   grid), not a drawer tab, because the default layout has no user drawer; the legacy layout gets a
+   drawer link to it. While the station plays the script repaints the bar, the grid card and the
+   browser media session. DJ portrait and recent tracks are deferred to 8d.
 8c. **Requests.** Text box, optional name, submit, outcome from the status endpoint ("queued, position
    3", "no match", "cooldown, try in 40 s"); helper text explains the shared budget.
-8d. **Small extras on the page** (after 8c, each its own `wip:`): like button (`/api/like`), today's
-   schedule strip (`/api/schedule`), lyrics when the station enables them.
+8d. **Small extras on the page** (after 8c, each its own `wip:`): DJ portrait (`/api/persona-avatar/{id}`
+   proxied), recent tracks (`/api/state.history`), like button (`/api/like`), today's schedule strip
+   (`/api/schedule`), lyrics when the station enables them.
 
 Also queued, not on the page: poller health on the config page (last successful poll, last error).
 

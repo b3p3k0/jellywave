@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.Jellywave.Web;
 /// </summary>
 public sealed class WebUiStartupTask : IScheduledTask
 {
-    /// <summary>Stable ids so a re-registration replaces rather than duplicates.</summary>
+    /// <summary>Stable ids: File Transformation skips an id it already holds, so a second run does not duplicate.</summary>
     private static readonly Guid IndexHtmlId = Guid.Parse("c0b9d1b2-3b2b-4e1a-9d7a-6ca437a05b11");
     private static readonly Guid ConfigJsonId = Guid.Parse("c0b9d1b2-3b2b-4e1a-9d7a-6ca437a05b12");
 
