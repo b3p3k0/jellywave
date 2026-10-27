@@ -12,40 +12,98 @@
     /* 403: this user may not see the channel (blocked, not enabled) or is an API key. Ask rarely. */
     var FEED_FORBIDDEN_RETRY_MS = 300000;
     var HTTP_FORBIDDEN = 403;
+    /* 404: no channel entity yet, or its name collides (fresh install, rename). Keeps the short retry. */
+    var HTTP_NOT_FOUND = 404;
+    /* DOM changes are handled at most once per window, through one pending timer. */
+    var DOM_DEBOUNCE_MS = 250;
     var NO_ACCESS_MESSAGE = 'You don\'t have access to this station.';
-    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, feedRetryMs: FEED_RETRY_MS, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0 };
+    /* sessionKey: serverId|userId the state belongs to; epoch: bumped on every reset, so a reply to a request
+       sent before the reset is dropped. */
+    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, feedRetryMs: FEED_RETRY_MS, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0, fetching: false, sessionKey: null, epoch: 0, domTimer: null, booted: false };
+    /* Live collections, so the DOM-change check is a length read instead of a document query. */
+    var listContainers = document.getElementsByClassName('itemsContainer');
+    var drawerSlots = document.getElementsByClassName('customMenuOptions');
 
     function api() { return window.ApiClient || null; }
     /* ApiClient rejects with the fetch Response on an HTTP error; a network failure has no status. */
     function isForbidden(err) { return !!err && err.status === HTTP_FORBIDDEN; }
+    function isNotFound(err) { return !!err && err.status === HTTP_NOT_FOUND; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
+    function isCurrent(epoch) { return epoch === state.epoch; }
+
+    /* Who the state belongs to: server id plus user id, or null when nobody is signed in (no access token). */
+    function sessionKey() {
+        var client = api();
+        if (!client || !client.accessToken || !client.accessToken()) { return null; }
+        var server = client.serverId ? client.serverId() : '';
+        var user = client.getCurrentUserId ? client.getCurrentUserId() : '';
+        return (server || '') + '|' + norm(user);
+    }
+
+    /* A sign-out, another user or another server: drop everything the previous session saw.
+       Returns whether someone is signed in. */
+    function checkSession() {
+        var key = sessionKey();
+        if (key === state.sessionKey) { return key !== null; }
+        forgetStation();
+        state.sessionKey = key;
+        state.epoch += 1;
+        state.like = null;
+        state.likeSongId = null;
+        state.likeBusy = false;
+        state.lyrics = null;
+        state.lyricsSongId = null;
+        state.schedule = null;
+        state.scheduleAt = 0;
+        state.feedFailedAt = 0;
+        state.feedRetryMs = FEED_RETRY_MS;
+        state.lastTag = null;
+        state.lastCardTag = null;
+        state.fetching = false;
+        return key !== null;
+    }
 
     function fetchFeed() {
         var client = api();
-        if (!client || !client.accessToken || !client.accessToken()) { return Promise.resolve(null); }
+        if (!client || !checkSession()) { return Promise.resolve(null); }
         if (state.feedFailedAt && Date.now() - state.feedFailedAt < state.feedRetryMs) { return Promise.resolve(null); }
+        var epoch = state.epoch;
         return client.getJSON(client.getUrl('Jellywave/Feed')).then(function (feed) {
+            if (!isCurrent(epoch)) { return null; }
             state.feed = feed;
             state.feedFailedAt = 0;
             return feed;
         }).catch(function (err) {
+            if (!isCurrent(epoch)) { return null; }
             state.feedFailedAt = Date.now();
             state.feedRetryMs = FEED_RETRY_MS;
-            if (isForbidden(err)) {
-                state.feedRetryMs = FEED_FORBIDDEN_RETRY_MS;
-                forgetStation();
-            }
+            if (isForbidden(err)) { state.feedRetryMs = FEED_FORBIDDEN_RETRY_MS; }
+            if (isForbidden(err) || isNotFound(err)) { forgetStation(); }
             return null;
         });
     }
 
-    /* Refused by the server: drop what an earlier answer showed, so a blocked user sees nothing. */
+    function detach(el) {
+        if (el && el.parentNode) { el.parentNode.removeChild(el); }
+    }
+
+    /* The portrait is a blob URL; revoke it when its header goes. */
+    function removeHeader(header) {
+        var avatar = header.querySelector('.jellywave-dj-avatar');
+        if (avatar && avatar.src && avatar.src.indexOf('blob:') === 0) { URL.revokeObjectURL(avatar.src); avatar.removeAttribute('src'); }
+        detach(header);
+    }
+
+    /* Refused by the server (403, 404) or a new session: drop what an earlier answer showed, so a blocked
+       user sees nothing. Every header goes, including one in a cached view that state.header no longer holds. */
     function forgetStation() {
         state.feed = null;
-        if (state.header && state.header.parentNode) { state.header.parentNode.removeChild(state.header); }
+        if (state.header) { removeHeader(state.header); }
         state.header = null;
-        var link = document.querySelector('.jellywave-link');
-        if (link && link.parentNode) { link.parentNode.removeChild(link); }
+        var headers = document.querySelectorAll('.jellywave-header');
+        for (var i = 0; i < headers.length; i++) { removeHeader(headers[i]); }
+        var links = document.querySelectorAll('.jellywave-link');
+        for (var j = 0; j < links.length; j++) { detach(links[j]); }
     }
 
     function imageUrl(feed, size) {
@@ -132,12 +190,27 @@
     }
 
     /* Likes: status is per track; the station counts this server as one caller, so "liked" is shared. */
+    /* A reply is kept only while the feed still shows the track it was asked for: a slow answer for track A
+       arriving after track B started must not put A's id behind the heart. */
     function fetchLike() {
         var client = api();
-        if (!client || !state.feed || !state.feed.SongId) { state.like = null; return; }
+        if (!client || !state.feed || !state.feed.SongId) { state.like = null; state.likeSongId = null; return; }
         if (state.likeSongId === state.feed.SongId) { return; }
-        state.likeSongId = state.feed.SongId;
-        client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) { state.like = r; renderLike(); }).catch(function () { state.like = null; state.likeSongId = null; });
+        var songId = state.feed.SongId;
+        var epoch = state.epoch;
+        state.likeSongId = songId;
+        state.like = null;   // the previous track's heart goes until this track's status arrives
+        function stale() { return !isCurrent(epoch) || state.likeSongId !== songId || !state.feed || state.feed.SongId !== songId; }
+        client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) {
+            if (stale()) { return; }
+            if (r && r.SongId && r.SongId !== songId) { return; }   // the station moved on during the round trip; the next feed brings that track
+            state.like = r;
+            renderLike();
+        }).catch(function () {
+            if (stale()) { return; }
+            state.like = null;
+            state.likeSongId = null;
+        });
     }
 
     function renderLike() {
@@ -156,16 +229,25 @@
     function sendLike() {
         var client = api();
         if (!client || !state.like || !state.like.SongId || state.likeBusy) { return; }
+        var songId = state.like.SongId;
+        var epoch = state.epoch;
         state.likeBusy = true;
         renderLike();
         client.ajax({
             type: 'POST', url: client.getUrl('Jellywave/Like'), dataType: 'json', contentType: 'application/json',
-            data: JSON.stringify({ SongId: state.like.SongId })
+            data: JSON.stringify({ SongId: songId })
         }).then(function (r) {
+            // The track moved on (or the session changed) while the like was on its way: the reply is not about the heart shown now.
+            if (!isCurrent(epoch) || !state.like || state.like.SongId !== songId) { return; }
             if (!r || !r.Enabled) { return; }
+            if (r.SongId && r.SongId !== songId) { return; }
             if (r.Message && !r.SongId) { state.like.Message = r.Message; return; }   // refusal: keep heart and count
             state.like = r;
-        }).catch(function () { /* keep the old status */ }).then(function () { state.likeBusy = false; renderLike(); });
+        }).catch(function () { /* keep the old status */ }).then(function () {
+            if (!isCurrent(epoch)) { return; }   // the reset already cleared likeBusy; a new session may have its own like in flight
+            state.likeBusy = false;
+            renderLike();
+        });
     }
 
     /* Lyrics: one fetch per track while the panel is open; the station only serves the track on air. */
@@ -179,15 +261,20 @@
         if (!panel.open) { return; }
         if (!force && state.lyricsSongId === state.feed.SongId) { return; }
         var songId = state.feed.SongId;
+        var epoch = state.epoch;
         state.lyricsSongId = songId;
         state.lyrics = null;
         renderLyrics();
         client.getJSON(client.getUrl('Jellywave/Lyrics', { songId: songId })).then(function (r) {
-            if (state.lyricsSongId !== songId) { return; }
+            if (!isCurrent(epoch) || state.lyricsSongId !== songId) { return; }
             state.lyrics = r;
             renderLyrics();
-            if (r && r.Status === 'pending') { setTimeout(function () { if (state.lyricsSongId === songId) { state.lyricsSongId = null; fetchLyrics(); } }, 8000); }
-        }).catch(function () { state.lyrics = { Status: 'unavailable', Message: 'Could not reach the server.' }; renderLyrics(); });
+            if (r && r.Status === 'pending') { setTimeout(function () { if (isCurrent(epoch) && state.lyricsSongId === songId) { state.lyricsSongId = null; fetchLyrics(); } }, 8000); }
+        }).catch(function () {
+            if (!isCurrent(epoch) || state.lyricsSongId !== songId) { return; }
+            state.lyrics = { Status: 'unavailable', Message: 'Could not reach the server.' };
+            renderLyrics();
+        });
     }
 
     function renderLyrics() {
@@ -209,11 +296,17 @@
         var panel = h.querySelector('.jellywave-schedule');
         if (!panel.open) { return; }
         if (state.schedule && Date.now() - state.scheduleAt < 300000) { renderSchedule(); return; }
+        var epoch = state.epoch;
         client.getJSON(client.getUrl('Jellywave/Schedule')).then(function (r) {
+            if (!isCurrent(epoch)) { return; }
             state.schedule = r;
             state.scheduleAt = Date.now();
             renderSchedule();
-        }).catch(function () { state.schedule = { Available: false }; renderSchedule(); });
+        }).catch(function () {
+            if (!isCurrent(epoch)) { return; }
+            state.schedule = { Available: false };
+            renderSchedule();
+        });
     }
 
     function hourLabel(hour) {
@@ -273,12 +366,14 @@
             var avatarUrl = f.DjAvatarId && client ? client.getUrl('Jellywave/Avatar/' + encodeURIComponent(f.DjAvatarId)) : '';
             if (avatarUrl && avatar.getAttribute('data-src') !== avatarUrl) {
                 avatar.setAttribute('data-src', avatarUrl);
+                var avatarEpoch = state.epoch;
                 // The endpoint needs the session token, which an <img> cannot send; fetch with it and show the bytes.
                 client.ajax({ type: 'GET', url: avatarUrl }).then(function (r) {
                     // ApiClient.ajax resolves the raw Response unless dataType is json/text.
                     return r && typeof r.blob === 'function' ? r.blob() : r;
                 }).then(function (blob) {
-                    if (!blob || avatar.getAttribute('data-src') !== avatarUrl) { return; }
+                    // After a reset or a refusal the header is gone; a blob URL made for it now would never be revoked.
+                    if (!blob || !isCurrent(avatarEpoch) || !document.body.contains(avatar) || avatar.getAttribute('data-src') !== avatarUrl) { return; }
                     if (avatar.src && avatar.src.indexOf('blob:') === 0) { URL.revokeObjectURL(avatar.src); }
                     avatar.src = URL.createObjectURL(blob);
                     avatar.removeAttribute('data-failed');
@@ -333,15 +428,34 @@
         if (!state.timer) { state.timer = setInterval(tick, POLL_MS); }
     }
 
+    /* The first list container in root whose data-parentid is the channel; cached views keep other
+       libraries' containers in the document, so the first one found is not necessarily ours. A document-wide
+       search skips cached views (viewContainer.js hides them with .hide); a shown view is taken as it is. */
+    function findChannelContainer(root, channelId) {
+        var found = root.querySelectorAll('.itemsContainer[data-parentid]');
+        for (var i = 0; i < found.length; i++) {
+            if (norm(found[i].getAttribute('data-parentid')) !== norm(channelId)) { continue; }
+            if (root === document && found[i].closest('.mainAnimatedPage.hide')) { continue; }
+            return found[i];
+        }
+        return null;
+    }
+
     /* The channel's library page: .itemsContainer carries data-parentid = channel id (legacy list controller,
-       used by both layouts for channels). Insert the header above the toolbar row of that page. */
-    function ensureHeader() {
+       used by both layouts for channels; it sets the attribute before the view's viewshow). Insert the header
+       above the toolbar row of that page. root is the shown view, or the document. */
+    function ensureHeader(root) {
         var f = state.feed;
         if (!f || !f.ChannelId) { return; }
-        var container = document.querySelector('.itemsContainer[data-parentid]');
-        if (!container || norm(container.getAttribute('data-parentid')) !== norm(f.ChannelId)) { return; }
+        var container = findChannelContainer(root || document, f.ChannelId);
+        if (!container) { return; }
         var page = container.closest('.page') || document;
-        if (page.querySelector('.jellywave-header')) { return; }
+        var existing = page.querySelector('.jellywave-header');
+        if (existing) {
+            // Back on a cached channel view: repaint its header, not the one built for another view since.
+            if (existing !== state.header) { state.header = existing; render(); ensureTimer(); }
+            return;
+        }
         var anchor = page.querySelector('.itemsViewSettingsContainer') || container;
         var header = document.createElement('div');
         header.className = 'jellywave-header';
@@ -393,6 +507,8 @@
             client.getCurrentUser().then(function (u) { if (u && u.Name && !name.value) { name.value = u.Name; } }).catch(function () { /* fine */ });
         }
         var pollTimer = null;
+        var epoch = state.epoch;   // the session this header was built for; its requests stop when that ends
+        function sameSession() { return checkSession() && isCurrent(epoch); }
         function say(msg) { out.textContent = msg || ''; }
         function describe(r) {
             if (!r) { return 'No answer.'; }
@@ -409,18 +525,23 @@
         }
         function poll(id, tries) {
             clearTimeout(pollTimer);
-            if (!document.body.contains(out)) { return; }   // page left; stop polling
+            if (!sameSession() || !document.body.contains(out)) { return; }   // signed out, another user, or page left
             client.getJSON(client.getUrl('Jellywave/Request/' + encodeURIComponent(id))).then(function (r) {
+                if (!isCurrent(epoch)) { return; }
                 say(describe(r));
                 if (r && r.Status === 'pending' && tries < 30) { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000); }
                 else { send.disabled = false; }
-            }).catch(function (err) { say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Lost contact while waiting.'); send.disabled = false; });
+            }).catch(function (err) {
+                if (!isCurrent(epoch)) { return; }
+                say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Lost contact while waiting.');
+                send.disabled = false;
+            });
         }
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             var client2 = api();
             var value = text.value.trim();
-            if (!client2 || !value) { return; }
+            if (!client2 || !value || !sameSession()) { return; }
             send.disabled = true;
             say('Sending…');
             client2.ajax({
@@ -453,22 +574,54 @@
         container.appendChild(link);
     }
 
-    function onDomChange() {
+    /* A view was shown, or the DOM settled: check the session, then add the header and the drawer link
+       where their containers exist. The containers are checked through live collections first. */
+    function onDomChange(root) {
+        if (!checkSession()) { return; }
+        if (!listContainers.length && !drawerSlots.length) { return; }
         if (!state.feed) {
-            if ((document.querySelector('.itemsContainer[data-parentid]') || document.querySelector('.customMenuOptions')) && !state.fetching) {
+            if (!state.fetching && (drawerSlots.length || document.querySelector('.itemsContainer[data-parentid]'))) {
+                var epoch = state.epoch;
                 state.fetching = true;
-                fetchFeed().then(function () { state.fetching = false; ensureHeader(); ensureDrawerLink(); });
+                fetchFeed().then(function () {
+                    if (!isCurrent(epoch)) { return; }   // the reset cleared fetching; this answer belongs to the old session
+                    state.fetching = false;
+                    // The user may have moved on while the feed was on its way (that view's viewshow found a fetch
+                    // in flight and returned): search the whole document, not the view that started the fetch.
+                    ensureHeader(document);
+                    ensureDrawerLink();
+                });
             }
             return;
         }
-        ensureHeader();
+        ensureHeader(root);
         ensureDrawerLink();
     }
 
+    /* jellyfin-web dispatches a bubbling viewshow on every view it shows (viewManager.js for legacy views,
+       Page.tsx for React ones); this is the main path for the header. */
+    function onViewShow(e) {
+        var view = e && e.target && e.target.querySelectorAll ? e.target : document;
+        try { onDomChange(view); } catch (err) { console.warn('[Jellywave] view check failed', err); }
+    }
+
+    /* Fallback for what viewshow does not cover (the legacy drawer, late renders): at most one pass per
+       DOM_DEBOUNCE_MS, through one pending timer, with no document query in the observer callback itself. */
+    function onMutation() {
+        if (state.domTimer) { return; }
+        state.domTimer = setTimeout(function () {
+            state.domTimer = null;
+            try { onDomChange(document); } catch (err) { console.warn('[Jellywave] page check failed', err); }
+        }, DOM_DEBOUNCE_MS);
+    }
+
     function boot(deps) {
+        if (state.booted) { return; }   // the plugin manager may construct the plugin twice; one observer, one set of listeners
+        state.booted = true;
         state.deps = deps;
-        new MutationObserver(onDomChange).observe(document.body, { childList: true, subtree: true });
-        onDomChange();
+        document.addEventListener('viewshow', onViewShow);
+        new MutationObserver(onMutation).observe(document.body, { childList: true, subtree: true });
+        onDomChange(document);
         if (deps && deps.events && deps.playbackManager) {
             deps.events.on(deps.playbackManager, 'playbackstart', function () {
                 fetchFeed().then(function () { if (isOurs()) { state.lastTag = null; ensureTimer(); tick(); } });

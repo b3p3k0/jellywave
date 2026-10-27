@@ -8,4 +8,4 @@ description: "Adds a SUB/WAVE radio station tile to My Media on every Jellyfin c
 category: "General"
 owner: "b3p3k0"
 artifacts: "Jellyfin.Plugin.Jellywave.dll"
-changelog: "Changing the station URL no longer mixes the old station's schedule, recent tracks or cover art into the new one; a track without cover art is rechecked every 30 minutes instead of on every poll; an empty now-playing answer from the station counts as a failure and the tile falls back to its default text; a schedule with a repeated show or host id, or a station list with an empty entry, no longer breaks the station page."
+changelog: "Station page: signing out, or signing in as another user or on another server, clears what the page showed before; a station that becomes unavailable to you (access removed, channel renamed) takes its header and drawer link away; the like button no longer sends the previous track's like after a track change; the page does less work on every screen change in the web client."
