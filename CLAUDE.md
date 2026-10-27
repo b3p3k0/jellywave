@@ -1,7 +1,7 @@
 # Jellywave — notes for agents
 
-Read `docs/PLAN.md` (decisions, cards) and `docs/DESIGN.md` (how it works) before changing
-anything. `docs/LESSONS_LEARNED.md` records what each card taught; append, do not rewrite.
+Read `docs/dev/PLAN.md` (decisions, cards) and `docs/DESIGN.md` (how it works) before changing
+anything. `docs/dev/LESSONS_LEARNED.md` records what each card taught; append, do not rewrite.
 
 ## Build and verify
 

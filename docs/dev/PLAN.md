@@ -62,7 +62,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 │   ├── update-manifest.sh                 # writes the version entry (checksum, sourceUrl, timestamp) into manifest.json
 │   └── (untracked) local/deploy-jellyfin.sh  # dev helper HI runs on the test host; local/ is gitignored, not a deliverable
 └── docs/
-    ├── PLAN.md                            # this plan, committed to the repo on approval
+    ├── dev/PLAN.md                        # this plan, committed to the repo on approval (docs/PLAN.md until card 16)
     └── DESIGN.md                          # behaviour doc, closed out with the code (Charter: docs in same wave)
 ```
 
@@ -149,7 +149,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 2. **Channel + stream.** `JellywaveChannel`, embedded logo, config class with defaults (no page yet). Exit: deployed on the Jellyfin test host; `GET /Channels` lists it; `GET /UserViews` includes it; web My Media shows the tile with logo; click → one item → play → audio in browser, Relay mode (ffmpeg job visible in dashboard / log).
 3. **Config page.** `configPage.html` with the fields above and "Fetch from station"; `LastChangedUtc` on save. Exit: switching Delivery to Direct and back changes `PlaybackInfo` output (`SupportsDirectPlay`, `TranscodingUrl`) after cache bust.
 4. **Now-playing service.** `NowPlayingState`, `NowPlayingService`, registrator (`StationClient` already landed with card 3). Exit: after a track change on the station host, reopening the tile shows the new "Now playing" overview within one poll interval; log shows no errors over 30 min.
-5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
+5. **Docs, release, closeout.** `README.md` (install from the repository URL, configuration, limitations), `docs/DESIGN.md`, `docs/PLAN.md` (now `docs/dev/PLAN.md`) current, `CLAUDE.md` for agents. The deploy helper stays untracked (HI decision 2026-10-26: users install through the plugin repository). Exit: docs match behaviour; `scripts/check-manifest.sh` passes. Once HI has pushed `main` and tagged `v0.1.0.0`: the release workflow succeeds, and installing from the repository URL in the test host's dashboard works (this last check is after push, so it closes when HI reports it).
 
 Cross-client checks after card 4 (HI performs, MI supplies the checklist): Android app (web wrapper) plays; Roku and Android TV open the tile and play. Roku/Android TV are bonus and may need a follow-up card.
 
@@ -233,7 +233,7 @@ Open after card 8d: the lyrics panel on HI's station (see the 8d row) and the po
 
 ## Post-approval housekeeping (MI)
 
-- Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit.
+- Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit (moved to `docs/dev/PLAN.md` in card 16).
 - Save memory notes: the Agent Charter URL and response contract; host roles (the Jellyfin test host = Jellyfin 12.3 test server, user access + sudo password; the station host = SUB/WAVE, `kevin@<station-host>` works, `claude@<station-host>` needs `~/.ssh/claude_framework`).
 
 ## Phase 2: live station page (decided 2026-10-27)
