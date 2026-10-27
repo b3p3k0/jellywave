@@ -212,3 +212,49 @@ Found during closeout: users need channel access (`EnableAllChannels` or the cha
 - Plugin-side "make visible to all users" control, and a hook for newly created users (authorization change; HI decision).
 - Plugin-hosted byte-for-byte stream proxy endpoint (keeps ICY, avoids ffmpeg).
 - Multi-station support (SUB/WAVE profiles) as multiple channels.
+
+## Wave 2, card 6: visible to every user (decided 2026-10-27)
+
+HI decision: no scripts, no manual pass. Install from the repository, configure in the plugin UI, and the
+station is visible to everyone. Elevated risk (authorization): full process, security pass, HI review before
+acceptance.
+
+### Behaviour
+
+- Config `GrantAccessToAllUsers` (bool). When on, the plugin makes sure every user can see the channel by
+  adding the channel's id to that user's `EnabledChannels` preference when the user has neither
+  `EnableAllChannels` nor the id already. Nothing else in the policy is touched: `EnableAllChannels` is never
+  set, no other channel is added or removed, `BlockedChannels` is left alone (a user explicitly blocked from
+  the channel stays blocked, which is what the admin asked for).
+- Runs: after core startup (same hosted-service pattern as the poller), on every config save (the config
+  page calls an admin endpoint `POST /Jellywave/GrantAccess` that also reports counts), and on
+  `UserCreatedEventArgs` via a plugin-registered `IEventConsumer<UserCreatedEventArgs>` so provisioning
+  tools (JFA-GO and friends) cannot leave new users out.
+- Turning the setting off stops future grants; it does not revoke anything (decision: see questions).
+- The config page shows the result of the last run: "n users can see the station; granted to m just now;
+  k users are blocked by an explicit block list".
+- Channel id: the `Channel` entity looked up by name (`GetItemList{IncludeItemTypes=[Channel]}`), created
+  on first use through `IChannelManager.GetChannelsInternalAsync` once core startup has completed.
+
+### Mechanics (Jellyfin 12.3, verified)
+
+- `User.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels)` / `User.SetPreference<Guid>(...)`
+  (`Jellyfin.Data/UserEntityExtensions.cs`), persisted with `IUserManager.UpdateUserAsync(user)`
+  (`UserManager.cs:213`, locks per user, re-reads the tracked entity).
+- `UserManager.CreateUserAsync` publishes `UserCreatedEventArgs` (`UserManager.cs:365`); plugins register
+  `IEventConsumer<T>` in DI (webhook plugin precedent).
+- `Channel.IsVisible` has no administrator exemption, so administrators are treated like everyone else.
+
+### Security pass items
+
+- Only the plugin's own channel id is ever written; the code path cannot add any other id.
+- Admin-only endpoint for the manual trigger (`Policies.RequiresElevation`), same as the probe.
+- Log one Information line per run with counts, never per user; no user names in logs.
+- Tests: pure grant logic (`Granter.Plan(users, channelId)` → list of users to update) with fakes of the
+  user preference arrays; no network, no database.
+
+### Cards
+
+6a. `AccessGranter` service + tests + config field + startup and user-created hooks.
+6b. Config page section + admin endpoint + README/DESIGN update. Exit: fresh non-admin user on the test
+    host sees the tile without any admin action; counts shown on the page; LESSONS block.
