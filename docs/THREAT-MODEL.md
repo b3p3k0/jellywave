@@ -1,12 +1,13 @@
 # Jellywave threat model
 
-Status: 2026-10-27, describes plugin version 0.4.0.0 (cards 1–15).
+Status: 2026-10-27, describes plugin version 0.4.0.0 (cards 1–15b).
 Written from the code and [`DESIGN.md`](DESIGN.md); where this file and the code disagree, the code
 wins and this file is wrong.
 
 Jellywave puts a SUB/WAVE radio station into Jellyfin: a channel tile, a poller that writes the
 current track onto the live item, an optional station page injected into jellyfin-web, and an
-optional pass that makes the channel visible to every user. Each of those crosses a trust boundary.
+admin button that adds the channel once to every user who cannot see it. Each of those crosses a trust
+boundary.
 This file says which ones, what holds them, and what is left open on purpose.
 
 ## Assets
@@ -14,12 +15,12 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Asset | Why it matters |
 |---|---|
 | Jellyfin user sessions in jellyfin-web | The injected `ui.js` runs in the web client's origin with the signed-in user's session, admins included. Script injection there is account takeover. |
-| User policies (`EnabledChannels`) | The access grant writes them. A wrong write shows a channel to someone the admin blocked, or drops another setting. |
+| User policies (`EnabledChannels`) | The access grant button writes them, and only when an admin presses it. A wrong write shows a channel to someone the admin blocked, drops another setting, or undoes an admin's removal. |
 | The live item and its images | The poller writes its description and Primary image; other plugins' channels and the music library must not be touched. |
 | The Jellyfin server's network position | The server calls the station. A redirect or a crafted URL could turn that into requests to other hosts (SSRF). |
 | The station's request budget and identity | Every Jellyfin user shares it. |
 | Request receipts | Map a station request id to the Jellyfin user who sent it; the accounting trail behind a free-text name. |
-| Admin configuration | Station URL, delivery mode, access grant switch. |
+| Admin configuration | Station URL, delivery mode, tile name. |
 | Release artifacts and `manifest.json` | Users install from the manifest. A tampered zip or entry runs on every server that updates. |
 
 ## Trust boundaries
@@ -68,7 +69,7 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Empty station URL by default; no hostname in source | 1, 3 |
 | JSON body cap and 8 s timeout covering the body | 3 |
 | `Artists` never written (no Music-library artists created from station data) | 4 |
-| Access grant writes only this channel's id into `EnabledChannels`, never sets `EnableAllChannels`, leaves block lists alone, logs counts and never user names; manual trigger is admin-only | 6 |
+| Access grant writes only this channel's id into `EnabledChannels`, never sets `EnableAllChannels`, never removes an id, leaves block lists alone, logs counts and never user names | 6 |
 | `Album`, `Name` and `AlbumArtists` never written (no orphan user-data rows); cover id validated; 4 MB image cap with headers judged first | 7 |
 | Station routes never return the station URL; the page talks only to Jellyfin; request text capped at 280, name cut at 40 | 8a, 8c |
 | Station text rendered with `textContent` or `innerText`; the header markup is a fixed string | 8b, 8d |
@@ -82,6 +83,7 @@ This file says which ones, what holds them, and what is left open on purpose.
 | `ImageSniffer`: type from magic bytes, header dimensions bounded, malformed input is "unknown" | 14 |
 | Channel found by its derived id, not by name; a name collision with another plugin's channel fails closed in the poller, the granter and the station routes | 15 |
 | Grant passes serialized under one lock; each user re-read before it is saved | 15 |
+| No background policy writer: no startup pass, no user event consumer, no setting. The grant runs only from the admin-only `POST /Jellywave/GrantAccess` button, so an admin's removal of the channel from a user stands; registrator test | 15b |
 | `verify-jellyfin.sh` selects the channel by exact name and fails on none or more than one | 15 |
 
 ## Accepted risks
@@ -94,7 +96,8 @@ This file says which ones, what holds them, and what is left open on purpose.
 | Plain-HTTP station URL | The station normally runs on plain HTTP on the LAN; refusing it would break the common install. |
 | Station URL disclosed to clients | The stream URL is in the live item's playback info in both modes, which `Items/{id}/PlaybackInfo` returns to any signed-in user who can see the item (`Channel.IsVisible` included) and to any API key; in Direct mode clients fetch it themselves. SUB/WAVE streams are public; listener auth is not supported. |
 | Name-derived channel id | Jellyfin's plugin API has no other channel identity. A collision fails closed; renaming changes the id, so grants and block lists naming the old id stop applying. |
-| User-save window against dashboard saves | A dashboard policy save that lands between the plugin's read and save (milliseconds) is overwritten; `IUserManager` has no partial update. The admin sees the old value on reload. |
+| User-save window against dashboard saves | Only while the grant button's pass is running: a dashboard policy save that lands between the plugin's read and save of that user (milliseconds) is overwritten; `IUserManager` has no partial update. The admin sees the old value on reload. |
+| New users are not granted automatically | Since card 15b nothing grants in the background. Users whose policy allows all channels (Jellyfin's default) see the station; others need it in the provisioning tool's template or another press of the button. The safe direction: a missing grant hides the station, it never shows it to someone the admin removed. |
 | Live-item whole-row write racing Jellyfin's channel refresh | Jellyfin has no partial item update. Narrowed: the cover is downloaded first, then the item is looked up and written; every poll reconciles the item. |
 | GIF, APNG and animated WebP frames | Only the first frame's header is sized; a file within 4 MB and 4096 × 4096 can still carry many frames for Jellyfin's image processor to decode. The station is admin-chosen. |
 | jellyfin-web DOM selectors | `.itemsContainer[data-parentid]`, `.nowPlayingBar` and `.card` are jellyfin-web internals that can move between releases; the page degrades to doing nothing. |

@@ -51,8 +51,8 @@ On a collision the resolution carries no entity, so every consumer fails closed:
   flag. `GET /Jellywave/Health` resolves the channel itself when read, so a rename shows at once, and sets
   `ChannelStatus` = "channel name collides with another plugin's channel", which the configuration page
   shows in the status line (as text).
-- The granter grants nothing; a pass returns `Enabled = false` with that sentence as `Error`, and the
-  page shows "Nothing done: …".
+- The granter grants nothing; a pass returns that sentence as `Error`, and the page shows
+  "Nothing done: …".
 - `StationAccess` refuses with `NameCollision`, which the filter answers with 404, like a missing channel:
   the station has no channel of its own to serve, and a rename by the admin ends it.
 - One Warning per streak names both channels and the id; one Information line when it clears.
@@ -184,31 +184,48 @@ only exception).
 
 `Channel.IsVisible` (Jellyfin) shows a channel to a user when the user has a block list that does
 not name it, or, with no block list, when the user has `EnableAllChannels` or the channel in
-`EnabledChannels`. Administrators are not exempt. Provisioning tools often create users with none
-of these, so the plugin offers "Make the station visible to every user" (off by default).
+`EnabledChannels`. Administrators are not exempt. Jellyfin's own user creation turns
+`EnableAllChannels` on (`User.AddDefaultPermissions`), but provisioning tools and templates often
+create users with none of these. That per-user Channel Access setting is the only ongoing
+authority; the plugin never changes it on its own (card 15b).
 
-`AccessGranter.Classify` mirrors that rule exactly and `AddToEnabledChannels` writes the one
-channel id into `EnabledChannels`, persisted with `IUserManager.UpdateUserAsync`. Nothing else in
-the policy is touched; `EnableAllChannels` is never set; explicit blocks win. Passes run after core
-startup (`AccessGrantService`), after a save with the box ticked (`POST /Jellywave/GrantAccess`,
-admin only, also behind "Run now"), and on `UserCreatedEventArgs` and `UserUpdatedEventArgs` (the dashboard and provisioning tools
-post a policy right after creating a user, and `UpdatePolicyAsync` replaces the enabled-channel list;
-the plugin's own `UpdateUserAsync` saves publish no event, and a re-grant on a visible user writes
-nothing, so there is no loop). Each user is re-read by id immediately before it is written, because
-`GetUsers` hands out untracked snapshots and `UpdateUserAsync` saves the whole entity. Turning
-the setting off stops future passes and revokes nothing. One Information line per pass carries
-counts, never user names.
+For users who cannot see the station, the plugin page has a one-shot button, "Add the station to every
+user now", which calls `POST /Jellywave/GrantAccess` (admin only, `RequiresElevation`).
+`AccessGranter.GrantAllAsync` resolves the channel through `LibraryChannelLocator`, then walks every
+user: `Classify` mirrors `Channel.IsVisible` exactly, and for a user who needs it
+`AddToEnabledChannels` adds the one channel id to `EnabledChannels`, persisted with
+`IUserManager.UpdateUserAsync`. Nothing else in the policy is touched: `EnableAllChannels` is never
+set, no id is ever removed, and a user whose block list names the channel is skipped and counted.
+The result carries the counts (granted, already visible, blocked), or an `Error` and no writes when
+the configuration is not loaded, the channel entity does not exist yet, or its name collides
+(card 15). One Information line per press carries the counts, never user names.
 
-The passes are serialized (card 15). One `SemaphoreSlim` in `AccessGranter` (a DI singleton, disposed
-with the container) covers `GrantAllAsync` and `GrantAsync`: the channel lookup, every user read and every
-save run under it, so a user event that arrives during a pass re-reads the user after the pass saved it,
-and the plugin never saves a stale copy over its own write. No deadlock with Jellyfin:
-`UpdatePolicyAsync` publishes its event after releasing the per-user lock, `CreateUserAsync` takes no
-such lock, and `UpdateUserAsync`, the plugin's own save, publishes nothing (`IUserStore.SaveAsync` must
-stay that way: an event raised under the gate would wait on it forever). The consumer is awaited inside
-`UpdatePolicyAsync`, so an admin's dashboard policy save waits for a running grant pass to finish. Accepted: a dashboard save that lands between the plugin's read and
-its `UpdateUserAsync` (milliseconds) is overwritten, because `UpdateUserAsync` copies the whole entity
-and `IUserManager` has no partial update; the admin sees the old value on reload and saves again.
+Nothing else writes a policy: no hosted startup pass, no user event consumer, no setting. Users created
+later see the station when their policy allows all channels, when the provisioning tool's template
+includes it, or after another press. An admin who unticks the station on a user's Access page is
+never overruled.
+
+Each user is re-read by id immediately before it is written, because `GetUsers` hands out untracked
+snapshots and `UpdateUserAsync` saves the whole entity. Presses are serialized (card 15): one
+`SemaphoreSlim` in `AccessGranter` (a DI singleton, disposed with the container) covers the channel
+lookup, every user read and every save, so a second press waits and then re-reads every user after the
+first has saved; the plugin never saves a stale copy over its own write. `UpdateUserAsync` publishes no
+event (`IUserStore.SaveAsync` must stay that way: an event consumer that called back into the granter
+under the gate would wait on it forever). Accepted: a dashboard policy save that lands between the
+plugin's read and its `UpdateUserAsync` (milliseconds, and only while a press is running) is
+overwritten, because `UpdateUserAsync` copies the whole entity and `IUserManager` has no partial
+update; the admin sees the old value on reload and saves again.
+
+**History.** 0.2.0.0 to 0.3.4.0 (card 6) had a setting, `GrantAccessToAllUsers`, that re-granted
+after core startup (`AccessGrantService`), after every configuration save, and on
+`UserCreatedEventArgs` and `UserUpdatedEventArgs` (`UserCreatedConsumer`, `UserUpdatedConsumer`),
+because creation flows post a policy right after creating the user and that replaces the enabled
+list. The 0.4.0.0 host test showed the cost: Jellyfin's policy save publishes `UserUpdated`, so an
+admin who unticked the station for one user saw it re-added within milliseconds, and the startup pass
+would re-add it after every restart. A background writer must never undo the policy owner's explicit
+choice, so card 15b removed the setting and all three writers; HI traded the always-on shortcut for
+that stability. A saved configuration that still holds `<GrantAccessToAllUsers>` loads normally:
+`XmlSerializer` ignores the unknown element, and the next save drops it.
 
 ## Station page (optional, cards 8s–9)
 
@@ -440,7 +457,7 @@ whether the station is being reached.
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional
 client URL, tile name and tagline, stream format (filled by the config page's "Fetch from
 station" button through the admin-only `GET /Jellywave/Station?baseUrl=` endpoint),
-now-playing toggle and interval, the cover-art toggle, the "visible to every user" switch, and
+now-playing toggle and interval, the cover-art toggle, and
 `LastChangedUtc`, set by the page on save. All URL
 handling lives in `StationUrls`, which resolves the stream path under the base URL and
 rejects anything that escapes it (another scheme, host, port or userinfo, an absolute path, `..`);

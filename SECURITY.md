@@ -28,7 +28,7 @@ In scope, meaning code in this repository:
 - The plugin's outbound calls to the configured SUB/WAVE station: URL handling, redirect refusal,
   body and image limits.
 - The script and stylesheet the plugin injects into jellyfin-web through File Transformation.
-- The access grant ("Make the station visible to every user") and what it writes to user policies.
+- The access grant (the admin button "Add the station to every user now") and what it writes to user policies.
 - The release pipeline in `.github/workflows/` and the published `manifest.json`.
 
 Out of scope, report these upstream:

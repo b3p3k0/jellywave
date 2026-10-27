@@ -34,15 +34,17 @@ contributors live in [`docs/dev/`](docs/dev/PLAN.md).
   Jellyfin returns to any signed-in user who can see the channel and to any API key. SUB/WAVE streams
   are public by design, so this is a hostname disclosure, not a credential one.
   Do not point the plugin at a private station until listener auth is supported.
-- Jellyfin shows a channel only to users whose policy allows all channels or lists this one
-  (Dashboard → Users → user → Access → **Channel access**). Users created from a template
-  or by a provisioning tool often have neither. Tick **Make the station visible to every
-  user** on the plugin page: the plugin then adds this channel to each user's channel list,
-  immediately, at startup, and whenever a user is created or a user's policy is saved
-  (creation flows save a policy right after creating the user, which would otherwise undo it). It changes nothing else in a
-  policy, respects explicit block lists, and removes nothing when turned off. While it is on,
-  un-ticking the channel for one user is undone on the next save; exclude a user by adding the
-  channel to that user's block list instead.
+- Jellyfin's own **Channel access** setting on each user (Dashboard → Users → user → Access)
+  decides who sees the station: users whose policy allows all channels (Jellyfin's default for
+  new users) see it, and so do users whose channel list includes it. Users created from a template
+  or by a provisioning tool often have neither. **Add the station to every user now** on the plugin
+  page adds this channel once to every user who cannot see it yet and shows the counts (granted,
+  already visible, blocked by a block list). It changes nothing else in a policy, never removes
+  the station from anyone, and skips users whose block list names it. It runs only when you press
+  it: users created later need the station in the provisioning tool's template, or another press.
+  To hide the station from one user, untick it on that user's Access page; the plugin will not
+  undo that. (0.2.0.0 to 0.3.4.0 had an always-on setting instead, which re-added the station on
+  every policy save and restart; an old saved value is ignored.)
 
 ## Configuration
 
@@ -62,7 +64,7 @@ Dashboard → Plugins → Jellywave.
 | Poller status | Read-only line under Now playing: station reachable, last success, last error, what the live item carries. "Refresh status" re-reads it |
 | Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
 | Station page | Optional, needs the File Transformation plugin (see below). The channel's own page gets a live header with cover, track, DJ, show, what's next, listeners, Play/Stop and a request box; in the web client and the Android app the playing bar and the grid card follow the track while it plays |
-| Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
+| Add the station to every user now | A button, not a setting. Adds this channel once to every user who cannot see it yet and shows the counts; never removes access (see above) |
 
 The station base URL must not contain credentials (`user:password@`), a query (`?…`) or a
 fragment (`#…`). Such a value is not used: the plugin treats the station as not configured. The plugin page warns "station URL is set but not allowed",
@@ -83,9 +85,9 @@ Jellywave does nothing with it: the live item is not updated, no access is grant
 answers 404, and the plugin page's status line says "channel name collides with another plugin's
 channel". Change the tile name to fix it.
 
-**Renaming changes the channel id.** Access given to the old id does not carry over. With "Make the
-station visible to every user" on, the pass after saving grants the new id; otherwise allow the new
-channel again under Dashboard → Users → user → Access. A block list that names the old channel does not
+**Renaming changes the channel id.** Access given to the old id does not carry over. Users whose
+policy allows all channels see the new one at once; for the others, save and press "Add the station
+to every user now", or allow the new channel under Dashboard → Users → user → Access. A block list that names the old channel does not
 cover the new one either, so check users with an explicit block list after a rename.
 
 ## Known limitations
