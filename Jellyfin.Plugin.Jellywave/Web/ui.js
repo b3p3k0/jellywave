@@ -37,7 +37,10 @@
         try {
             // currentItem(player) throws when no player is active; getCurrentPlayer() returns null then.
             var player = pm.getCurrentPlayer ? pm.getCurrentPlayer() : null;
-            var item = player ? pm.currentItem(player) : null;
+            if (!player) { return false; }
+            // After a stop the player stays current and its stream info can linger; isPlaying() is the truth.
+            if (pm.isPlaying && !pm.isPlaying(player)) { return false; }
+            var item = pm.currentItem(player);
             return !!(item && item.Id && norm(item.Id) === norm(state.feed.ItemId));
         } catch (e) {
             return false;
@@ -271,10 +274,13 @@
             });
             // jellyfin-web rebuilds the bar text and the media session from its snapshot on these events;
             // repaint right away instead of waiting for the next tick.
-            ['pause', 'unpause', 'statechange'].forEach(function (name) {
+            ['pause', 'unpause', 'statechange', 'playbackstop'].forEach(function (name) {
                 deps.events.on(deps.playbackManager, name, function () {
                     state.lastTag = null;
-                    setTimeout(function () { try { refreshBar(); } catch (e) { /* best effort */ } }, 50);
+                    setTimeout(function () {
+                        try { refreshBar(); } catch (e) { /* best effort */ }
+                        try { render(); } catch (e) { /* best effort */ }
+                    }, 50);
                 });
             });
         }
