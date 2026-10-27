@@ -46,7 +46,7 @@ public class StationAccessAttributeTests
     {
         var store = new FakeStore();
         store.Users[user.Id] = user;
-        var access = new StationAccess(store, () => channelExists ? TheChannel : null, NullLogger<StationAccess>.Instance);
+        var access = new StationAccess(store, () => channelExists ? ChannelResolution.Found(TheChannel) : ChannelResolution.Missing, NullLogger<StationAccess>.Instance);
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection().AddSingleton(access).BuildServiceProvider(),

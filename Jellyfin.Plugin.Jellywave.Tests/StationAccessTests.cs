@@ -71,7 +71,7 @@ public class StationAccessTests
     }
 
     private static StationAccess Access(FakeStore store, Channel? channel)
-        => new(store, () => channel, NullLogger<StationAccess>.Instance);
+        => new(store, () => channel is null ? ChannelResolution.Missing : ChannelResolution.Found(channel), NullLogger<StationAccess>.Instance);
 
     private static Channel TheChannel() => new() { Id = ChannelId, Name = "SUB/WAVE" };
 

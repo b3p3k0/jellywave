@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 
 /// <summary>
 /// Puts a station route behind <see cref="StationAccess"/>: 403 unless the caller is a signed-in user who can
-/// see the channel, 404 while the channel entity does not exist yet. Runs as an authorization filter, after
+/// see the channel, 404 while the channel entity does not exist yet or its name collides with another plugin's channel. Runs as an authorization filter, after
 /// Jellyfin's own <c>[Authorize]</c> and before model binding, so a refused caller's body is never read. An
 /// allowed caller's user id and the channel entity are left in <c>HttpContext.Items</c> under
 /// <see cref="StationAccess.UserIdItem"/> and <see cref="StationAccess.ChannelItem"/>.
@@ -30,7 +30,9 @@ public sealed class StationAccessAttribute : Attribute, IAuthorizationFilter
                 context.HttpContext.Items[StationAccess.ChannelItem] = result.Channel;
                 break;
             case StationAccessReason.NoChannel:
-                // Fresh install or a rename not yet refreshed: nothing to serve, and the page retries soon.
+            case StationAccessReason.NameCollision:
+                // Fresh install, a rename not yet refreshed, or a name another plugin's channel also derives: nothing of
+                // this station's to serve, and the page retries soon (a rename by the admin fixes a collision).
                 context.Result = new StatusCodeResult(StatusCodes.Status404NotFound);
                 break;
             case StationAccessReason.ApiKey:

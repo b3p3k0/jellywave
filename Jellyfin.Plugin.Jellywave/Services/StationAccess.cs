@@ -8,7 +8,8 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// <summary>
 /// Decides who may use the station routes: a signed-in user (never an API key, which Jellyfin's default
 /// policy lets through unrestricted) who can see the channel by Jellyfin's own <c>Channel.IsVisible</c>.
-/// Fails closed: a missing claim, user or channel entity refuses the caller.
+/// Fails closed: a missing claim, user or channel entity refuses the caller, and so does a channel name that collides
+/// with another plugin's channel.
 /// </summary>
 public sealed class StationAccess
 {
@@ -25,7 +26,7 @@ public sealed class StationAccess
     public const string ChannelItem = "Jellywave.StationAccess.Channel";
 
     private readonly IUserStore _users;
-    private readonly Func<Channel?> _findChannel;
+    private readonly Func<ChannelResolution> _resolveChannel;
     private readonly ILogger<StationAccess> _logger;
 
     /// <summary>
@@ -35,7 +36,7 @@ public sealed class StationAccess
     /// <param name="finder">The live item finder, for the channel entity.</param>
     /// <param name="logger">The logger.</param>
     public StationAccess(IUserStore users, LiveItemFinder finder, ILogger<StationAccess> logger)
-        : this(users, () => finder.FindChannel(Plugin.Instance?.Configuration), logger)
+        : this(users, () => finder.Resolve(Plugin.Instance?.Configuration), logger)
     {
     }
 
@@ -43,17 +44,17 @@ public sealed class StationAccess
     /// Initializes a new instance of the <see cref="StationAccess"/> class with an explicit channel source (tests).
     /// </summary>
     /// <param name="users">The user store.</param>
-    /// <param name="findChannel">Returns the channel entity, or null when it does not exist.</param>
+    /// <param name="resolveChannel">Resolves the channel entity: found, missing, or a name collision.</param>
     /// <param name="logger">The logger.</param>
-    internal StationAccess(IUserStore users, Func<Channel?> findChannel, ILogger<StationAccess> logger)
+    internal StationAccess(IUserStore users, Func<ChannelResolution> resolveChannel, ILogger<StationAccess> logger)
     {
         _users = users;
-        _findChannel = findChannel;
+        _resolveChannel = resolveChannel;
         _logger = logger;
     }
 
     /// <summary>
-    /// Applies the rules in order: API key, user id, user, channel entity, channel visibility.
+    /// Applies the rules in order: API key, user id, user, channel name collision, channel entity, channel visibility.
     /// </summary>
     /// <param name="principal">The authenticated caller.</param>
     /// <returns>The decision; for an allowed caller also its user id and the channel entity.</returns>
@@ -90,7 +91,14 @@ public sealed class StationAccess
             return Refused(StationAccessReason.UnknownUser);
         }
 
-        var channel = _findChannel();
+        var resolution = _resolveChannel();
+        if (resolution.Collides)
+        {
+            // The derived id is shared with another plugin's channel, so its visibility says nothing about this station.
+            return Refused(StationAccessReason.NameCollision);
+        }
+
+        var channel = resolution.Channel;
         if (channel is null)
         {
             return Refused(StationAccessReason.NoChannel);

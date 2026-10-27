@@ -96,7 +96,7 @@ public class StationRedirectTests
             http.Items[StationAccess.UserIdItem] = Alice;
             return new JellywaveWebController(
                 new NowPlayingState(),
-                new LiveItemFinder(null!),
+                new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance),
                 null!,
                 Client,
                 new ScheduleCache(Client),
@@ -110,7 +110,7 @@ public class StationRedirectTests
 
         // The probe touches only the station client and the logger.
         public JellywaveController Admin()
-            => new(Client, null!, new NowPlayingState(), new PollerHealth(), null!, new LiveItemFinder(null!), NullLogger<JellywaveController>.Instance);
+            => new(Client, null!, new NowPlayingState(), new PollerHealth(), null!, new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance), NullLogger<JellywaveController>.Instance);
     }
 
     [Fact]

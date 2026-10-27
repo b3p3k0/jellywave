@@ -1,13 +1,8 @@
 using System;
-using System.Collections.Generic;
-using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Jellywave.Api;
 using Jellyfin.Plugin.Jellywave.Configuration;
 using Jellyfin.Plugin.Jellywave.Services;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -19,22 +14,6 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 /// </summary>
 public class HealthRouteTests
 {
-    /// <summary>
-    /// An <see cref="ILibraryManager"/> with no channels: every item list is empty, anything else is not expected here.
-    /// </summary>
-    public class EmptyLibrary : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(ILibraryManager.GetItemList) && targetMethod.ReturnType.IsAssignableFrom(typeof(List<BaseItem>)))
-            {
-                return new List<BaseItem>();
-            }
-
-            throw new NotSupportedException(targetMethod?.Name);
-        }
-    }
-
     private static HealthResponse Health(string baseUrl)
     {
         var station = new StationClient(null!);   // never called by Health
@@ -44,7 +23,7 @@ public class HealthRouteTests
             new NowPlayingState(),
             new PollerHealth(),
             new LiveItemArtwork(station, (_, _, _, _) => Task.CompletedTask, NullLogger<LiveItemArtwork>.Instance),
-            new LiveItemFinder(DispatchProxy.Create<ILibraryManager, EmptyLibrary>()),
+            new LiveItemFinder(FakeLibrary.Create().Manager, () => [], NullLogger<LiveItemFinder>.Instance),
             NullLogger<JellywaveController>.Instance,
             () => new PluginConfiguration { StationBaseUrl = baseUrl });
         return controller.Health().Value!;

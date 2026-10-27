@@ -100,6 +100,7 @@ public class JellywaveController : ControllerBase
             StationConfigured = configured,
             StationUrlRefusal = refusal,
             StationUrlStatus = configured ? null : refusal is null ? NotConfiguredStatus : RefusedStatusPrefix + refusal,
+            ChannelStatus = health.NameCollision ? ChannelResolution.CollisionStatus : null,
             Running = health.Running,
             Reachable = health.Reachable,
             LastSuccessUtc = health.LastSuccessUtc,

@@ -114,10 +114,18 @@ public sealed class AccessGranter
     /// Grants access to every user who needs it, when the setting is on.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Counts for the run; <see cref="GrantResult.Enabled"/> false when the setting is off or the channel is unknown.</returns>
+    /// <returns>
+    /// Counts for the run; <see cref="GrantResult.Enabled"/> false when the setting is off or the channel is unknown, and
+    /// <see cref="GrantResult.Error"/> set when the channel name collides with another plugin's channel.
+    /// </returns>
     public async Task<GrantResult> GrantAllAsync(CancellationToken cancellationToken)
     {
-        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
+        var (channelId, collides) = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
+        if (collides)
+        {
+            return new GrantResult { Enabled = false, Error = ChannelResolution.CollisionStatus };
+        }
+
         if (channelId is null)
         {
             return GrantResult.Disabled;
@@ -167,7 +175,7 @@ public sealed class AccessGranter
     /// <returns>True when a grant was written.</returns>
     public async Task<bool> GrantAsync(Guid userId, CancellationToken cancellationToken)
     {
-        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
+        var (channelId, _) = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
         if (channelId is null)
         {
             return false;
@@ -185,15 +193,27 @@ public sealed class AccessGranter
         return true;
     }
 
-    private async Task<Guid?> ChannelIdIfEnabledAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// The channel id to grant, or null with the reason: the setting is off, the entity is missing, or the name collides
+    /// with another plugin's channel (then nothing is granted, because the id may be the other plugin's channel; the
+    /// finder logs that once per streak at Warning).
+    /// </summary>
+    private async Task<(Guid? ChannelId, bool Collides)> ChannelIdIfEnabledAsync(CancellationToken cancellationToken)
     {
         var config = _configuration();
         if (config is null || !config.GrantAccessToAllUsers)
         {
-            return null;
+            return (null, false);
         }
 
-        var channelId = await _channels.FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
+        var resolution = await _channels.LocateAsync(config, cancellationToken).ConfigureAwait(false);
+        if (resolution.Collides)
+        {
+            _logger.LogDebug("Channel access skipped: the channel name collides with another plugin's channel");
+            return (null, true);
+        }
+
+        var channelId = resolution.Channel?.Id;
         if (channelId is null)
         {
             // Once per process at Warning; every user event afterwards would repeat the same advice.
@@ -212,6 +232,6 @@ public sealed class AccessGranter
             _missingChannelLogged = false;
         }
 
-        return channelId;
+        return (channelId, false);
     }
 }

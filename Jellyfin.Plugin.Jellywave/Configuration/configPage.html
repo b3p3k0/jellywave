@@ -219,7 +219,8 @@
                         else { parts.push(h.Reachable ? 'station reachable' : 'station NOT reachable'); }
                         parts.push('last success ' + ago(h.LastSuccessUtc));
                         if (h.LastErrorUtc) { parts.push('last error ' + ago(h.LastErrorUtc) + (h.LastError ? ': ' + h.LastError : '')); }
-                        parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)');
+                        if (h.ChannelStatus) { parts.push(h.ChannelStatus + ' (change the tile name; nothing is written or granted until then)'); }
+                        else { parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)'); }
                         out.textContent = 'Poller status: ' + parts.join(' · ');
                     }).catch(function () { out.textContent = 'Poller status: unavailable.'; });
                 }

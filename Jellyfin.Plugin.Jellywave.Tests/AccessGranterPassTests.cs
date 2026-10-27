@@ -38,7 +38,8 @@ public class AccessGranterPassTests
     {
         public Guid? Id { get; set; } = Channel;
 
-        public Task<Guid?> FindChannelIdAsync(PluginConfiguration config, CancellationToken cancellationToken) => Task.FromResult(Id);
+        public Task<ChannelResolution> LocateAsync(PluginConfiguration config, CancellationToken cancellationToken)
+            => Task.FromResult(Id is { } id ? ChannelResolution.Found(new MediaBrowser.Controller.Channels.Channel { Id = id }) : ChannelResolution.Missing);
     }
 
     private static User NewUser(string name, bool allChannels = false, Guid[]? enabled = null, Guid[]? blocked = null)

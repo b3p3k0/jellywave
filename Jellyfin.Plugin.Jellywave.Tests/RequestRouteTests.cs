@@ -75,7 +75,7 @@ public class RequestRouteTests
             http.Items[StationAccess.UserIdItem] = userId;
             return new JellywaveWebController(
                 new NowPlayingState(),
-                new LiveItemFinder(null!),
+                new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance),
                 null!,
                 _client,
                 new ScheduleCache(_client),
