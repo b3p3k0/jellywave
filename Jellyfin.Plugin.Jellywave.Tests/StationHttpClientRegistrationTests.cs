@@ -71,7 +71,7 @@ public sealed class StationHttpClientRegistrationTests : IDisposable
                 return;
             }
 
-            _userAgent = context.Request.UserAgent;
+            Volatile.Write(ref _userAgent, context.Request.UserAgent);
             if (context.Request.Url!.AbsolutePath.StartsWith("/start", StringComparison.Ordinal))
             {
                 context.Response.StatusCode = (int)HttpStatusCode.Found;
@@ -103,7 +103,7 @@ public sealed class StationHttpClientRegistrationTests : IDisposable
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         Assert.Equal(new Uri(_root, "landed"), response.Headers.Location);
         Assert.Equal(0, Volatile.Read(ref _landed));
-        Assert.StartsWith("Jellywave/", _userAgent, StringComparison.Ordinal);
+        Assert.StartsWith("Jellywave/", Volatile.Read(ref _userAgent), StringComparison.Ordinal);
     }
 
     [Fact]

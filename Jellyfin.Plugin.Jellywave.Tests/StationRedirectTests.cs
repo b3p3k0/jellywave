@@ -30,6 +30,8 @@ public class StationRedirectTests
     {
         public List<string> Seen { get; } = new();
 
+        public string? Target { get; set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Seen.Add(request.Method + " " + request.RequestUri);
@@ -46,7 +48,7 @@ public class StationRedirectTests
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
             };
-            response.Headers.Location = new Uri(new Uri(Elsewhere), path.TrimStart('/'));
+            response.Headers.Location = Target is null ? new Uri(new Uri(Elsewhere), path.TrimStart('/')) : new Uri(Target);
             return Task.FromResult(response);
         }
     }
@@ -75,6 +77,12 @@ public class StationRedirectTests
         }
 
         public RedirectingStation Station { get; } = new();
+
+        public string? Target
+        {
+            get => Station.Target;
+            init => Station.Target = value;
+        }
 
         public StubFactory Factory { get; }
 
@@ -218,9 +226,28 @@ public class StationRedirectTests
     [InlineData("http://new.example:7700/api/state", "http://new.example:7700/")]
     [InlineData("https://new.example/radio/api/now-playing?x=1", "https://new.example/radio/")]
     [InlineData("https://new.example/", "https://new.example/")]
-    [InlineData("http://api/somewhere", "http://api/somewhere")]
+    [InlineData("http://api/somewhere", "http://api/somewhere/")]
     public void Suggested_base_drops_the_api_path(string location, string expected)
         => Assert.Equal(expected, JellywaveController.SuggestedBase(new Uri(location)));
+
+    [Theory]
+    [InlineData("ftp://x/y")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("http://u:p@evil.example/")]
+    [InlineData("http://u:p@evil.example/api/state")]
+    [InlineData("http://@evil.example/api/state")]
+    public void Suggested_base_refuses_what_the_base_url_rules_refuse(string location)
+        => Assert.Null(JellywaveController.SuggestedBase(new Uri(location)));
+
+    [Fact]
+    public async Task Admin_probe_does_not_echo_an_unusable_redirect_target()
+    {
+        var h = new Harness { Target = "http://user:secret@evil.example/api/state" };
+        var result = (await h.Admin().ProbeStation("http://station.example", CancellationToken.None)).Value!;
+        Assert.False(result.Ok);
+        Assert.Equal("the station answered HTTP 302 (a redirect) to an address the plugin does not accept", result.Error);
+        Assert.DoesNotContain("secret", result.Error, StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("http://user:pw@station.example")]

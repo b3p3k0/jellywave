@@ -8,6 +8,21 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// </summary>
 public static class StationUrls
 {
+    /// <summary>Refusal: the value does not parse as an absolute URL.</summary>
+    public const string RefusedUnparsable = "it is not an absolute URL";
+
+    /// <summary>Refusal: the scheme is not http or https.</summary>
+    public const string RefusedScheme = "only http:// and https:// are allowed";
+
+    /// <summary>Refusal: the value carries userinfo (the userinfo itself is never repeated).</summary>
+    public const string RefusedCredentials = "it contains credentials (user:password@)";
+
+    /// <summary>Refusal: the value carries a query.</summary>
+    public const string RefusedQuery = "it contains a query (?…)";
+
+    /// <summary>Refusal: the value carries a fragment.</summary>
+    public const string RefusedFragment = "it contains a fragment (#…)";
+
     /// <summary>
     /// Tries to build the station base URL with a trailing slash. A path prefix is kept
     /// (for example <c>http://host/radio</c> becomes <c>http://host/radio/</c>).
@@ -31,29 +46,19 @@ public static class StationUrls
     /// fragment. HTTP is allowed: the station normally runs on plain HTTP on the LAN.
     /// </returns>
     public static bool TryParseBaseUrl(string? rawBaseUrl, out Uri? baseUrl)
-    {
-        baseUrl = null;
+        => CheckBaseUrl(rawBaseUrl, out baseUrl) is null && baseUrl is not null;
 
-        var raw = rawBaseUrl?.Trim().TrimEnd('/');
-        if (string.IsNullOrEmpty(raw))
-        {
-            return false;
-        }
-
-        // Check the value as typed, before the slash is appended: "http://host/radio?x=1" would otherwise carry "?x=1/".
-        if (!Uri.TryCreate(raw, UriKind.Absolute, out var typed) || !IsHttp(typed) || HasUserInfo(typed) || typed.Query.Length > 0 || typed.Fragment.Length > 0)
-        {
-            return false;
-        }
-
-        if (!Uri.TryCreate(raw + "/", UriKind.Absolute, out var parsed) || !IsHttp(parsed))
-        {
-            return false;
-        }
-
-        baseUrl = parsed;
-        return true;
-    }
+    /// <summary>
+    /// Says why a non-empty station base URL is refused, so a saved value that no longer passes is not mistaken
+    /// for "not configured". The reason is a fixed sentence and never repeats any part of the value.
+    /// </summary>
+    /// <param name="rawBaseUrl">The raw value, possibly null or padded.</param>
+    /// <returns>
+    /// Null when the value is blank (not configured) or usable; otherwise one of <see cref="RefusedUnparsable"/>,
+    /// <see cref="RefusedScheme"/>, <see cref="RefusedCredentials"/>, <see cref="RefusedQuery"/> or <see cref="RefusedFragment"/>.
+    /// </returns>
+    public static string? BaseUrlRefusal(string? rawBaseUrl)
+        => CheckBaseUrl(rawBaseUrl, out _) is { Length: > 0 } reason ? reason : null;
 
     /// <summary>
     /// Tries to build the stream URL the Jellyfin server itself uses (relay origin, ffmpeg input):
@@ -83,6 +88,7 @@ public static class StationUrls
 
         if (!Uri.TryCreate(baseUrl, relative, out var built)
             || !IsHttp(built)
+            // Load-bearing, not a backstop: "\/host:8000/x" is no absolute URI on Linux, yet resolves to the same host on another port.
             || Uri.Compare(built, baseUrl, UriComponents.SchemeAndServer | UriComponents.UserInfo, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) != 0
             || !built.AbsolutePath.StartsWith(baseUrl.AbsolutePath, StringComparison.Ordinal))
         {
@@ -132,6 +138,55 @@ public static class StationUrls
     {
         ArgumentNullException.ThrowIfNull(config);
         return !string.IsNullOrWhiteSpace(config.ClientStreamUrl);
+    }
+
+    /// <summary>
+    /// The one base URL rule. Returns null when usable (with <paramref name="baseUrl"/> set), the empty string when
+    /// blank, or the refusal reason.
+    /// </summary>
+    private static string? CheckBaseUrl(string? rawBaseUrl, out Uri? baseUrl)
+    {
+        baseUrl = null;
+
+        var raw = rawBaseUrl?.Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(raw))
+        {
+            return string.Empty;
+        }
+
+        // Check the value as typed, before the slash is appended: "http://host/radio?x=1" would otherwise carry "?x=1/".
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var typed))
+        {
+            return RefusedUnparsable;
+        }
+
+        if (!IsHttp(typed))
+        {
+            return RefusedScheme;
+        }
+
+        if (HasUserInfo(typed))
+        {
+            return RefusedCredentials;
+        }
+
+        if (typed.Query.Length > 0)
+        {
+            return RefusedQuery;
+        }
+
+        if (typed.Fragment.Length > 0)
+        {
+            return RefusedFragment;
+        }
+
+        if (!Uri.TryCreate(raw + "/", UriKind.Absolute, out var parsed) || !IsHttp(parsed))
+        {
+            return RefusedUnparsable;
+        }
+
+        baseUrl = parsed;
+        return null;
     }
 
     private static bool IsHttp(Uri uri)

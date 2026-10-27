@@ -14,7 +14,8 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
                             <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
-                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash.</div>
+                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash, credentials, query or fragment.</div>
+                            <div class="fieldDescription" id="stationUrlWarning" style="display:none"></div>
                         </div>
                         <div class="inputContainer">
                             <button is="emby-button" type="button" id="btnProbe" class="raised block emby-button"><span>Fetch from station</span></button>
@@ -208,7 +209,10 @@
                     var out = el('pollerHealth');
                     ApiClient.getJSON(ApiClient.getUrl('Jellywave/Health')).then(function (h) {
                         var parts = [];
-                        if (!h.StationConfigured) { parts.push('no station URL configured'); }
+                        var warn = el('stationUrlWarning');
+                        warn.textContent = h.StationUrlRefusal ? 'Warning: the saved ' + h.StationUrlStatus + '. The station is not used until this is fixed.' : '';
+                        warn.style.display = h.StationUrlRefusal ? '' : 'none';
+                        if (!h.StationConfigured) { parts.push(h.StationUrlStatus || 'no station URL configured'); }
                         else if (!h.PollingEnabled) { parts.push('polling is off'); }
                         else if (!h.Running) { parts.push('poller not running (starts after server startup)'); }
                         else if (h.Reachable === null || h.Reachable === undefined) { parts.push('waiting for the first poll'); }
@@ -255,6 +259,7 @@
                         var updated = collect(config);
                         ApiClient.updatePluginConfiguration(pluginId, updated).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
+                            loadHealth();   // shows a refused URL right after saving; the save itself is never blocked
                             if (updated.GrantAccessToAllUsers) { runGrant(el('grantResult')); }
                         });
                     });
