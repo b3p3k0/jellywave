@@ -45,9 +45,10 @@ public class JellywaveWebController : ControllerBase
     private readonly ScheduleCache _schedule;
     private readonly RequestReceipts _receipts;
     private readonly ILogger<JellywaveWebController> _logger;
+    private readonly Func<PluginConfiguration?> _configuration;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class.
+    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class (DI constructor).
     /// </summary>
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="finder">The live item finder.</param>
@@ -57,6 +58,22 @@ public class JellywaveWebController : ControllerBase
     /// <param name="receipts">Which user owns which listener request.</param>
     /// <param name="logger">The logger.</param>
     public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger)
+        : this(state, finder, imageProcessor, stationClient, schedule, receipts, logger, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class with an explicit configuration source (tests).
+    /// </summary>
+    /// <param name="state">The shared now-playing state.</param>
+    /// <param name="finder">The live item finder.</param>
+    /// <param name="imageProcessor">The image processor, for image tags.</param>
+    /// <param name="stationClient">The station client, for requests.</param>
+    /// <param name="schedule">The schedule cache.</param>
+    /// <param name="receipts">Which user owns which listener request.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configuration">Returns the current configuration, or null when the plugin is not ready.</param>
+    internal JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger, Func<PluginConfiguration?> configuration)
     {
         _state = state;
         _finder = finder;
@@ -65,6 +82,7 @@ public class JellywaveWebController : ControllerBase
         _schedule = schedule;
         _receipts = receipts;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -97,7 +115,7 @@ public class JellywaveWebController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<FeedResponse> Feed()
     {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var config = _configuration() ?? new PluginConfiguration();
         var feed = _state.Feed();
         var stationState = _state.StationState();
         var next = feed?.Context?.ShowHandover?.NextShow;
@@ -154,7 +172,7 @@ public class JellywaveWebController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Avatar([FromRoute] string personaId, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(personaId))
         {
             return NotFound();
@@ -191,7 +209,7 @@ public class JellywaveWebController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LikeOutcome>> LikeStatus(CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new LikeOutcome { Enabled = false };
@@ -223,7 +241,7 @@ public class JellywaveWebController : ControllerBase
     public async Task<ActionResult<LikeOutcome>> Like([FromBody] LikeSubmission submission, CancellationToken cancellationToken)
     {
         var songId = submission?.SongId?.Trim() ?? string.Empty;
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
         {
             return new LikeOutcome { Enabled = false, Message = "Nothing to like right now." };
@@ -253,7 +271,7 @@ public class JellywaveWebController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ScheduleResponse>> Schedule(CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null)
         {
             return new ScheduleResponse();
@@ -288,7 +306,7 @@ public class JellywaveWebController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
         {
             return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "No track to look up." };
@@ -358,7 +376,7 @@ public class JellywaveWebController : ControllerBase
             name = name[..MaxRequestName];
         }
 
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
@@ -426,7 +444,7 @@ public class JellywaveWebController : ControllerBase
                 throw new InvalidOperationException("Unknown receipt ownership");
         }
 
-        var config = Plugin.Instance?.Configuration;
+        var config = _configuration();
         if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
             return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
