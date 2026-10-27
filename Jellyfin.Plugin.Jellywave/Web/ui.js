@@ -178,7 +178,7 @@
         l.Lines.forEach(function (line) { var d = document.createElement('div'); d.textContent = line; body.appendChild(d); });
     }
 
-    /* Today's programme in the station's time zone; refetched every ten minutes at most. */
+    /* Today's programme in the station's time zone; refetched every five minutes at most (the server caches it as long). */
     function fetchSchedule() {
         var h = state.header;
         var client = api();

@@ -55,13 +55,21 @@ public class ScheduleTests
     public void A_takeover_unmarks_the_grid_and_names_the_show_on_air()
     {
         var tuesday1030 = new DateTime(2026, 10, 27, 10, 30, 0, DateTimeKind.Utc);
-        var same = JellywaveWebController.BuildToday(Info(), tuesday1030, "the ville");
+        var same = JellywaveWebController.BuildToday(Info(), tuesday1030, "s_ville", "The Ville");
         Assert.True(same.Today[1].Now);
         Assert.Null(same.Takeover);
 
-        var takeover = JellywaveWebController.BuildToday(Info(), tuesday1030, "Pop-up Special");
+        // Ids decide, not names: a renamed show in the same slot is still the grid show.
+        var renamed = JellywaveWebController.BuildToday(Info(), tuesday1030, "s_ville", "The Ville (live from the park)");
+        Assert.True(renamed.Today[1].Now);
+        Assert.Null(renamed.Takeover);
+
+        var takeover = JellywaveWebController.BuildToday(Info(), tuesday1030, "s_popup", "Pop-up Special");
         Assert.DoesNotContain(takeover.Today, b => b.Now);
         Assert.Equal("Pop-up Special", takeover.Takeover);
+
+        var unnamed = JellywaveWebController.BuildToday(Info(), tuesday1030, "s_popup", null);
+        Assert.Equal("s_popup", unnamed.Takeover);
     }
 
     [Fact]

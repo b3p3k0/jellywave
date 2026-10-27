@@ -20,7 +20,7 @@ public class FeedFixtureTests
     private const string NowPlayingJson = """
         {"nowPlaying":{"title":"Rideau","artist":"Keith Kouna","album":"La Duchesse","subsonic_id":"abc123",
           "filename":"/tmp/x.mp3","timestamp":1793041497,"genres":["Indie"],"bpm":117.5,"duration":277},
-         "context":{"at":"2026-10-26T19:07:25.084Z","weather":{"condition":"clear"},
+         "context":{"at":"2026-10-26T19:07:25.084Z","weather":{"condition":"clear"},"activeShow":{"id":"s_1","name":"The Ville","topic":"..."},
            "showHandover":{"phase":"final-quarter-hour","nextShow":{"name":"Night Owl","presenter":"Low Light","startsAt":"ten at night"}}},
          "activeShow":{"id":"s_1","name":"The Ville","topic":"..."},
          "dj":{"name":"Bobby Tran","tagline":"Your older brother's record collection.","avatar":"/persona-avatar/p1","station":"Example FM"},
@@ -49,6 +49,7 @@ public class FeedFixtureTests
         Assert.Equal("Bobby Tran", feed.Dj!.Name);
         Assert.Equal("Example FM", feed.Dj.Station);
         Assert.Equal("The Ville", feed.ActiveShow!.Name);
+        Assert.Equal("s_1", feed.Context!.ActiveShow!.Id);
 
         var state = new NowPlayingState();
         state.Update(feed, System.DateTime.UtcNow);

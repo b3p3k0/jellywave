@@ -259,7 +259,8 @@ public class JellywaveWebController : ControllerBase
             return new ScheduleResponse();
         }
 
-        return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow, _state.Feed()?.ActiveShow?.Name);
+        var feed = _state.Feed();
+        return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow, feed?.Context?.ActiveShow?.Id, feed?.Context?.ActiveShow?.Name ?? feed?.ActiveShow?.Name);
     }
 
     /// <summary>
@@ -439,9 +440,10 @@ public class JellywaveWebController : ControllerBase
     /// </summary>
     /// <param name="info">The schedule.</param>
     /// <param name="nowUtc">The current time.</param>
-    /// <param name="activeShowName">The show the station says is on air (honours its timed takeovers), or null.</param>
+    /// <param name="activeShowId">The id of the show the station says is on air (honours its timed takeovers), or null when unknown.</param>
+    /// <param name="activeShowName">That show's name, for the takeover line.</param>
     /// <returns>The response.</returns>
-    internal static ScheduleResponse BuildToday(ScheduleInfo info, DateTime nowUtc, string? activeShowName = null)
+    internal static ScheduleResponse BuildToday(ScheduleInfo info, DateTime nowUtc, string? activeShowId = null, string? activeShowName = null)
     {
         TimeZoneInfo zone;
         try
@@ -484,6 +486,7 @@ public class JellywaveWebController : ControllerBase
 
             open = new ScheduleBlock
             {
+                ShowId = id,
                 StartHour = hour,
                 EndHour = hour + 1,
                 Show = Collapse(show.Name),
@@ -493,18 +496,19 @@ public class JellywaveWebController : ControllerBase
             blocks.Add(open);
         }
 
-        // "Now" is the block around the station's clock, unless the station says another show is on air
-        // (a timed takeover outranks the grid); then no grid block is current and the takeover is named.
-        var active = Collapse(activeShowName);
+        // "Now" is the block around the station's clock, unless the station says a show with another id is on
+        // air (a timed takeover outranks the grid); then no grid block is current and the takeover is named.
+        var activeId = activeShowId?.Trim() ?? string.Empty;
         foreach (var block in blocks)
         {
             block.Now = local.Hour >= block.StartHour && local.Hour < block.EndHour
-                && (active.Length == 0 || string.Equals(active, block.Show, StringComparison.OrdinalIgnoreCase));
+                && (activeId.Length == 0 || string.Equals(activeId, block.ShowId, StringComparison.Ordinal));
         }
 
-        if (active.Length > 0 && !blocks.Exists(b => b.Now))
+        if (activeId.Length > 0 && !blocks.Exists(b => b.Now))
         {
-            response.Takeover = active;
+            var name = Collapse(activeShowName);
+            response.Takeover = name.Length > 0 ? name : activeId;
         }
 
         response.Available = true;

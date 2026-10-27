@@ -211,6 +211,7 @@
                         if (!h.StationConfigured) { parts.push('no station URL configured'); }
                         else if (!h.PollingEnabled) { parts.push('polling is off'); }
                         else if (!h.Running) { parts.push('poller not running (starts after server startup)'); }
+                        else if (h.Reachable === null || h.Reachable === undefined) { parts.push('waiting for the first poll'); }
                         else { parts.push(h.Reachable ? 'station reachable' : 'station NOT reachable'); }
                         parts.push('last success ' + ago(h.LastSuccessUtc));
                         if (h.LastErrorUtc) { parts.push('last error ' + ago(h.LastErrorUtc) + (h.LastError ? ': ' + h.LastError : '')); }

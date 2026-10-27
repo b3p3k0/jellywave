@@ -61,15 +61,16 @@ public class JellywaveController : ControllerBase
     {
         var config = Plugin.Instance?.Configuration;
         var channel = _finder.FindChannel(config);
+        var health = _health.Snapshot();
         return new HealthResponse
         {
             PollingEnabled = config?.NowPlayingEnabled == true,
             StationConfigured = config is not null && StationUrls.TryGetBaseUrl(config, out _),
-            Running = _health.Running,
-            Reachable = _health.Reachable,
-            LastSuccessUtc = _health.LastSuccessUtc,
-            LastErrorUtc = _health.LastErrorUtc,
-            LastError = _health.LastError,
+            Running = health.Running,
+            Reachable = health.Reachable,
+            LastSuccessUtc = health.LastSuccessUtc,
+            LastErrorUtc = health.LastErrorUtc,
+            LastError = health.LastError,
             Description = _state.Description(),
             Cover = _artwork.Applied,
             LiveItemExists = channel is not null && _finder.FindLiveItem(channel) is not null

@@ -9,6 +9,9 @@ public sealed class ScheduleBlock
     /// <summary>Gets or sets the end hour, exclusive (1–24).</summary>
     public int EndHour { get; set; }
 
+    /// <summary>Gets or sets the station's show id (the grid's key).</summary>
+    public string ShowId { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the show name.</summary>
     public string Show { get; set; } = string.Empty;
 

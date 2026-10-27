@@ -4,74 +4,33 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
 /// What the now-playing poller last did, for the configuration page. Written by the poller, read by the admin
-/// endpoint; a snapshot, so the page never needs the server log.
+/// endpoint as one snapshot, so the page never needs the server log.
 /// </summary>
 public sealed class PollerHealth
 {
     private readonly object _gate = new();
     private bool _running;
-    private bool _reachable = true;
+    private bool? _reachable;
     private DateTime? _lastSuccessUtc;
     private DateTime? _lastErrorUtc;
     private string? _lastError;
 
-    /// <summary>Gets a value indicating whether the poll loop is running.</summary>
-    public bool Running
+    /// <summary>
+    /// Reads every field under one lock.
+    /// </summary>
+    /// <returns>The snapshot.</returns>
+    public PollerHealthSnapshot Snapshot()
     {
-        get
+        lock (_gate)
         {
-            lock (_gate)
+            return new PollerHealthSnapshot
             {
-                return _running;
-            }
-        }
-    }
-
-    /// <summary>Gets a value indicating whether the last poll reached the station.</summary>
-    public bool Reachable
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _reachable;
-            }
-        }
-    }
-
-    /// <summary>Gets the time of the last successful poll.</summary>
-    public DateTime? LastSuccessUtc
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _lastSuccessUtc;
-            }
-        }
-    }
-
-    /// <summary>Gets the time of the last failure.</summary>
-    public DateTime? LastErrorUtc
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _lastErrorUtc;
-            }
-        }
-    }
-
-    /// <summary>Gets the last failure's message.</summary>
-    public string? LastError
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _lastError;
-            }
+                Running = _running,
+                Reachable = _reachable,
+                LastSuccessUtc = _lastSuccessUtc,
+                LastErrorUtc = _lastErrorUtc,
+                LastError = _lastError
+            };
         }
     }
 

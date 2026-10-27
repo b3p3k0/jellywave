@@ -305,6 +305,9 @@ HI decisions 2026-10-27:
    show so a timed takeover unmarks the grid and is named on the page; the schedule panel re-renders only
    when its data changed; the portrait's blob URL is released when the DJ line hides; inert flex CSS removed.
    Version 0.3.3.0.
+11. **Card 10 nits** (2026-10-27): health read as one snapshot; reachability unknown until the first poll (the page
+   says "waiting for the first poll"); takeover detection by the station's show id (`context.activeShow.id`) rather
+   than the name, so a renamed show in its own slot is not a takeover; stale comment. Version 0.3.4.0.
 8d. **Small extras on the page** (after 8c, each its own `wip:`): DJ portrait (`/api/persona-avatar/{id}`
    proxied), recent tracks (`/api/state.history`), like button (`/api/like`), today's schedule strip
    (`/api/schedule`), lyrics when the station enables them. **Implemented 2026-10-27** in a923124

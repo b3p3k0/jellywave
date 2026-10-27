@@ -14,8 +14,8 @@ public sealed class HealthResponse
     /// <summary>Gets or sets a value indicating whether the poll loop is running.</summary>
     public bool Running { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether the last poll reached the station.</summary>
-    public bool Reachable { get; set; }
+    /// <summary>Gets or sets whether the last poll reached the station; null before the first poll.</summary>
+    public bool? Reachable { get; set; }
 
     /// <summary>Gets or sets the time of the last successful poll.</summary>
     public DateTime? LastSuccessUtc { get; set; }
