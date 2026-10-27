@@ -99,9 +99,10 @@ is shared by everyone on it.
 
 Signed-in users who can see the channel in Jellyfin: the same rule Jellyfin uses for the tile (the
 channel is allowed under Dashboard → Users → user → Access, or the user has a block list that does not
-name it, and parental controls pass). Administrators get no exception. Everyone else, and every API
-key, gets 403 from the `/Jellywave` routes; the page then shows nothing (no header, no drawer link)
-and asks again only every five minutes. A listener request can be followed only by the user who
+name it, and parental controls pass). Administrators get no exception. A signed-in user who cannot
+see the channel, and every API key, gets 403 from the `/Jellywave` routes (callers that are not signed
+in get Jellyfin's own 401); the page then shows nothing (no header, no drawer link) and asks again
+only every five minutes. Until Jellyfin has created the channel the routes answer 404. A listener request can be followed only by the user who
 sent it; after a Jellyfin restart the page says the station lost track of a pending request.
 
 ## Tested on

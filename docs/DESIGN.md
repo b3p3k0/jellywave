@@ -268,10 +268,16 @@ receipt. Receipts do not survive a restart: a request pending across one shows t
 free-text name still goes to the station unchanged (HI decision); accounting is the receipt plus the
 existing Information line with the request id and user id, never the name or the text.
 
+The cap is shared: one user who submits many requests can fill it and evict other users' receipts,
+whose polls then show "lost track". The impact is low, because the station's own rate limit (a few
+requests per hour for the whole server) keeps the map far below 1000 in practice. A 403 versus
+"unknown" does reveal whether a request id exists here; accepted, since the ids are station-generated.
+
 The page: a 403 from `Jellywave/Feed` (ApiClient rejects with the fetch `Response`, so the script reads
 its `status`) drops the feed, the header and the drawer link, and the next feed request waits
-`FEED_FORBIDDEN_RETRY_MS` (five minutes) instead of the usual 15 seconds. The other routes are only
-called once a feed exists.
+`FEED_FORBIDDEN_RETRY_MS` (five minutes) instead of the usual 15 seconds; a 404 (no channel yet) keeps
+the 15 seconds. The other routes are only called once a feed exists; a 403 on a request submit or poll
+says "You don't have access to this station." instead of a connection error.
 
 ## Poller health (card 10)
 

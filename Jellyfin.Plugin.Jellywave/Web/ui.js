@@ -12,9 +12,12 @@
     /* 403: this user may not see the channel (blocked, not enabled) or is an API key. Ask rarely. */
     var FEED_FORBIDDEN_RETRY_MS = 300000;
     var HTTP_FORBIDDEN = 403;
+    var NO_ACCESS_MESSAGE = 'You don\'t have access to this station.';
     var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, feedRetryMs: FEED_RETRY_MS, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0 };
 
     function api() { return window.ApiClient || null; }
+    /* ApiClient rejects with the fetch Response on an HTTP error; a network failure has no status. */
+    function isForbidden(err) { return !!err && err.status === HTTP_FORBIDDEN; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
 
     function fetchFeed() {
@@ -28,8 +31,7 @@
         }).catch(function (err) {
             state.feedFailedAt = Date.now();
             state.feedRetryMs = FEED_RETRY_MS;
-            // ApiClient rejects with the fetch Response on an HTTP error; a network failure has no status.
-            if (err && err.status === HTTP_FORBIDDEN) {
+            if (isForbidden(err)) {
                 state.feedRetryMs = FEED_FORBIDDEN_RETRY_MS;
                 forgetStation();
             }
@@ -412,7 +414,7 @@
                 say(describe(r));
                 if (r && r.Status === 'pending' && tries < 30) { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000); }
                 else { send.disabled = false; }
-            }).catch(function () { say('Lost contact while waiting.'); send.disabled = false; });
+            }).catch(function (err) { say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Lost contact while waiting.'); send.disabled = false; });
         }
         form.addEventListener('submit', function (e) {
             e.preventDefault();
@@ -427,7 +429,7 @@
             }).then(function (r) {
                 say(describe(r));
                 if (r && r.Accepted && r.RequestId) { text.value = ''; poll(r.RequestId, 0); } else { send.disabled = false; }
-            }).catch(function () { say('Could not reach the server.'); send.disabled = false; });
+            }).catch(function (err) { say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Could not reach the server.'); send.disabled = false; });
         });
     }
 
