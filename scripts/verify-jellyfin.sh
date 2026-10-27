@@ -4,15 +4,17 @@
 #
 #   JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=<api key> scripts/verify-jellyfin.sh [username]
 #
-# JELLYWAVE_CHANNEL names the station's tile (default "SUB/WAVE"); set it when the tile was renamed
-# under Dashboard > Plugins > Jellywave. It is matched against the Name in GET /Channels exactly
-# (case included), and only that channel is checked.
+# JELLYWAVE_CHANNEL names the station's tile. By default it is read from the plugin's own
+# configuration (StationName, which needs an administrator's key or token), falling back to
+# "SUB/WAVE". It is matched against the Name in GET /Channels exactly (case included), and only
+# that channel is checked.
 #
 # Checks, in order: server version; the plugin is listed and Active; exactly one channel in
 # GET /Channels has that name (missing or more than one is a FAIL, because Jellyfin derives the
 # channel id from the name); that channel is a user view (My Media) for the chosen user; it has
 # an audio item; PlaybackInfo for that item has no ErrorCode and a play method (Relay:
-# TranscodingUrl present; Direct: direct play).
+# TranscodingUrl present; Direct: direct play). PlaybackInfo is asked with a minimal mp3 audio
+# profile: with an empty body the server has no format to transcode to and returns no TranscodingUrl.
 set -euo pipefail
 
 : "${JELLYFIN_URL:?set JELLYFIN_URL, e.g. http://your.jellyfin:8096}"
@@ -20,7 +22,8 @@ set -euo pipefail
 USERNAME="${1:-}"
 AUTH="Authorization: MediaBrowser Token=${JELLYFIN_TOKEN}, Client=\"jellywave-verify\", Device=\"cli\", DeviceId=\"jellywave-verify\", Version=\"1\""
 PLUGIN_NAME="Jellywave"
-CHANNEL_NAME="${JELLYWAVE_CHANNEL:-SUB/WAVE}"
+DEFAULT_CHANNEL="SUB/WAVE"
+PLAYBACK_PROFILE='{"DeviceProfile":{"Name":"jellywave-verify","MaxStreamingBitrate":320000,"DirectPlayProfiles":[],"TranscodingProfiles":[{"Container":"mp3","Type":"Audio","AudioCodec":"mp3","Protocol":"http","Context":"Streaming"}]}}'
 fail=0
 ok()   { echo "ok   $*"; }
 bad()  { echo "FAIL $*"; fail=1; }
@@ -31,6 +34,12 @@ echo "== Server"; get /System/Info/Public | jq -r '"\(.ServerName) \(.Version)"'
 echo "== Plugin"
 PLUGIN="$(get /Plugins | jq -c --arg n "$PLUGIN_NAME" '.[] | select(.Name == $n)')"
 [ -n "$PLUGIN" ] && ok "plugin listed: $(jq -r '"\(.Version) \(.Status)"' <<<"$PLUGIN")" || bad "plugin $PLUGIN_NAME not in /Plugins"
+CONFIGURED_NAME=""
+if [ -n "$PLUGIN" ]; then
+  CONFIGURED_NAME="$(get "/Plugins/$(jq -r .Id <<<"$PLUGIN")/Configuration" 2>/dev/null | jq -r '.StationName // empty' || true)"
+fi
+CHANNEL_NAME="${JELLYWAVE_CHANNEL:-${CONFIGURED_NAME:-$DEFAULT_CHANNEL}}"
+echo "     station tile name: \"$CHANNEL_NAME\" ($([ -n "${JELLYWAVE_CHANNEL:-}" ] && echo "from JELLYWAVE_CHANNEL" || { [ -n "$CONFIGURED_NAME" ] && echo "from the plugin configuration" || echo "default; set JELLYWAVE_CHANNEL if the tile was renamed"; }))"
 
 echo "== User"
 if [ -z "$USERNAME" ]; then USER_JSON="$(get /Users | jq -c 'map(select(.Policy.IsAdministrator)) | .[0]')"; else USER_JSON="$(get /Users | jq -c --arg u "$USERNAME" '.[] | select(.Name == $u)')"; fi
@@ -67,7 +76,7 @@ if [ -n "$CH_ID" ]; then
     bad "\"$CHANNEL_NAME\" has no audio item (is the station base URL set and allowed?)"
   else
     echo "== PlaybackInfo for $ITEM_ID"
-    PI="$(curl -sS -f -X POST -H "$AUTH" -H 'Content-Type: application/json' "$JELLYFIN_URL/Items/$ITEM_ID/PlaybackInfo?userId=$USER_ID" -d '{}')"
+    PI="$(curl -sS -f -X POST -H "$AUTH" -H 'Content-Type: application/json' "$JELLYFIN_URL/Items/$ITEM_ID/PlaybackInfo?userId=$USER_ID" -d "$PLAYBACK_PROFILE")"
     jq '.MediaSources[] | {Path, Protocol, IsRemote, IsInfiniteStream, Container, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding, TranscodingUrl, TranscodingContainer, ErrorCode}' <<<"$PI"
     jq -e '.ErrorCode == null' <<<"$PI" >/dev/null && ok "PlaybackInfo has no ErrorCode" || bad "PlaybackInfo ErrorCode: $(jq -r .ErrorCode <<<"$PI")"
     jq -e '.MediaSources[0] | (.SupportsDirectPlay or (.TranscodingUrl != null))' <<<"$PI" >/dev/null && ok "a play method exists (direct play or TranscodingUrl)" || bad "no play method: NoCompatibleStream"
