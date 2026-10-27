@@ -203,6 +203,7 @@
         function stale() { return !isCurrent(epoch) || state.likeSongId !== songId || !state.feed || state.feed.SongId !== songId; }
         client.getJSON(client.getUrl('Jellywave/Like')).then(function (r) {
             if (stale()) { return; }
+            if (r && r.SongId && r.SongId !== songId) { return; }   // the station moved on during the round trip; the next feed brings that track
             state.like = r;
             renderLike();
         }).catch(function () {
@@ -428,11 +429,14 @@
     }
 
     /* The first list container in root whose data-parentid is the channel; cached views keep other
-       libraries' containers in the document, so the first one found is not necessarily ours. */
+       libraries' containers in the document, so the first one found is not necessarily ours. A document-wide
+       search skips cached views (viewContainer.js hides them with .hide); a shown view is taken as it is. */
     function findChannelContainer(root, channelId) {
         var found = root.querySelectorAll('.itemsContainer[data-parentid]');
         for (var i = 0; i < found.length; i++) {
-            if (norm(found[i].getAttribute('data-parentid')) === norm(channelId)) { return found[i]; }
+            if (norm(found[i].getAttribute('data-parentid')) !== norm(channelId)) { continue; }
+            if (root === document && found[i].closest('.mainAnimatedPage.hide')) { continue; }
+            return found[i];
         }
         return null;
     }
@@ -446,7 +450,12 @@
         var container = findChannelContainer(root || document, f.ChannelId);
         if (!container) { return; }
         var page = container.closest('.page') || document;
-        if (page.querySelector('.jellywave-header')) { return; }
+        var existing = page.querySelector('.jellywave-header');
+        if (existing) {
+            // Back on a cached channel view: repaint its header, not the one built for another view since.
+            if (existing !== state.header) { state.header = existing; render(); ensureTimer(); }
+            return;
+        }
         var anchor = page.querySelector('.itemsViewSettingsContainer') || container;
         var header = document.createElement('div');
         header.className = 'jellywave-header';
@@ -498,6 +507,8 @@
             client.getCurrentUser().then(function (u) { if (u && u.Name && !name.value) { name.value = u.Name; } }).catch(function () { /* fine */ });
         }
         var pollTimer = null;
+        var epoch = state.epoch;   // the session this header was built for; its requests stop when that ends
+        function sameSession() { return checkSession() && isCurrent(epoch); }
         function say(msg) { out.textContent = msg || ''; }
         function describe(r) {
             if (!r) { return 'No answer.'; }
@@ -514,18 +525,23 @@
         }
         function poll(id, tries) {
             clearTimeout(pollTimer);
-            if (!document.body.contains(out)) { return; }   // page left; stop polling
+            if (!sameSession() || !document.body.contains(out)) { return; }   // signed out, another user, or page left
             client.getJSON(client.getUrl('Jellywave/Request/' + encodeURIComponent(id))).then(function (r) {
+                if (!isCurrent(epoch)) { return; }
                 say(describe(r));
                 if (r && r.Status === 'pending' && tries < 30) { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000); }
                 else { send.disabled = false; }
-            }).catch(function (err) { say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Lost contact while waiting.'); send.disabled = false; });
+            }).catch(function (err) {
+                if (!isCurrent(epoch)) { return; }
+                say(isForbidden(err) ? NO_ACCESS_MESSAGE : 'Lost contact while waiting.');
+                send.disabled = false;
+            });
         }
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             var client2 = api();
             var value = text.value.trim();
-            if (!client2 || !value) { return; }
+            if (!client2 || !value || !sameSession()) { return; }
             send.disabled = true;
             say('Sending…');
             client2.ajax({
@@ -570,7 +586,9 @@
                 fetchFeed().then(function () {
                     if (!isCurrent(epoch)) { return; }   // the reset cleared fetching; this answer belongs to the old session
                     state.fetching = false;
-                    ensureHeader(root);
+                    // The user may have moved on while the feed was on its way (that view's viewshow found a fetch
+                    // in flight and returned): search the whole document, not the view that started the fetch.
+                    ensureHeader(document);
                     ensureDrawerLink();
                 });
             }
