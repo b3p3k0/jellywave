@@ -33,20 +33,33 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
-    /// Stores a fresh feed and reports whether the on-air track or show changed.
+    /// Stores a fresh feed and reports what the live item would show differently.
     /// </summary>
     /// <param name="feed">The feed just fetched.</param>
     /// <param name="nowUtc">The fetch time.</param>
-    /// <returns>True when the description built from the feed differs from the previous one.</returns>
-    public bool Update(NowPlayingFeed feed, DateTime nowUtc)
+    /// <returns>Which of the description, track line and cover id differ from the previous feed.</returns>
+    public NowPlayingChange Update(NowPlayingFeed feed, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(feed);
         lock (_gate)
         {
-            var before = Describe(_feed);
+            var textBefore = Describe(_feed) + "\n" + TrackLineOf(_feed);
+            var coverBefore = CoverIdOf(_feed);
             _feed = feed;
             _fetchedUtc = nowUtc;
-            return !string.Equals(before, Describe(feed), StringComparison.Ordinal);
+
+            var change = NowPlayingChange.None;
+            if (!string.Equals(textBefore, Describe(feed) + "\n" + TrackLineOf(feed), StringComparison.Ordinal))
+            {
+                change |= NowPlayingChange.Description;
+            }
+
+            if (!string.Equals(coverBefore, CoverIdOf(feed), StringComparison.Ordinal))
+            {
+                change |= NowPlayingChange.Cover;
+            }
+
+            return change;
         }
     }
 
@@ -74,6 +87,64 @@ public sealed class NowPlayingState
         {
             return Describe(_feed);
         }
+    }
+
+    /// <summary>
+    /// Gets the short "Artist – Title" line for the playing bar, or null when nothing is on air.
+    /// </summary>
+    /// <returns>For example "Artist – Title".</returns>
+    public string? TrackLine()
+    {
+        lock (_gate)
+        {
+            return TrackLineOf(_feed);
+        }
+    }
+
+    /// <summary>
+    /// Gets the station id of the current track's cover art, or null when there is no track, the stream is
+    /// reported off air, or the id is not a valid station id.
+    /// </summary>
+    /// <returns>The cover id for <see cref="StationClient.GetCoverAsync"/>.</returns>
+    public string? CoverId()
+    {
+        lock (_gate)
+        {
+            return CoverIdOf(_feed);
+        }
+    }
+
+    private static string? TrackLineOf(NowPlayingFeed? feed)
+    {
+        if (feed is null || feed.StreamOnline == false)
+        {
+            return null;
+        }
+
+        var artist = Clean(feed.NowPlaying?.Artist);
+        var title = Clean(feed.NowPlaying?.Title);
+        if (artist.Length == 0 && title.Length == 0)
+        {
+            return null;
+        }
+
+        if (artist.Length == 0)
+        {
+            return title;
+        }
+
+        return title.Length == 0 ? artist : artist + " – " + title;
+    }
+
+    private static string? CoverIdOf(NowPlayingFeed? feed)
+    {
+        if (feed is null || feed.StreamOnline == false)
+        {
+            return null;
+        }
+
+        var id = feed.NowPlaying?.SubsonicId?.Trim();
+        return StationClient.IsValidId(id) ? id : null;
     }
 
     private static string? Describe(NowPlayingFeed? feed)
@@ -119,6 +190,24 @@ public sealed class NowPlayingState
         if (show.Length > 0)
         {
             AppendSeparated(sb, show);
+        }
+
+        var next = feed.Context?.ShowHandover?.NextShow;
+        var nextName = Clean(next?.Name);
+        if (nextName.Length > 0)
+        {
+            var presenter = Clean(next?.Presenter);
+            var startsAt = Clean(next?.StartsAt);
+            AppendSeparated(sb, "Up next: " + nextName);
+            if (presenter.Length > 0)
+            {
+                sb.Append(" with ").Append(presenter);
+            }
+
+            if (startsAt.Length > 0)
+            {
+                sb.Append(" at ").Append(startsAt);
+            }
         }
 
         return sb.Length == 0 ? null : sb.ToString();

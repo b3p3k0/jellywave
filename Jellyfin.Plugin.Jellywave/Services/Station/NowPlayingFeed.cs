@@ -26,4 +26,8 @@ public sealed class NowPlayingFeed
     /// <summary>Gets or sets the active show.</summary>
     [JsonPropertyName("activeShow")]
     public ShowInfo? ActiveShow { get; set; }
+
+    /// <summary>Gets or sets the context block (next show).</summary>
+    [JsonPropertyName("context")]
+    public ContextInfo? Context { get; set; }
 }

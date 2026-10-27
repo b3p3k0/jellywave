@@ -74,7 +74,14 @@
                                 <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
                                 <span>Show the current track on the live item</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ and show into the live item's description. Clients show it when they reload the list.</div>
+                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description, and the track as its album line. Clients show it when they reload the list or start playback.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="CoverArtEnabled" name="CoverArtEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Show the current track's cover art on the live item</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Downloads the cover from the station on every track change and saves it as the live item's image. Tracks without art, and this box unticked, show the station logo instead. The tile in the My Media row always keeps the logo.</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="NowPlayingPollSeconds">Poll interval (seconds)</label>
@@ -124,6 +131,7 @@
                 function load(config) {
                     fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
                     el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
+                    el('CoverArtEnabled').checked = config.CoverArtEnabled !== false;
                     el('GrantAccessToAllUsers').checked = !!config.GrantAccessToAllUsers;
                 }
 
@@ -154,6 +162,7 @@
                     config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 44100;
                     config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
                     config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
+                    config.CoverArtEnabled = el('CoverArtEnabled').checked;
                     config.GrantAccessToAllUsers = el('GrantAccessToAllUsers').checked;
                     config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
                     config.LastChangedUtc = new Date().toISOString();

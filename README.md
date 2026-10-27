@@ -44,7 +44,8 @@ Dashboard → Plugins → Jellywave.
 | Delivery | Relay through Jellyfin (default) or Direct |
 | Client stream URL | Direct only: the URL clients use when it differs from the server's |
 | Bitrate, sample rate, channels | How the stream is described to clients (not what ffmpeg produces); filled by "Fetch from station", defaults 192 kbit/s, 44100 Hz, stereo |
-| Now playing | Poll the station and show the current track on the live item |
+| Now playing | Poll the station and show the current track, DJ, show and what is up next on the live item; the track also becomes the item's album line so the playing bar shows it at playback start |
+| Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
 | Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
 
 After saving, the tile updates on the next reload. If you renamed it, run the

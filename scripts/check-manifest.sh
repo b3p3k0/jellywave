@@ -20,7 +20,13 @@ ABI_MAN="$(jq -r '.[0].versions[0].targetAbi' "$ROOT/manifest.json")"
 check "guid Plugin.cs == build.yaml"      "$G_CS"    "$G_YAML"
 check "guid configPage == build.yaml"     "$G_HTML"  "$G_YAML"
 check "guid manifest == build.yaml"       "$G_MAN"   "$G_YAML"
-check "version manifest[0] == props"      "$V_MAN"   "$V_PROPS"
+if [ "$V_MAN" = "$V_PROPS" ]; then
+    echo "ok   version manifest[0] == props: $V_PROPS"
+elif [ "$(printf '%s\n%s\n' "$V_MAN" "$V_PROPS" | sort -V | tail -1)" = "$V_PROPS" ]; then
+    echo "ok   props $V_PROPS is ahead of manifest[0] $V_MAN (unreleased; the release workflow adds the entry)"
+else
+    echo "FAIL props $V_PROPS is older than manifest[0] $V_MAN"; fail=1
+fi
 check "targetAbi manifest[0] == yaml"     "$ABI_MAN" "$ABI_YAML"
 jq -e '.[0].versions[0].checksum | test("^[0-9A-F]{32}$")' "$ROOT/manifest.json" >/dev/null \
   && echo "ok   checksum is uppercase MD5" || { echo "FAIL checksum format"; fail=1; }

@@ -20,7 +20,8 @@ public class FeedFixtureTests
     private const string NowPlayingJson = """
         {"nowPlaying":{"title":"Rideau","artist":"Keith Kouna","album":"La Duchesse","subsonic_id":"abc123",
           "filename":"/tmp/x.mp3","timestamp":1793041497,"genres":["Indie"],"bpm":117.5,"duration":277},
-         "context":{"at":"2026-10-26T19:07:25.084Z","weather":{"condition":"clear"}},
+         "context":{"at":"2026-10-26T19:07:25.084Z","weather":{"condition":"clear"},
+           "showHandover":{"phase":"final-quarter-hour","nextShow":{"name":"The Ville","presenter":"Bobby Tran","startsAt":"eight in the morning"}}},
          "activeShow":{"id":"s_1","name":"The Ville","topic":"..."},
          "dj":{"name":"Bobby Tran","tagline":"Your older brother's record collection.","avatar":"/persona-avatar/p1","station":"Example FM"},
          "listeners":{"current":1,"peak":3},
@@ -51,7 +52,8 @@ public class FeedFixtureTests
 
         var state = new NowPlayingState();
         state.Update(feed, System.DateTime.UtcNow);
-        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville", state.Description());
+        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville · Up next: The Ville with Bobby Tran at eight in the morning", state.Description());
+        Assert.Equal("abc123", state.CoverId());
     }
 
     [Fact]

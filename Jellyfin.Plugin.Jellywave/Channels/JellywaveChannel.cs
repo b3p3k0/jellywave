@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -129,7 +130,7 @@ public class JellywaveChannel : IChannel
             return Task.FromResult(new DynamicImageResponse { HasImage = false });
         }
 
-        var stream = typeof(JellywaveChannel).Assembly.GetManifestResourceStream(LogoResourceName);
+        var stream = OpenLogoStream();
         if (stream is null)
         {
             _logger.LogError("Embedded logo resource {Resource} is missing from the assembly", LogoResourceName);
@@ -146,6 +147,12 @@ public class JellywaveChannel : IChannel
 
     /// <inheritdoc />
     public IEnumerable<ImageType> GetSupportedChannelImages() => [ImageType.Primary];
+
+    /// <summary>
+    /// Opens the embedded station logo (PNG). Also used as the live item's cover when the station has no art.
+    /// </summary>
+    /// <returns>The stream, or null when the resource is missing from the assembly.</returns>
+    public static Stream? OpenLogoStream() => typeof(JellywaveChannel).Assembly.GetManifestResourceStream(LogoResourceName);
 
     private static int PositiveOr(int value, int fallback) => value > 0 ? value : fallback;
 

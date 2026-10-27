@@ -32,6 +32,7 @@ The tile image is the embedded `Assets/logo.png`, served through `IChannel.GetCh
 | `IsLiveStream` | true | Jellyfin nulls the item's runtime and tags it `livestream`; lists show "Live" |
 | `DateModified` | max(config `LastChangedUtc`, `MediaSourceSchemaDate`) | Jellyfin only re-saves a channel item's media sources when this advances (`ChannelManager.GetChannelItemEntityAsync`) |
 | `MediaSources` | one static `MediaSourceInfo` | See below |
+| `ImageUrl` | unset | The poller owns the item's Primary image (see Now playing); Jellyfin only applies `ImageUrl` when it first creates the item |
 
 `DataVersion` is a hash of every configuration field that affects the item. Jellyfin caches
 channel item lists for three hours keyed by that hash, so a config save invalidates the cache.
@@ -77,17 +78,39 @@ proper fix is an `Audio/{id}/live.m3u8` route upstream; not pursued yet.
 `NowPlayingService` is an `IHostedService` registered by the plugin. Every
 `NowPlayingPollSeconds` (clamped 5–300) it fetches the station's public
 `GET /api/now-playing`. `NowPlayingState` turns the feed into one line, for example
-`Now playing: Artist – Title (Album) · DJ Name · Show`, and reports whether it changed.
-On change the service finds the live item (`InternalItemsQuery` by channel id and
-external id `live`) and writes the line into `Overview` with
-`ILibraryManager.UpdateItemAsync(..., ItemUpdateType.MetadataEdit)`. Jellyfin does not raise
-the library-changed event for channel items, so nothing is pushed; clients show the new
-text on their next list load or playback start. The channel entity is looked up with a
+`Now playing: Artist – Title (Album) · DJ Name · Show · Up next: Show with Presenter at time`
+(the "Up next" part comes from `context.showHandover`, which the station sends near the end
+of a show), a track line `Artist – Title`, and the cover id (`nowPlaying.subsonic_id`,
+accepted only when it is 1–64 characters of letters, digits, `_` and `-`). `Update` reports
+which of those changed. On change the service finds the live item (`InternalItemsQuery` by
+channel id and external id `live`) and writes:
+
+| Item field | Value | Why |
+|---|---|---|
+| `Overview` | the description line | Shown on the item's detail page and in list descriptions |
+| `Album` | the track line | jellyfin-web's playing bar shows `Album` as its first line when an audio item has no artists (`itemText.ts`), so playback starts with "Artist – Title" over the item name. No validator derives library entities from the string. |
+| Primary image | the track's cover (`GET /api/cover/{id}`) or the embedded logo | See below |
+
+All three go through one `ILibraryManager.UpdateItemAsync(..., MetadataEdit | ImageUpdate)`.
+Jellyfin does not raise the library-changed event for channel items, so nothing is pushed;
+clients show the new text and art on their next list load or playback start, and the
+playing bar keeps what it copied at playback start. The channel entity is looked up with a
 plain item query, not through the channel manager, because the latter creates channel
 entities on demand and the poller must not race Jellyfin's startup channel refresh.
 
-Only `Overview` is written. Setting `Artists` on an `Audio` item would make Jellyfin's
-artists validator create a Music-library artist for every track the station plays.
+Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
+channel item's `ImageUrl` only when it creates the item, so the poller saves the image
+itself with `IProviderManager.SaveImage(item, stream, mimeType, Primary, ...)`. That writes a
+file under the item's metadata folder, deletes the previous one, and stamps the image's
+`DateModified`, which is what the client-facing image tag hashes, so clients refetch. The
+station answers 502 with an empty body when a track has no art; then, and when cover art is
+off, polling is off, or the station is unreachable, the logo is saved instead so the item
+never shows a blank. The image is at most 4 MB and must carry an `image/*` content type. A
+failed cover download (timeout) keeps the text update and is retried on the next poll. The
+tile in the My Media row is the channel's own image and always stays the logo.
+
+`Artists` is never written. Setting it on an `Audio` item would make Jellyfin's artists
+validator create a Music-library artist for every track the station plays.
 
 Failure handling: one warning when the station becomes unreachable, one info line when it
 answers again; the loop never throws; while unreachable or disabled the item falls back to

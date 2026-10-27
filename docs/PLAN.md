@@ -76,6 +76,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 | `StationName` | `SUB/WAVE` | Tile and channel name. Config page has a "Fetch from station" button that reads `/api/state`. Changing the name changes the internal channel id (server derives it from the name), so the doc warns that renaming creates a new tile. |
 | `Delivery` | `Relay` | `Relay` sets `SupportsDirectPlay=false` (server ffmpeg). `Direct` sets it true (client fetches the URL). |
 | `NowPlayingEnabled` | `true` | |
+| `CoverArtEnabled` | `true` | Card 7: the poller saves the current track's cover as the live item's Primary image; logo when off or when the station has no art. |
 | `NowPlayingPollSeconds` | `20` | Clamp 5..300 (`EffectivePollSeconds`). |
 | `StationTagline` | empty | Channel description; filled by "Fetch from station" from the on-air DJ tagline. (Added in card 3.) |
 | `StreamBitrateKbps` / `StreamSampleRate` / `StreamChannels` | 192 / 44100 / 2 | Describe the stream to clients; filled by "Fetch from station" from `/api/now-playing`'s `stream` block. (Added in card 3.) |

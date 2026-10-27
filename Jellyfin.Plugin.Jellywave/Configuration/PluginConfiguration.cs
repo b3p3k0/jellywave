@@ -62,6 +62,7 @@ public class PluginConfiguration : BasePluginConfiguration
         StationTagline = string.Empty;
         Delivery = DeliveryMode.Relay;
         NowPlayingEnabled = true;
+        CoverArtEnabled = true;
         NowPlayingPollSeconds = 20;
         StreamBitrateKbps = DefaultStreamBitrateKbps;
         StreamSampleRate = DefaultStreamSampleRate;
@@ -106,6 +107,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether the now-playing poller is enabled.
     /// </summary>
     public bool NowPlayingEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the poller saves the current track's cover art as the live item's image.
+    /// Off, or when the station has no art for a track, the item shows the station logo.
+    /// </summary>
+    public bool CoverArtEnabled { get; set; }
 
     /// <summary>
     /// Gets or sets the now-playing poll interval in seconds. Read through <see cref="EffectivePollSeconds"/>.

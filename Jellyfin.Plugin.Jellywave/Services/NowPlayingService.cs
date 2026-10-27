@@ -17,10 +17,12 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
-/// Polls the station's now-playing feed and writes a one-line description onto the live item.
-/// Only <see cref="BaseItem.Overview"/> is written: setting Artists on an Audio item would make
-/// Jellyfin create a Music-library artist entry for every track the station plays.
-/// Jellyfin does not push updates of channel items to clients; the text shows on the next list load.
+/// Polls the station's now-playing feed and writes what it learns onto the live item: the one-line
+/// description into <see cref="BaseItem.Overview"/>, "Artist – Title" into <see cref="BaseItem.Album"/>
+/// (the playing bar's first line when an audio item has no artists), and the current cover art as the
+/// Primary image through <see cref="LiveItemArtwork"/>. <c>Artists</c> is never written: Jellyfin would
+/// create a Music-library artist entry for every track the station plays.
+/// Jellyfin does not push updates of channel items to clients; changes show on the next list load.
 /// </summary>
 public sealed class NowPlayingService : IHostedService, IDisposable
 {
@@ -42,6 +44,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
     private readonly StationClient _stationClient;
     private readonly NowPlayingState _state;
+    private readonly LiveItemArtwork _artwork;
     private readonly ILibraryManager _libraryManager;
     private readonly IServerApplicationHost _applicationHost;
     private readonly Func<PluginConfiguration?> _configuration;
@@ -49,6 +52,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     private readonly CancellationTokenSource _stopping = new();
     private Task? _loop;
     private bool _stationReachable = true;
+    private bool _retryArtwork;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NowPlayingService"/> class.
@@ -56,16 +60,18 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
+    /// <param name="artwork">The live item artwork keeper.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
     public NowPlayingService(
         StationClient stationClient,
         NowPlayingState state,
+        LiveItemArtwork artwork,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger)
-        : this(stationClient, state, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
+        : this(stationClient, state, artwork, libraryManager, applicationHost, logger, () => Plugin.Instance?.Configuration)
     {
     }
 
@@ -74,6 +80,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     /// </summary>
     /// <param name="stationClient">The station client.</param>
     /// <param name="state">The shared now-playing state.</param>
+    /// <param name="artwork">The live item artwork keeper.</param>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="applicationHost">The application host, for startup completion.</param>
     /// <param name="logger">The logger.</param>
@@ -81,6 +88,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     public NowPlayingService(
         StationClient stationClient,
         NowPlayingState state,
+        LiveItemArtwork artwork,
         ILibraryManager libraryManager,
         IServerApplicationHost applicationHost,
         ILogger<NowPlayingService> logger,
@@ -88,6 +96,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
     {
         _stationClient = stationClient;
         _state = state;
+        _artwork = artwork;
         _libraryManager = libraryManager;
         _applicationHost = applicationHost;
         _logger = logger;
@@ -134,9 +143,9 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         var config = _configuration();
         if (config is null || !config.NowPlayingEnabled || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
         {
-            if (_state.Clear())
+            if (_state.Clear() || _retryArtwork)
             {
-                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
+                await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
             }
 
             return IdleDelay;
@@ -157,7 +166,7 @@ public sealed class NowPlayingService : IHostedService, IDisposable
 
             if (_state.Clear())
             {
-                await WriteOverviewAsync(config, null, cancellationToken).ConfigureAwait(false);
+                await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
             }
 
             return TimeSpan.FromSeconds(config.EffectivePollSeconds);
@@ -169,9 +178,9 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             _stationReachable = true;
         }
 
-        if (feed is not null && _state.Update(feed, DateTime.UtcNow))
+        if (feed is not null && (_state.Update(feed, DateTime.UtcNow) != NowPlayingChange.None || _retryArtwork))
         {
-            await WriteOverviewAsync(config, _state.Description(), cancellationToken).ConfigureAwait(false);
+            await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
         }
 
         return TimeSpan.FromSeconds(config.EffectivePollSeconds);
@@ -230,7 +239,12 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         _logger.LogInformation("Now-playing poller stopped");
     }
 
-    private async Task WriteOverviewAsync(PluginConfiguration? config, string? description, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes the current state onto the live item: overview, track line and cover. With <paramref name="baseUrl"/>
+    /// null (polling disabled or the station unreachable) the item falls back to the default overview, no track
+    /// line and the logo.
+    /// </summary>
+    private async Task UpdateLiveItemAsync(PluginConfiguration? config, Uri? baseUrl, CancellationToken cancellationToken)
     {
         var channel = FindChannel(config);
         if (channel is null)
@@ -253,16 +267,50 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             return;
         }
 
-        var overview = description ?? JellywaveChannel.DefaultOverview;
-        if (string.Equals(item.Overview, overview, StringComparison.Ordinal))
+        var updateType = ItemUpdateType.None;
+        var overview = (baseUrl is null ? null : _state.Description()) ?? JellywaveChannel.DefaultOverview;
+        if (!string.Equals(item.Overview, overview, StringComparison.Ordinal))
+        {
+            item.Overview = overview;
+            updateType |= ItemUpdateType.MetadataEdit;
+        }
+
+        var trackLine = baseUrl is null ? null : _state.TrackLine();
+        if (!string.Equals(item.Album, trackLine, StringComparison.Ordinal))
+        {
+            item.Album = trackLine;
+            updateType |= ItemUpdateType.MetadataEdit;
+        }
+
+        var coverId = baseUrl is not null && config?.CoverArtEnabled == true ? _state.CoverId() : null;
+        try
+        {
+            if (await _artwork.ApplyAsync(item, baseUrl, coverId, cancellationToken).ConfigureAwait(false))
+            {
+                updateType |= ItemUpdateType.ImageUpdate;
+                _logger.LogInformation("Live item cover updated: {Cover}", _artwork.Applied);
+            }
+
+            _retryArtwork = false;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
+        {
+            // The feed answered but the cover did not; keep the text and try the cover again next poll.
+            _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
+            _retryArtwork = true;
+        }
+
+        if (updateType == ItemUpdateType.None)
         {
             return;
         }
 
-        item.Overview = overview;
-        await _libraryManager.UpdateItemAsync(item, channel, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-        // Information on purpose: one line per track change is the runtime evidence that the poller works.
-        _logger.LogInformation("Live item overview updated: {Overview}", overview);
+        await _libraryManager.UpdateItemAsync(item, channel, updateType, cancellationToken).ConfigureAwait(false);
+        if (updateType.HasFlag(ItemUpdateType.MetadataEdit))
+        {
+            // Information on purpose: one line per track change is the runtime evidence that the poller works.
+            _logger.LogInformation("Live item overview updated: {Overview}", overview);
+        }
     }
 
     /// <summary>

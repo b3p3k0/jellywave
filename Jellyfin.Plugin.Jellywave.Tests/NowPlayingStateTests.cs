@@ -6,10 +6,10 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 
 public class NowPlayingStateTests
 {
-    private static NowPlayingFeed Feed(string? artist, string? title, string? album = null, string? dj = null, string? show = null, bool online = true)
+    private static NowPlayingFeed Feed(string? artist, string? title, string? album = null, string? dj = null, string? show = null, bool online = true, string? coverId = null)
         => new()
         {
-            NowPlaying = new TrackInfo { Artist = artist, Title = title, Album = album },
+            NowPlaying = new TrackInfo { Artist = artist, Title = title, Album = album, SubsonicId = coverId },
             Dj = dj is null ? null : new DjInfo { Name = dj },
             ActiveShow = show is null ? null : new ShowInfo { Name = show },
             StreamOnline = online
@@ -25,17 +25,78 @@ public class NowPlayingStateTests
     public void Describes_track_album_dj_and_show()
     {
         var state = new NowPlayingState();
-        Assert.True(state.Update(Feed("Keith Kouna", "Rideau", "La Duchesse", "Bobby Tran", "The Ville"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.Description, state.Update(Feed("Keith Kouna", "Rideau", "La Duchesse", "Bobby Tran", "The Ville"), DateTime.UtcNow));
         Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville", state.Description());
+        Assert.Equal("Keith Kouna – Rideau", state.TrackLine());
+    }
+
+    [Fact]
+    public void Describes_the_next_show_when_the_station_announces_a_handover()
+    {
+        var feed = Feed("A", "B", show: "Early Shift");
+        feed.Context = new ContextInfo { ShowHandover = new ShowHandoverInfo { NextShow = new NextShowInfo { Name = "The Ville", Presenter = "Bobby Tran", StartsAt = "eight in the morning" } } };
+        var state = new NowPlayingState();
+        state.Update(feed, DateTime.UtcNow);
+        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville with Bobby Tran at eight in the morning", state.Description());
+
+        feed.Context.ShowHandover.NextShow.Presenter = null;
+        feed.Context.ShowHandover.NextShow.StartsAt = "  ";
+        state.Update(feed, DateTime.UtcNow);
+        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville", state.Description());
     }
 
     [Fact]
     public void Same_track_again_is_not_a_change()
     {
         var state = new NowPlayingState();
-        Assert.True(state.Update(Feed("A", "B"), DateTime.UtcNow));
-        Assert.False(state.Update(Feed("A", "B"), DateTime.UtcNow));
-        Assert.True(state.Update(Feed("A", "C"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.Description, state.Update(Feed("A", "B"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.None, state.Update(Feed("A", "B"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.Description, state.Update(Feed("A", "C"), DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void Cover_change_is_reported_separately_from_text()
+    {
+        var state = new NowPlayingState();
+        Assert.Equal(NowPlayingChange.Description | NowPlayingChange.Cover, state.Update(Feed("A", "B", coverId: "id-1"), DateTime.UtcNow));
+        Assert.Equal("id-1", state.CoverId());
+        Assert.Equal(NowPlayingChange.Cover, state.Update(Feed("A", "B", coverId: "id-2"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.Description, state.Update(Feed("A", "C", coverId: "id-2"), DateTime.UtcNow));
+        Assert.Equal(NowPlayingChange.Cover, state.Update(Feed("A", "C"), DateTime.UtcNow));
+        Assert.Null(state.CoverId());
+    }
+
+    [Fact]
+    public void Off_air_hides_the_cover_and_the_track_line()
+    {
+        var state = new NowPlayingState();
+        state.Update(Feed("A", "B", online: false, coverId: "id-1"), DateTime.UtcNow);
+        Assert.Null(state.CoverId());
+        Assert.Null(state.TrackLine());
+    }
+
+    [Theory]
+    [InlineData("tFfm0RjKw9MsPNR8M7i4VB", true)]
+    [InlineData("a-b_C9", true)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    [InlineData("../etc", false)]
+    [InlineData("a b", false)]
+    [InlineData("id?x=1", false)]
+    [InlineData("é", false)]
+    public void Cover_ids_must_be_safe_path_segments(string? id, bool valid)
+    {
+        Assert.Equal(valid, StationClient.IsValidId(id));
+        var state = new NowPlayingState();
+        state.Update(Feed("A", "B", coverId: id), DateTime.UtcNow);
+        Assert.Equal(valid ? id : null, state.CoverId());
+    }
+
+    [Fact]
+    public void Cover_ids_longer_than_64_characters_are_rejected()
+    {
+        Assert.True(StationClient.IsValidId(new string('a', 64)));
+        Assert.False(StationClient.IsValidId(new string('a', 65)));
     }
 
     [Fact]
