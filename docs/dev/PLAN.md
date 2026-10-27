@@ -577,6 +577,8 @@ Host test 2026-10-27: with `GrantAccessToAllUsers` on, an admin who unticked the
 
 **Then: merge to main, deploy to the host, and tag v0.4.0.0.**
 
+**Host evidence for v0.4.0.0 (2026-10-27, build from 858bc05, installed dll md5 2ad07da7 equals the local build; plugin source unchanged up to the tag).** HI on the test host: the station page works for a non-admin user (play, like, a request answered by the DJ); a user unticked on the Access page stays without the tile and page after the save and after a restart; the "Add the station to every user now" button reports its counts and re-adds that user, as the page warns; an API key gets 403 from `/Jellywave/Feed`; "Fetch from station" works with the saved URL and reports the redirect for `http://github.com`; `scripts/verify-jellyfin.sh` (after ebfda78: tile name from the plugin configuration, PlaybackInfo with an mp3 profile) ends with ALL CHECKS PASSED. Server log after the 0.4.0.0 load: poller started, cover updated, 0 ERR/WRN from Jellywave. Private vulnerability reporting enabled (API: `enabled: true`). CI green on the branch.
+
 #### 17. Station data consistency (D2 server, D4, D5, D6) — v0.4.1.0
 
 - From the card 15b review: README/DESIGN note that saving a user's Access page clears any BlockedChannels entry (jellyfin-web `Access.tsx` posts `BlockedChannels = null`); `PolicyWriterDependencyTests` lists `IServiceProvider` as allowed only in `LiveItemFinder` (and `StationAccessAttribute` if it resolves services that way), so a new service locator is noticed.
