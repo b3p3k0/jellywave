@@ -1,11 +1,11 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: cards 1–11 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75; 8s/8a/8b/8c: 2026-10-27, commits d95f759 through 13b9ebf; 8d: 2026-10-27, commits a923124 through 4895824; 9: 2026-10-27, commits 4d67e6f and c6ea146; 10: 2026-10-27, commit 0505d94; 11: 2026-10-27, commit cf9d672, see the phase 2 closeout table). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Open: the lyrics panel shows a sentence instead of lines on HI's station (station side, not a blocker); v0.3.3.0 is released (manifest 0612866, zip matches the entry) and v0.3.4.0 is built from cf9d672 and unreleased. Wave 3 (second security review remediation, cards 12–18) approved 2026-10-27; see the Wave 3 section at the end. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–15 accepted (wave 3 cards 12–15 on 2026-10-27, see the Wave 3 section); card 16 (docs and repo hygiene) in progress. Cards 1–11: (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75; 8s/8a/8b/8c: 2026-10-27, commits d95f759 through 13b9ebf; 8d: 2026-10-27, commits a923124 through 4895824; 9: 2026-10-27, commits 4d67e6f and c6ea146; 10: 2026-10-27, commit 0505d94; 11: 2026-10-27, commit cf9d672, see the phase 2 closeout table). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Open: the lyrics panel shows a sentence instead of lines on HI's station (station side, not a blocker); v0.3.4.0 is released (manifest de8d8dd); 0.4.0.0 is on `wave3-hardening` and untagged until card 16 is accepted. Wave 3 (second security review remediation, cards 12–18) approved 2026-10-27; see the Wave 3 section at the end. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
 
-Kevin runs Jellyfin 12.3.0 on the Jellyfin test host and a SUB/WAVE internet-radio station ("IHateRadio") on the station host. Goal: a tile in Jellyfin's My Media row, alongside Live TV, that plays the station with transport controls on web, Android, and (bonus) Roku / Android TV. Stream audio is the must-have; the SUB/WAVE web player is a later phase.
+HI runs Jellyfin 12.3.0 on the Jellyfin test host and a SUB/WAVE internet-radio station ("IHateRadio") on the station host. Goal: a tile in Jellyfin's My Media row, alongside Live TV, that plays the station with transport controls on web, Android, and (bonus) Roku / Android TV. Stream audio is the must-have; the SUB/WAVE web player is a later phase.
 
 Decisions already made by HI (2026-10-26):
 
@@ -29,9 +29,9 @@ Decisions already made by HI (2026-10-26):
 - Clients: jellyfin-web opens a channel through the legacy list controller (`src/apps/legacy/controllers/list.js`); Roku `HomeItem.bs` accepts item type `channel` and `MainEventHandlers.bs` opens it as a generic library and plays `audio` items; Android TV `GenericFolderFragment.kt` handles `CHANNEL`; Android mobile wraps jellyfin-web.
 - Channel visibility per user: `Channel.IsVisible` requires `EnableAllChannels` permission or the channel in `EnabledChannels`. Admin users have it; verify for other users during testing.
 - Toolchain: local `dotnet` SDK 10.0.113; NuGet `Jellyfin.Controller` and `Jellyfin.Model` 12.3.0 exist; Jellyfin 12 targets `net10.0`; the official plugin template is still on 10.11.5 / net9.0 and must be bumped. Official webhook plugin (12.x) is the reference for `IPluginServiceRegistrator` + `net10.0` csproj.
-- the Jellyfin test host: Jellyfin 12.3.0 as systemd service, plugins in `/var/lib/jellyfin/plugins/<Name>_<ver>/` owned `jellyfin:jellyfin`, `kevin` has sudo with password, ffmpeg at `/usr/lib/jellyfin-ffmpeg/ffmpeg`. Existing `meta.json` shape: see SeerrFin's (`targetAbi` "12.0.0.0", `assemblies` list, `status` Active).
+- the Jellyfin test host: Jellyfin 12.3.0 as systemd service, plugins in `/var/lib/jellyfin/plugins/<Name>_<ver>/` owned `jellyfin:jellyfin`, ffmpeg at `/usr/lib/jellyfin-ffmpeg/ffmpeg`. Existing `meta.json` shape: see SeerrFin's (`targetAbi` "12.0.0.0", `assemblies` list, `status` Active).
 - Station: SUB/WAVE 1.26.0: station "IHateRadio", public (no listener auth, no private player), MP3 192 kbps 44.1 kHz stereo at `http://<station-host>:7700/stream.mp3`, CORS `*`, ICY headers present. Public JSON: `GET /api/now-playing` (`nowPlaying.title/artist/album/subsonic_id/duration`, `context.activeShow.name`), `GET /api/state` (`station.name`, `privacy`), `GET /api/health` (`{"status":"on-air"}`). Tune-in files at `/listen.pls`, `/listen.m3u`.
-- Access: `kevin@<station-host>` works (docker group). `claude@<station-host>` needs `~/.ssh/claude_framework`, absent on this machine. Not needed for v1; SUB/WAVE is not modified.
+- SUB/WAVE is not modified by this plugin; it only reads the station's public API and stream.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ One plugin assembly, server-side only. No jellyfin-web changes.
 ~/DEV/jellywave
 ├── Jellyfin.Plugin.Jellywave.slnx
 ├── Directory.Build.props            # version 0.1.0.0
-├── build.yaml                       # jprm-style metadata (name, guid, targetAbi 12.0.0.0, framework net10.0)
+├── build.yaml                       # jprm-style metadata (name, guid, targetAbi 12.0.0.0 (corrected in card 12: 12.3.0.0), framework net10.0)
 ├── README.md, LICENSE (MIT), .gitignore, .editorconfig   # from template
 ├── manifest.json                    # plugin repository manifest, served raw from GitHub main (see Manifest)
 ├── .github/workflows/release.yml    # on tag v*: build, zip, attach to GitHub release, update manifest.json
@@ -141,7 +141,7 @@ Jellyfin installs third-party plugins from a repository URL that returns a JSON 
 
 `scripts/build.sh` (run here): `dotnet publish Jellyfin.Plugin.Jellywave -c Release -o dist/stage`, then assemble `dist/Jellywave_<version>/` with `Jellyfin.Plugin.Jellywave.dll`, `meta.json` (generated from `build.yaml` + version + timestamp, same field set as SeerrFin's), `thumb.png`, and zip it as `dist/Jellywave_<version>.zip`. **Changed 2026-10-27:** it no longer touches `manifest.json`; the release workflow writes the entry from the zip it publishes, so a local build cannot overwrite a published checksum (`UPDATE_MANIFEST=1` opts in).
 
-`local/deploy-jellyfin.sh` (untracked dev helper; HI runs it on the Jellyfin test host): modeled on `~/DEV/seerrfin-teststack/deploy/setup.sh`. Steps: confirm systemd Jellyfin is active; show what it found; `sudo systemctl stop jellyfin`; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`.
+`local/deploy-jellyfin.sh` (untracked dev helper; HI runs it on the Jellyfin test host): modeled on the SeerrFin test stack's deploy script. Steps: confirm systemd Jellyfin is active; show what it found; stop the service; back up any existing `Jellywave_*` folder to `~/jellywave-plugin-backup-<ts>.tar.gz`; remove old `Jellywave_*`; copy the staged folder in; `chown -R jellyfin:jellyfin`; start; tail the log for `Jellywave` and `Loaded plugin`. `--rollback` restores the latest backup. MI copies `dist/Jellywave_<ver>/` and the script to `<jellyfin-host>:~/jellywave-dist/` with `scp`; HI runs `bash ~/jellywave-dist/deploy-jellyfin.sh`.
 
 ## Task cards (DA implements one at a time; RA accepts each)
 
@@ -234,7 +234,7 @@ Open after card 8d: the lyrics panel on HI's station (see the 8d row) and the po
 ## Post-approval housekeeping (MI)
 
 - Commit this plan into the repo as `docs/PLAN.md` on the first checkpoint commit (moved to `docs/dev/PLAN.md` in card 16).
-- Save memory notes: the Agent Charter URL and response contract; host roles (the Jellyfin test host = Jellyfin 12.3 test server, user access + sudo password; the station host = SUB/WAVE, `kevin@<station-host>` works, `claude@<station-host>` needs `~/.ssh/claude_framework`).
+- Save memory notes: the Agent Charter URL and response contract; host roles and access (kept in memory and `local/`, never in tracked files).
 
 ## Phase 2: live station page (decided 2026-10-27)
 
@@ -407,7 +407,7 @@ MI verified the main claims against the repo and Jellyfin 12.3 source on 2026-10
 - `TryGetServerStreamUrl` compares only `Host`. `TryParseBaseUrl` accepts userinfo, query and fragment.
 - `BuildToday` uses `ToDictionary`, so duplicate ids throw. A null feed records neither success nor failure (`NowPlayingService.cs:187`).
 - `ScheduleCache`, `NowPlayingState.StationState` and `LiveItemArtwork.Applied` carry no station identity. In `ui.js`, `fetchLike` does not check the song id, and the observer is a global `MutationObserver` with no debounce.
-- The README contradicts itself (lines 62 and 82). `configPage.html:77` still mentions an "album line". PLAN.md lines 32 and 34 hold host-access notes.
+- The README contradicts itself (lines 62 and 82). `configPage.html:77` still mentions an "album line". PLAN.md lines 32 and 34 hold host-access notes (removed in card 16).
 
 HI decisions (2026-10-27):
 
@@ -545,7 +545,7 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 #### 16. Docs and repo hygiene (O14, T1, T4 docs, HI decision on the packet)
 
 - Move `docs/PLAN.md` and `docs/LESSONS_LEARNED.md` to `docs/dev/` with `git mv`. Grep every reference and update it: CLAUDE.md, README, DESIGN and the scripts.
-- Remove the host-access notes from PLAN.md (sudo, SSH user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
+- Remove the host-access notes from PLAN.md (the admin-rights note, SSH user and key names). They stay in `local/` notes and memory. Git history keeps them; they hold no secret values and the history is not rewritten.
 - README:
   - A support matrix: Jellyfin 12.3.x; File Transformation 3.0.x works when installed, but its catalog does not offer it to 12.3 servers as of 2026-10-27 (upstream issue #87). No 12.0–12.2.
   - The playing bar line: standard clients do not update mid-track; the station page does.
