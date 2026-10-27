@@ -192,4 +192,40 @@ public class NowPlayingPollTests
         Assert.Contains(HostB + "/api/cover/cov1", server.Stations.Seen);
         Assert.Equal(new[] { "image/jpeg", "image/jpeg" }, server.ImagesSaved);
     }
+
+    [Fact]
+    public async Task A_null_feed_records_a_failure_clears_the_state_and_falls_the_item_back()
+    {
+        var server = new Server();
+        server.Stations.Art.Add(HostA + "/api/cover/cov1");
+        await server.PollAsync();
+        Assert.NotNull(server.State.StationState());
+        Assert.Equal(true, server.Health.Snapshot().Reachable);
+
+        server.Stations.NowPlaying[HostA] = "null";
+        await server.PollAsync();
+
+        var health = server.Health.Snapshot();
+        Assert.Equal(false, health.Reachable);
+        Assert.Equal(NowPlayingService.EmptyFeedMessage, health.LastError);
+        Assert.NotNull(health.LastErrorUtc);
+        Assert.Null(server.State.Feed());
+        Assert.Null(server.State.StationState());
+        Assert.Equal(JellywaveChannel.DefaultOverview, server.LiveItem.Overview);
+        Assert.Equal(new[] { "image/jpeg", "image/png" }, server.ImagesSaved);
+    }
+
+    [Fact]
+    public async Task After_a_null_feed_the_next_real_feed_is_a_success_again()
+    {
+        var server = new Server();
+        server.Stations.NowPlaying[HostA] = "null";
+        await server.PollAsync();
+        server.Stations.NowPlaying[HostA] = """{"nowPlaying":{"artist":"Artist A","title":"Back"},"streamOnline":true}""";
+
+        await server.PollAsync();
+
+        Assert.Equal(true, server.Health.Snapshot().Reachable);
+        Assert.Equal("Back", server.State.Feed()?.NowPlaying?.Title);
+    }
 }

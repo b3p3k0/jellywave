@@ -26,6 +26,11 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 public sealed class NowPlayingService : IHostedService, IDisposable
 {
     /// <summary>
+    /// The health message for a feed that parsed as JSON <c>null</c>: the station answered, but with nothing to show.
+    /// </summary>
+    internal const string EmptyFeedMessage = "the station answered with an empty feed";
+
+    /// <summary>
     /// Wait between checks while polling is disabled or the station URL is unset.
     /// </summary>
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(30);
@@ -166,16 +171,13 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsStationFailure(ex))
         {
-            _health.Failure(DateTime.UtcNow, ex.Message);
-            if (_stationReachable)
-            {
-                _logger.LogWarning("Station {Host} is unreachable or not answering with JSON: {Message}", baseUrl.Host, ex.Message);
-                _stationReachable = false;
-            }
+            return await StationFailedAsync(config, baseUrl, ex.Message, cancellationToken).ConfigureAwait(false);
+        }
 
-            _state.Clear();
-            await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
-            return TimeSpan.FromSeconds(config.EffectivePollSeconds);
+        if (feed is null)
+        {
+            // JSON null parses without an error but carries nothing; keeping the last feed would show a stale track.
+            return await StationFailedAsync(config, baseUrl, EmptyFeedMessage, cancellationToken).ConfigureAwait(false);
         }
 
         if (!_stationReachable)
@@ -184,15 +186,29 @@ public sealed class NowPlayingService : IHostedService, IDisposable
             _stationReachable = true;
         }
 
-        if (feed is not null)
+        var origin = StationUrls.Origin(baseUrl);
+        _health.Success(DateTime.UtcNow);
+        _state.Update(origin, feed, DateTime.UtcNow);
+        await FetchStationStateAsync(baseUrl, origin, cancellationToken).ConfigureAwait(false);
+        await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
+        return TimeSpan.FromSeconds(config.EffectivePollSeconds);
+    }
+
+    /// <summary>
+    /// The station gave no feed (unreachable, not JSON, or an empty feed): record it, warn once per streak, forget
+    /// the state and fall the live item back to the default overview and the logo.
+    /// </summary>
+    private async Task<TimeSpan> StationFailedAsync(PluginConfiguration config, Uri baseUrl, string message, CancellationToken cancellationToken)
+    {
+        _health.Failure(DateTime.UtcNow, message);
+        if (_stationReachable)
         {
-            var origin = StationUrls.Origin(baseUrl);
-            _health.Success(DateTime.UtcNow);
-            _state.Update(origin, feed, DateTime.UtcNow);
-            await FetchStationStateAsync(baseUrl, origin, cancellationToken).ConfigureAwait(false);
-            await UpdateLiveItemAsync(config, baseUrl, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("Station {Host} is unreachable or not answering with a feed: {Message}", baseUrl.Host, message);
+            _stationReachable = false;
         }
 
+        _state.Clear();
+        await UpdateLiveItemAsync(config, null, cancellationToken).ConfigureAwait(false);
         return TimeSpan.FromSeconds(config.EffectivePollSeconds);
     }
 
