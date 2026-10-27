@@ -47,7 +47,17 @@ public class JellywaveController : ControllerBase
     [HttpPost("GrantAccess")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<GrantResult>> GrantAccess(CancellationToken cancellationToken)
-        => await _accessGranter.GrantAllAsync(cancellationToken).ConfigureAwait(false);
+    {
+        try
+        {
+            return await _accessGranter.GrantAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Channel access pass failed");
+            return new GrantResult { Enabled = false, Error = "the pass failed; see the server log" };
+        }
+    }
 
     /// <summary>
     /// Probes a SUB/WAVE station from the server and reports what the plugin can learn from it.

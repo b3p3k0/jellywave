@@ -92,7 +92,7 @@
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">
                                 Jellyfin shows a channel only to users whose policy allows all channels or lists this one.
-                                With this on, the plugin adds this channel to each user's channel list (now, at startup, and when a user is created).
+                                With this on, the plugin adds this channel to each user's channel list: now, at startup, and whenever a user is created or a user's policy is saved.
                                 It never changes anything else in a user's policy, and users with an explicit block list stay blocked.
                                 Turning it off stops future grants and removes nothing.
                             </div>
@@ -128,6 +128,7 @@
                 }
 
                 function describeGrant(r) {
+                    if (r.Error) { return 'Nothing done: ' + r.Error + '.'; }
                     if (!r.Enabled) { return 'Nothing done: the setting is off, or the channel does not exist yet (set the station URL and save).'; }
                     return 'Granted to ' + r.Granted + ' user(s) just now; ' + r.AlreadyVisible + ' could already see it; ' + r.Blocked + ' blocked by an explicit block list.';
                 }

@@ -8,7 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
-/// Grants channel access to users as they are created, so provisioning tools cannot leave them out.
+/// Grants channel access to users as they are created. Most creation flows post a policy right after,
+/// which replaces the enabled-channel list; <see cref="UserUpdatedConsumer"/> covers that step.
 /// </summary>
 public sealed class UserCreatedConsumer : IEventConsumer<UserCreatedEventArgs>
 {
@@ -32,7 +33,7 @@ public sealed class UserCreatedConsumer : IEventConsumer<UserCreatedEventArgs>
         ArgumentNullException.ThrowIfNull(eventArgs);
         try
         {
-            await _granter.GrantAsync(eventArgs.Argument, CancellationToken.None).ConfigureAwait(false);
+            await _granter.GrantAsync(eventArgs.Argument.Id, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

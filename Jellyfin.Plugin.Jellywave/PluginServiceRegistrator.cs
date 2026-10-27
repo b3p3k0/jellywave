@@ -22,8 +22,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<NowPlayingState>();
         serviceCollection.AddSingleton<IChannel, JellywaveChannel>();
         serviceCollection.AddHostedService<NowPlayingService>();
+        serviceCollection.AddSingleton<IUserStore, UserManagerStore>();
+        serviceCollection.AddSingleton<IChannelLocator, LibraryChannelLocator>();
         serviceCollection.AddSingleton<AccessGranter>();
         serviceCollection.AddHostedService<AccessGrantService>();
         serviceCollection.AddScoped<IEventConsumer<UserCreatedEventArgs>, UserCreatedConsumer>();
+        serviceCollection.AddScoped<IEventConsumer<UserUpdatedEventArgs>, UserUpdatedConsumer>();
     }
 }

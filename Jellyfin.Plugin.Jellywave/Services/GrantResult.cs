@@ -21,4 +21,7 @@ public sealed class GrantResult
 
     /// <summary>Gets or sets the number of users with an explicit block list naming the channel.</summary>
     public int Blocked { get; set; }
+
+    /// <summary>Gets or sets a short error category when the pass could not run.</summary>
+    public string? Error { get; set; }
 }

@@ -9,12 +9,20 @@
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",
     "versions": [
       {
+        "version": "0.2.0.0",
+        "changelog": "Make the station visible to every user from the plugin page (off by default); new users and policy saves are covered.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.2.0.0/Jellywave_0.2.0.0.zip",
+        "checksum": "386FEC525E79C20B23D41C8F655DDC56",
+        "timestamp": "2026-10-27T00:22:16.0000000Z"
+      },
+      {
         "version": "0.1.0.0",
         "changelog": "Initial release.",
         "targetAbi": "12.0.0.0",
         "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.1.0.0/Jellywave_0.1.0.0.zip",
-        "checksum": "77DF14BD8E29C0CF85EA049305E2F1B7",
-        "timestamp": "2026-10-27T00:14:54.0000000Z"
+        "checksum": "5C8946B19EC1A4E8F1E05C30F7090860",
+        "timestamp": "2026-10-27T00:00:23.0000000Z"
       }
     ]
   }

@@ -229,10 +229,10 @@ acceptance.
 - Runs: after core startup (same hosted-service pattern as the poller), on every config save (the config
   page calls an admin endpoint `POST /Jellywave/GrantAccess` that also reports counts), and on
   `UserCreatedEventArgs` via a plugin-registered `IEventConsumer<UserCreatedEventArgs>` so provisioning
-  tools (JFA-GO and friends) cannot leave new users out.
+  tools (JFA-GO and friends) cannot leave new users out. **Added in review:** also on `UserUpdatedEventArgs`,
+  because creation flows post a policy right after creating the user, which replaces the enabled list.
 - HI decisions 2026-10-27: **off by default** (the admin ticks it once; the page explains what it does); turning it off **stops future grants and revokes nothing**.
-- The config page shows the result of the last run: "n users can see the station; granted to m just now;
-  k users are blocked by an explicit block list".
+- The config page shows the result of the last run: granted now / already visible / blocked by an explicit block list.
 - Channel id: the `Channel` entity looked up by name (`GetItemList{IncludeItemTypes=[Channel]}`), created
   on first use through `IChannelManager.GetChannelsInternalAsync` once core startup has completed.
 
@@ -250,8 +250,7 @@ acceptance.
 - Only the plugin's own channel id is ever written; the code path cannot add any other id.
 - Admin-only endpoint for the manual trigger (`Policies.RequiresElevation`), same as the probe.
 - Log one Information line per run with counts, never per user; no user names in logs.
-- Tests: pure grant logic (`Granter.Plan(users, channelId)` → list of users to update) with fakes of the
-  user preference arrays; no network, no database.
+- Tests: `AccessGranter.Classify` / `AddToEnabledChannels` on real `User` entities, and `GrantAllAsync` against a fake `IUserStore` and `IChannelLocator`; no network, no database.
 
 ### Cards
 

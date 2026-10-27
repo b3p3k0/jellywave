@@ -1,18 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data;
-using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
-using Jellyfin.Plugin.Jellywave.Channels;
 using Jellyfin.Plugin.Jellywave.Configuration;
-using MediaBrowser.Controller.Channels;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Channels;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Jellywave.Services;
@@ -22,40 +15,38 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// <see cref="PreferenceKind.EnabledChannels"/> preference. That is the only policy field ever written:
 /// <see cref="PermissionKind.EnableAllChannels"/> is never set, other channels are never added or removed,
 /// and <see cref="PreferenceKind.BlockedChannels"/> is respected (an explicit block wins).
+/// Each user is re-read immediately before it is written, so a pass never saves a stale copy over a
+/// concurrent edit.
 /// </summary>
 public sealed class AccessGranter
 {
-    private readonly IUserManager _userManager;
-    private readonly ILibraryManager _libraryManager;
-    private readonly IChannelManager _channelManager;
+    private readonly IUserStore _users;
+    private readonly IChannelLocator _channels;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly ILogger<AccessGranter> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AccessGranter"/> class (DI constructor).
     /// </summary>
-    /// <param name="userManager">The user manager.</param>
-    /// <param name="libraryManager">The library manager.</param>
-    /// <param name="channelManager">The channel manager, used once to make sure the channel entity exists.</param>
+    /// <param name="users">The user store.</param>
+    /// <param name="channels">The channel locator.</param>
     /// <param name="logger">The logger.</param>
-    public AccessGranter(IUserManager userManager, ILibraryManager libraryManager, IChannelManager channelManager, ILogger<AccessGranter> logger)
-        : this(userManager, libraryManager, channelManager, logger, () => Plugin.Instance?.Configuration)
+    public AccessGranter(IUserStore users, IChannelLocator channels, ILogger<AccessGranter> logger)
+        : this(users, channels, logger, () => Plugin.Instance?.Configuration)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AccessGranter"/> class with an explicit configuration source (tests).
     /// </summary>
-    /// <param name="userManager">The user manager.</param>
-    /// <param name="libraryManager">The library manager.</param>
-    /// <param name="channelManager">The channel manager.</param>
+    /// <param name="users">The user store.</param>
+    /// <param name="channels">The channel locator.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configuration">Returns the current configuration, or null when the plugin is not ready.</param>
-    public AccessGranter(IUserManager userManager, ILibraryManager libraryManager, IChannelManager channelManager, ILogger<AccessGranter> logger, Func<PluginConfiguration?> configuration)
+    public AccessGranter(IUserStore users, IChannelLocator channels, ILogger<AccessGranter> logger, Func<PluginConfiguration?> configuration)
     {
-        _userManager = userManager;
-        _libraryManager = libraryManager;
-        _channelManager = channelManager;
+        _users = users;
+        _channels = channels;
         _logger = logger;
         _configuration = configuration;
     }
@@ -125,23 +116,22 @@ public sealed class AccessGranter
     /// <returns>Counts for the run; <see cref="GrantResult.Enabled"/> false when the setting is off or the channel is unknown.</returns>
     public async Task<GrantResult> GrantAllAsync(CancellationToken cancellationToken)
     {
-        var config = _configuration();
-        if (config is null || !config.GrantAccessToAllUsers)
-        {
-            return GrantResult.Disabled;
-        }
-
-        var channelId = await FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
+        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
         if (channelId is null)
         {
-            _logger.LogWarning("Cannot grant channel access: the channel entity does not exist yet (is the station URL configured?)");
             return GrantResult.Disabled;
         }
 
         var result = new GrantResult { Enabled = true };
-        foreach (var user in _userManager.GetUsers())
+        foreach (var id in _users.UserIds().ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var user = _users.GetUser(id);
+            if (user is null)
+            {
+                continue; // deleted since the snapshot
+            }
+
             switch (Classify(user, channelId.Value))
             {
                 case Standing.Visible:
@@ -152,7 +142,7 @@ public sealed class AccessGranter
                     break;
                 case Standing.NeedsGrant:
                     AddToEnabledChannels(user, channelId.Value);
-                    await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                    await _users.SaveAsync(user).ConfigureAwait(false);
                     result.Granted++;
                     break;
                 default:
@@ -169,54 +159,45 @@ public sealed class AccessGranter
     }
 
     /// <summary>
-    /// Grants access to one user (new-user hook), when the setting is on.
+    /// Grants access to one user (created or updated hooks), when the setting is on. The user is re-read by id.
     /// </summary>
-    /// <param name="user">The user.</param>
+    /// <param name="userId">The user id.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>True when a grant was written.</returns>
-    public async Task<bool> GrantAsync(User user, CancellationToken cancellationToken)
+    public async Task<bool> GrantAsync(Guid userId, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(user);
-        var config = _configuration();
-        if (config is null || !config.GrantAccessToAllUsers)
+        var channelId = await ChannelIdIfEnabledAsync(cancellationToken).ConfigureAwait(false);
+        if (channelId is null)
         {
             return false;
         }
 
-        var channelId = await FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
-        if (channelId is null || Classify(user, channelId.Value) != Standing.NeedsGrant)
+        var user = _users.GetUser(userId);
+        if (user is null || Classify(user, channelId.Value) != Standing.NeedsGrant)
         {
             return false;
         }
 
         AddToEnabledChannels(user, channelId.Value);
-        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-        _logger.LogInformation("Channel access granted to a newly created user");
+        await _users.SaveAsync(user).ConfigureAwait(false);
+        _logger.LogInformation("Channel access granted to one user after a create or policy update");
         return true;
     }
 
-    /// <summary>
-    /// Finds the channel entity id by name, creating the entity through the channel manager if it has not
-    /// been created yet (that happens normally on the first My Media load). Call only after core startup.
-    /// </summary>
-    private async Task<Guid?> FindChannelIdAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<Guid?> ChannelIdIfEnabledAsync(CancellationToken cancellationToken)
     {
-        var name = JellywaveChannel.StationName(config);
-        var existing = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Channel] })
-            .OfType<Channel>()
-            .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            return existing.Id;
-        }
-
-        if (!StationUrls.TryGetBaseUrl(config, out _))
+        var config = _configuration();
+        if (config is null || !config.GrantAccessToAllUsers)
         {
             return null;
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        var created = await _channelManager.GetChannelsInternalAsync(new ChannelQuery()).ConfigureAwait(false);
-        return created.Items.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))?.Id;
+        var channelId = await _channels.FindChannelIdAsync(config, cancellationToken).ConfigureAwait(false);
+        if (channelId is null)
+        {
+            _logger.LogWarning("Cannot grant channel access: the channel entity does not exist yet (is the station URL configured?)");
+        }
+
+        return channelId;
     }
 }

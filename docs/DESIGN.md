@@ -105,7 +105,11 @@ of these, so the plugin offers "Make the station visible to every user" (off by 
 channel id into `EnabledChannels`, persisted with `IUserManager.UpdateUserAsync`. Nothing else in
 the policy is touched; `EnableAllChannels` is never set; explicit blocks win. Passes run after core
 startup (`AccessGrantService`), after a save with the box ticked (`POST /Jellywave/GrantAccess`,
-admin only, also behind "Run now"), and on `UserCreatedEventArgs` (`UserCreatedConsumer`). Turning
+admin only, also behind "Run now"), and on `UserCreatedEventArgs` and `UserUpdatedEventArgs` (the dashboard and provisioning tools
+post a policy right after creating a user, and `UpdatePolicyAsync` replaces the enabled-channel list;
+the plugin's own `UpdateUserAsync` saves publish no event, and a re-grant on a visible user writes
+nothing, so there is no loop). Each user is re-read by id immediately before it is written, because
+`GetUsers` hands out untracked snapshots and `UpdateUserAsync` saves the whole entity. Turning
 the setting off stops future passes and revokes nothing. One Information line per pass carries
 counts, never user names.
 
