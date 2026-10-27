@@ -87,10 +87,14 @@ public sealed class WebUiStartupTask : IScheduledTask
 
             var callbackAssembly = typeof(WebUiTransforms).Assembly.FullName;
             var callbackClass = typeof(WebUiTransforms).FullName;
+            // Plain file names, not anchored regexes: File Transformation keeps one pipeline per pattern string and
+            // runs only the first pipeline whose pattern matches a request, so a plugin that registers a different
+            // pattern for the same file never runs once another plugin registered the plain name. The plain name is
+            // the convention (SeerrFin and others use it), and joining it chains the callbacks.
             foreach (var (id, pattern, method) in new[]
             {
-                (IndexHtmlId, "^index\\.html$", nameof(WebUiTransforms.IndexHtml)),
-                (ConfigJsonId, "^config\\.json$", nameof(WebUiTransforms.ConfigJson))
+                (IndexHtmlId, "index.html", nameof(WebUiTransforms.IndexHtml)),
+                (ConfigJsonId, "config.json", nameof(WebUiTransforms.ConfigJson))
             })
             {
                 var json = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string?>

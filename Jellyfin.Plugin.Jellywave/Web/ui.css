@@ -1,10 +1,10 @@
-.jellywave-panel{position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:1em}
-.jellywave-card{background:var(--theme-body-bg,#101010);color:var(--theme-text-color,#fff);border-radius:.6em;max-width:28em;width:100%;padding:1.2em;box-shadow:0 .5em 2em rgba(0,0,0,.5);position:relative}
-.jellywave-close{position:absolute;top:.4em;right:.4em;background:none;border:0;color:inherit;font-size:1.6em;cursor:pointer;line-height:1}
-.jellywave-cover{width:100%;aspect-ratio:1/1;border-radius:.4em;background:#222 center/cover no-repeat;margin-bottom:.8em}
-.jellywave-title{font-size:1.25em;font-weight:600;margin:0}
-.jellywave-sub{opacity:.8;margin:.15em 0 0}
-.jellywave-meta{opacity:.7;font-size:.9em;margin:.8em 0 0}
-.jellywave-actions{display:flex;gap:.6em;margin-top:1em}
-.jellywave-actions button{flex:1}
-.jellywave-status{font-size:.85em;opacity:.6;margin-top:.6em}
+.jellywave-header{display:flex;gap:1.2em;align-items:flex-start;margin:0 0 1em;padding:1em;border-radius:.6em;background:rgba(128,128,128,.12)}
+.jellywave-cover{flex:0 0 11em;width:11em;height:11em;border-radius:.4em;background:#222 center/cover no-repeat}
+.jellywave-body{flex:1 1 auto;min-width:0}
+.jellywave-title{font-size:1.4em;font-weight:600;margin:0;line-height:1.2}
+.jellywave-sub{opacity:.85;margin:.2em 0 0}
+.jellywave-meta{opacity:.7;font-size:.92em;margin:.7em 0 0}
+.jellywave-meta div{margin-top:.15em}
+.jellywave-actions{display:flex;gap:.6em;margin-top:.9em;flex-wrap:wrap}
+.jellywave-status{font-size:.85em;opacity:.6;margin-top:.5em}
+@media (max-width:40em){.jellywave-header{flex-direction:column;align-items:stretch}.jellywave-cover{width:100%;height:auto;aspect-ratio:1/1;flex-basis:auto}}

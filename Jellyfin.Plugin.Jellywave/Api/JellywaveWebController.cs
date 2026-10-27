@@ -95,6 +95,7 @@ public class JellywaveWebController : ControllerBase
         };
 
         var channel = _finder.FindChannel(config);
+        response.ChannelId = channel?.Id;
         var item = channel is null ? null : _finder.FindLiveItem(channel);
         if (item is not null)
         {

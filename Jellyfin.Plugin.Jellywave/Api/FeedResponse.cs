@@ -51,6 +51,9 @@ public sealed class FeedResponse
     /// <summary>Gets or sets the current listener count.</summary>
     public int? Listeners { get; set; }
 
+    /// <summary>Gets or sets the channel's Jellyfin id (the library the page attaches to), or null when it does not exist yet.</summary>
+    public Guid? ChannelId { get; set; }
+
     /// <summary>Gets or sets the live item's Jellyfin id, or null when it does not exist yet.</summary>
     public Guid? ItemId { get; set; }
 
