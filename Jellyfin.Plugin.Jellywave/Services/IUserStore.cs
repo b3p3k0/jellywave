@@ -19,7 +19,12 @@ public interface IUserStore
     /// <returns>The user.</returns>
     User? GetUser(Guid id);
 
-    /// <summary>Persists a user entity.</summary>
+    /// <summary>
+    /// Persists a user entity. Must not publish user events (Jellyfin's <c>UpdateUserAsync</c> publishes none;
+    /// <c>UpdatePolicyAsync</c> would): <see cref="AccessGranter"/> holds its gate around this call, and a
+    /// <c>UserUpdated</c> event would reach <see cref="UserUpdatedConsumer"/>, whose <c>GrantAsync</c> would wait
+    /// on that gate forever.
+    /// </summary>
     /// <param name="user">The user.</param>
     /// <returns>A task.</returns>
     Task SaveAsync(User user);

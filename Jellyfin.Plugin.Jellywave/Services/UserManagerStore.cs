@@ -30,5 +30,9 @@ public sealed class UserManagerStore : IUserStore
     public User? GetUser(Guid id) => _userManager.GetUserById(id);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// UpdateUserAsync, never UpdatePolicyAsync: this must not publish user events, because AccessGranter holds its
+    /// gate around the save and a UserUpdated event would deadlock on it (see <see cref="IUserStore.SaveAsync"/>).
+    /// </remarks>
     public Task SaveAsync(User user) => _userManager.UpdateUserAsync(user);
 }

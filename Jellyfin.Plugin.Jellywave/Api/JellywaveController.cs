@@ -90,7 +90,9 @@ public class JellywaveController : ControllerBase
     public ActionResult<HealthResponse> Health()
     {
         var config = _configuration();
-        var channel = _finder.FindChannel(config);
+        // Resolved live, so the collision status changes with a rename at once instead of after the next poll.
+        var resolution = _finder.Resolve(config);
+        var channel = resolution.Channel;
         var health = _health.Snapshot();
         var refusal = StationUrls.BaseUrlRefusal(config?.StationBaseUrl);
         var configured = config is not null && StationUrls.TryGetBaseUrl(config, out _);
@@ -100,7 +102,7 @@ public class JellywaveController : ControllerBase
             StationConfigured = configured,
             StationUrlRefusal = refusal,
             StationUrlStatus = configured ? null : refusal is null ? NotConfiguredStatus : RefusedStatusPrefix + refusal,
-            ChannelStatus = health.NameCollision ? ChannelResolution.CollisionStatus : null,
+            ChannelStatus = resolution.Collides ? ChannelResolution.CollisionStatus : null,
             Running = health.Running,
             Reachable = health.Reachable,
             LastSuccessUtc = health.LastSuccessUtc,

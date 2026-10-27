@@ -220,8 +220,7 @@ public class ChannelCollisionTests
     [Fact]
     public void On_a_collision_the_health_route_carries_the_status_text()
     {
-        var server = new Server(collides: true);
-        server.Health.SetNameCollision(true);
+        var server = new Server(collides: true);   // the poller has not run: the status comes from the live lookup
         var station = new StationClient(null!);
         var controller = new JellywaveController(
             station,
@@ -243,6 +242,7 @@ public class ChannelCollisionTests
     public void Without_a_collision_the_health_route_has_no_channel_status()
     {
         var server = new Server(collides: false);
+        server.Health.SetNameCollision(true);   // the last poll saw a collision, then the admin renamed the tile
         var station = new StationClient(null!);
         var controller = new JellywaveController(
             station,

@@ -24,8 +24,8 @@ public sealed class HealthResponse
     public string? StationUrlStatus { get; set; }
 
     /// <summary>
-    /// Gets or sets the status line's channel part when the poller wrote nothing because the channel name collides with
-    /// another plugin's channel ("channel name collides with another plugin's channel"); null otherwise.
+    /// Gets or sets the status line's channel part when the channel name collides with another plugin's channel
+    /// ("channel name collides with another plugin's channel"), resolved when the health is read; null otherwise.
     /// </summary>
     public string? ChannelStatus { get; set; }
 

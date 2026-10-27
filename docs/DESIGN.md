@@ -47,8 +47,9 @@ constructed would be out of order.
 On a collision the resolution carries no entity, so every consumer fails closed:
 
 - The poller writes nothing to the live item (no overview, no image) and sets `PollerHealth`'s collision
-  flag, which follows the last poll (at most one poll interval, or 30 s while idle, behind); `GET /Jellywave/Health` turns it into `ChannelStatus` = "channel name collides with another
-  plugin's channel", which the configuration page shows in the status line (as text).
+  flag. `GET /Jellywave/Health` resolves the channel itself when read, so a rename shows at once, and sets
+  `ChannelStatus` = "channel name collides with another plugin's channel", which the configuration page
+  shows in the status line (as text).
 - The granter grants nothing; a pass returns `Enabled = false` with that sentence as `Error`, and the
   page shows "Nothing done: …".
 - `StationAccess` refuses with `NameCollision`, which the filter answers with 404, like a missing channel:
@@ -195,8 +196,10 @@ The passes are serialized (card 15). One `SemaphoreSlim` in `AccessGranter` (a D
 with the container) covers `GrantAllAsync` and `GrantAsync`: the channel lookup, every user read and every
 save run under it, so a user event that arrives during a pass re-reads the user after the pass saved it,
 and the plugin never saves a stale copy over its own write. No deadlock with Jellyfin:
-`UpdatePolicyAsync` and `CreateUserAsync` publish their events after releasing the per-user lock, and
-`UpdateUserAsync` publishes nothing. Accepted: a dashboard save that lands between the plugin's read and
+`UpdatePolicyAsync` publishes its event after releasing the per-user lock, `CreateUserAsync` takes no
+such lock, and `UpdateUserAsync`, the plugin's own save, publishes nothing (`IUserStore.SaveAsync` must
+stay that way: an event raised under the gate would wait on it forever). The consumer is awaited inside
+`UpdatePolicyAsync`, so an admin's dashboard policy save waits for a running grant pass to finish. Accepted: a dashboard save that lands between the plugin's read and
 its `UpdateUserAsync` (milliseconds) is overwritten, because `UpdateUserAsync` copies the whole entity
 and `IUserManager` has no partial update; the admin sees the old value on reload and saves again.
 
