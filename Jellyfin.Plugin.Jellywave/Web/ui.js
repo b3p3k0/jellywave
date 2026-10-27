@@ -135,9 +135,6 @@
         if (!client || !state.like || !state.like.SongId || state.likeBusy) { return; }
         state.likeBusy = true;
         renderLike();
-        fetchLyrics(false);
-        var sched = h.querySelector('.jellywave-schedule');
-        if (sched) { sched.style.display = ''; }
         client.ajax({
             type: 'POST', url: client.getUrl('Jellywave/Like'), dataType: 'json', contentType: 'application/json',
             data: JSON.stringify({ SongId: state.like.SongId })
@@ -240,7 +237,15 @@
             var avatarUrl = f.DjAvatarId && client ? client.getUrl('Jellywave/Avatar/' + encodeURIComponent(f.DjAvatarId)) : '';
             if (avatarUrl && avatar.getAttribute('data-src') !== avatarUrl) {
                 avatar.setAttribute('data-src', avatarUrl);
-                avatar.src = avatarUrl + (avatarUrl.indexOf('?') < 0 ? '?' : '&') + 'api_key=' + encodeURIComponent(client.accessToken());
+                // The endpoint needs the session token, which an <img> cannot send; fetch with it and show the bytes.
+                client.ajax({ type: 'GET', url: avatarUrl }).then(function (r) {
+                    // ApiClient.ajax resolves the raw Response unless dataType is json/text.
+                    return r && typeof r.blob === 'function' ? r.blob() : r;
+                }).then(function (blob) {
+                    if (!blob || avatar.getAttribute('data-src') !== avatarUrl) { return; }
+                    if (avatar.src && avatar.src.indexOf('blob:') === 0) { URL.revokeObjectURL(avatar.src); }
+                    avatar.src = URL.createObjectURL(blob);
+                }).catch(function () { avatar.style.display = 'none'; });
             }
             avatar.style.display = avatarUrl ? '' : 'none';
         } else {
@@ -264,6 +269,9 @@
             recent.style.display = 'none';
         }
         renderLike();
+        fetchLyrics(false);
+        var sched = h.querySelector('.jellywave-schedule');
+        if (sched) { sched.style.display = ''; }
         var playing = isOurs();
         h.querySelector('.jellywave-play').style.display = playing ? 'none' : '';
         h.querySelector('.jellywave-stop').style.display = playing ? '' : 'none';
