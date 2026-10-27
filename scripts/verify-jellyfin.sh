@@ -4,10 +4,15 @@
 #
 #   JELLYFIN_URL=http://your.jellyfin:8096 JELLYFIN_TOKEN=<api key> scripts/verify-jellyfin.sh [username]
 #
-# Checks, in order: server version; the plugin is listed and Active; the channel is in
-# GET /Channels; the channel is a user view (My Media) for the chosen user; the channel
-# has exactly one audio item flagged as a live stream; PlaybackInfo for that item shows the
-# expected delivery (Relay: TranscodingUrl present and no direct play; Direct: direct play).
+# JELLYWAVE_CHANNEL names the station's tile (default "SUB/WAVE"); set it when the tile was renamed
+# under Dashboard > Plugins > Jellywave. It is matched against the Name in GET /Channels exactly
+# (case included), and only that channel is checked.
+#
+# Checks, in order: server version; the plugin is listed and Active; exactly one channel in
+# GET /Channels has that name (missing or more than one is a FAIL, because Jellyfin derives the
+# channel id from the name); that channel is a user view (My Media) for the chosen user; it has
+# an audio item; PlaybackInfo for that item has no ErrorCode and a play method (Relay:
+# TranscodingUrl present; Direct: direct play).
 set -euo pipefail
 
 : "${JELLYFIN_URL:?set JELLYFIN_URL, e.g. http://your.jellyfin:8096}"
@@ -15,6 +20,7 @@ set -euo pipefail
 USERNAME="${1:-}"
 AUTH="Authorization: MediaBrowser Token=${JELLYFIN_TOKEN}, Client=\"jellywave-verify\", Device=\"cli\", DeviceId=\"jellywave-verify\", Version=\"1\""
 PLUGIN_NAME="Jellywave"
+CHANNEL_NAME="${JELLYWAVE_CHANNEL:-SUB/WAVE}"
 fail=0
 ok()   { echo "ok   $*"; }
 bad()  { echo "FAIL $*"; fail=1; }
@@ -32,30 +38,40 @@ USER_ID="$(jq -r .Id <<<"$USER_JSON")"; [ -n "$USER_ID" ] && [ "$USER_ID" != nul
 ok "user $(jq -r .Name <<<"$USER_JSON") ($USER_ID), EnableAllChannels=$(jq -r .Policy.EnableAllChannels <<<"$USER_JSON")"
 
 echo "== Channel"
-CHANNEL="$(get "/Channels?userId=$USER_ID" | jq -c '.Items[] | select(.Type == "Channel")' | head -50)"
-echo "$CHANNEL" | jq -r '"     channel: \(.Name) \(.Id)"'
-# Jellywave's channel is the one whose plugin is ours: match by the configured tile name later; for now take all and let the user read.
-CH_ID="$(get "/Channels?userId=$USER_ID" | jq -r '.Items[0].Id // empty')"
-[ -n "$CH_ID" ] && ok "at least one channel registered" || bad "no channels at all: IChannel registration missing or plugin not loaded"
+CHANNELS="$(get "/Channels?userId=$USER_ID")"
+jq -r '.Items[] | "     channel: \(.Name) \(.Id)"' <<<"$CHANNELS"
+MATCHES="$(jq -c --arg n "$CHANNEL_NAME" '[.Items[] | select(.Name == $n)]' <<<"$CHANNELS")"
+COUNT="$(jq 'length' <<<"$MATCHES")"
+CH_ID=""
+case "$COUNT" in
+  0) bad "no channel named \"$CHANNEL_NAME\" (set JELLYWAVE_CHANNEL to the tile name; IChannel registration missing, plugin not loaded, or the channel is hidden from this user)" ;;
+  1) CH_ID="$(jq -r '.[0].Id' <<<"$MATCHES")"; ok "channel \"$CHANNEL_NAME\" found once ($CH_ID)" ;;
+  *) bad "$COUNT channels named \"$CHANNEL_NAME\": another plugin's channel has the same name, so they share one channel id" ;;
+esac
 
 echo "== My Media (UserViews)"
 VIEWS="$(get "/UserViews?userId=$USER_ID")"
 echo "$VIEWS" | jq -r '.Items[] | "     view: \(.Name) [\(.Type)\(if .CollectionType then "/" + .CollectionType else "" end)]"'
-jq -e '.Items[] | select(.Type == "Channel")' <<<"$VIEWS" >/dev/null && ok "a Channel appears among user views" || bad "no Channel in UserViews"
+if [ -n "$CH_ID" ]; then
+  jq -e --arg id "$CH_ID" '.Items[] | select(.Type == "Channel" and .Id == $id)' <<<"$VIEWS" >/dev/null && ok "\"$CHANNEL_NAME\" appears among user views" || bad "\"$CHANNEL_NAME\" is not in UserViews"
+fi
 
-echo "== Channel items"
-for id in $(get "/Channels?userId=$USER_ID" | jq -r '.Items[].Id'); do
-  ITEMS="$(get "/Channels/$id/Items?userId=$USER_ID&Fields=MediaSources,Overview,Tags")"
+if [ -n "$CH_ID" ]; then
+  echo "== Channel items"
+  ITEMS="$(get "/Channels/$CH_ID/Items?userId=$USER_ID&Fields=MediaSources,Overview,Tags")"
   N="$(jq '.TotalRecordCount' <<<"$ITEMS")"
-  echo "     channel $id: $N item(s)"
+  echo "     channel $CH_ID: $N item(s)"
   jq -r '.Items[] | "       - \(.Name) [\(.Type)] RunTimeTicks=\(.RunTimeTicks) tags=\(.Tags|join(",")) id=\(.Id)"' <<<"$ITEMS"
   ITEM_ID="$(jq -r '.Items[] | select(.Type == "Audio") | .Id' <<<"$ITEMS" | head -1)"
-  [ -n "$ITEM_ID" ] || continue
-  echo "== PlaybackInfo for $ITEM_ID"
-  PI="$(curl -sS -f -X POST -H "$AUTH" -H 'Content-Type: application/json' "$JELLYFIN_URL/Items/$ITEM_ID/PlaybackInfo?userId=$USER_ID" -d '{}')"
-  jq '.MediaSources[] | {Path, Protocol, IsRemote, IsInfiniteStream, Container, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding, TranscodingUrl, TranscodingContainer, ErrorCode}' <<<"$PI"
-  jq -e '.ErrorCode == null' <<<"$PI" >/dev/null && ok "PlaybackInfo has no ErrorCode" || bad "PlaybackInfo ErrorCode: $(jq -r .ErrorCode <<<"$PI")"
-  jq -e '.MediaSources[0] | (.SupportsDirectPlay or (.TranscodingUrl != null))' <<<"$PI" >/dev/null && ok "a play method exists (direct play or TranscodingUrl)" || bad "no play method: NoCompatibleStream"
-done
+  if [ -z "$ITEM_ID" ]; then
+    bad "\"$CHANNEL_NAME\" has no audio item (is the station base URL set and allowed?)"
+  else
+    echo "== PlaybackInfo for $ITEM_ID"
+    PI="$(curl -sS -f -X POST -H "$AUTH" -H 'Content-Type: application/json' "$JELLYFIN_URL/Items/$ITEM_ID/PlaybackInfo?userId=$USER_ID" -d '{}')"
+    jq '.MediaSources[] | {Path, Protocol, IsRemote, IsInfiniteStream, Container, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding, TranscodingUrl, TranscodingContainer, ErrorCode}' <<<"$PI"
+    jq -e '.ErrorCode == null' <<<"$PI" >/dev/null && ok "PlaybackInfo has no ErrorCode" || bad "PlaybackInfo ErrorCode: $(jq -r .ErrorCode <<<"$PI")"
+    jq -e '.MediaSources[0] | (.SupportsDirectPlay or (.TranscodingUrl != null))' <<<"$PI" >/dev/null && ok "a play method exists (direct play or TranscodingUrl)" || bad "no play method: NoCompatibleStream"
+  fi
+fi
 
 [ "$fail" = 0 ] && echo "== ALL CHECKS PASSED" || { echo "== SOME CHECKS FAILED"; exit 1; }
