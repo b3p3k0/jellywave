@@ -1,7 +1,9 @@
+using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.Jellywave.Channels;
 using Jellyfin.Plugin.Jellywave.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,5 +22,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<NowPlayingState>();
         serviceCollection.AddSingleton<IChannel, JellywaveChannel>();
         serviceCollection.AddHostedService<NowPlayingService>();
+        serviceCollection.AddSingleton<AccessGranter>();
+        serviceCollection.AddHostedService<AccessGrantService>();
+        serviceCollection.AddScoped<IEventConsumer<UserCreatedEventArgs>, UserCreatedConsumer>();
     }
 }
