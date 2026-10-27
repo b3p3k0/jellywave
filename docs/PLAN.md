@@ -230,7 +230,7 @@ acceptance.
   page calls an admin endpoint `POST /Jellywave/GrantAccess` that also reports counts), and on
   `UserCreatedEventArgs` via a plugin-registered `IEventConsumer<UserCreatedEventArgs>` so provisioning
   tools (JFA-GO and friends) cannot leave new users out.
-- Turning the setting off stops future grants; it does not revoke anything (decision: see questions).
+- HI decisions 2026-10-27: **off by default** (the admin ticks it once; the page explains what it does); turning it off **stops future grants and revokes nothing**.
 - The config page shows the result of the last run: "n users can see the station; granted to m just now;
   k users are blocked by an explicit block list".
 - Channel id: the `Channel` entity looked up by name (`GetItemList{IncludeItemTypes=[Channel]}`), created
