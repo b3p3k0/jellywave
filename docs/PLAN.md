@@ -526,6 +526,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 
 #### 15. Channel identity, grant serialization, verify script (D1, D3, O10)
 
+**Accepted 2026-10-27** (623bf69, f109957, 6b900f5, 6b82c18, 9be708f; follow-up 354536c). RA: ACCEPT, no Blocker or Required; deadlock ruled out against the 12.3 source (UpdateUserAsync publishes no event; policy/create events fire outside any lock). Folded in: the no-publish rule on IUserStore.SaveAsync, the collision status read live, DESIGN wording. Accepted: the cover is re-downloaded each poll during a collision. 270/270 tests. Host check pending: verify-jellyfin.sh.
+
 - `LiveItemFinder.FindChannel`:
   - Computes the id the way Jellyfin does, `_libraryManager.GetNewItemId("Channel " + name, typeof(Channel))`, and loads it with `GetItemById`. The name scan goes.
   - `LibraryChannelLocator` reuses it instead of its own copy.
@@ -561,6 +563,8 @@ Settled earlier, not reopened: Relay is the default, the access grant is off by 
 **Then: merge to main, deploy to the host, and tag v0.4.0.0.**
 
 #### 17. Station data consistency (D2 server, D4, D5, D6) — v0.4.1.0
+
+- Cleanup from card 15: `PollerHealth.SetNameCollision` and `PollerHealthSnapshot.NameCollision` are written by the poller but no longer read (Health resolves the collision live); remove them and their test.
 
 - The station origin is `baseUrl.AbsoluteUri`.
   - `NowPlayingState` stores the origin with each update and clears `StationState` when the origin changes.
