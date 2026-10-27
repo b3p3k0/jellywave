@@ -24,6 +24,7 @@ public sealed class ScheduleCache : IDisposable
     private string? _origin;
     private ScheduleInfo? _schedule;
     private DateTime _fetchedUtc;
+    private DateTime _noCopyRetryUtc;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ScheduleCache"/> class.
@@ -47,7 +48,8 @@ public sealed class ScheduleCache : IDisposable
 
     /// <summary>
     /// Gets the schedule, from cache when fresh. Station failures propagate; a stale copy of the same station's
-    /// schedule is returned instead when there is one.
+    /// schedule is returned instead when there is one. Without a copy, a failure is not retried for
+    /// <see cref="RetryDelay"/>: calls in that time return null without asking the station.
     /// </summary>
     /// <param name="config">The configuration (for the station URL).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -68,12 +70,18 @@ public sealed class ScheduleCache : IDisposable
                 // Another station: its schedule is fetched fresh, and on failure there is no copy to fall back on.
                 _schedule = null;
                 _origin = origin;
+                _noCopyRetryUtc = DateTime.MinValue;
             }
 
             var now = _clock.GetUtcNow().UtcDateTime;
             if (_schedule is not null && now - _fetchedUtc < Lifetime)
             {
                 return _schedule;
+            }
+
+            if (_schedule is null && now < _noCopyRetryUtc)
+            {
+                return null;
             }
 
             try
@@ -89,6 +97,12 @@ public sealed class ScheduleCache : IDisposable
             {
                 // Stale beats nothing; try the station again after RetryDelay rather than on every call.
                 _fetchedUtc = _clock.GetUtcNow().UtcDateTime - Lifetime + RetryDelay;
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // No copy to serve: this caller sees the failure, and the next RetryDelay of calls do not ask again.
+                _noCopyRetryUtc = _clock.GetUtcNow().UtcDateTime + RetryDelay;
+                throw;
             }
 
             return _schedule;

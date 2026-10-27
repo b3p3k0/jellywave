@@ -183,4 +183,23 @@ public class ScheduleCacheTests
         Assert.False(after.Available);
         Assert.Empty(after.Today);
     }
+
+    [Fact]
+    public async Task Without_a_copy_a_failing_station_is_asked_again_only_after_the_retry_delay()
+    {
+        var h = new Harness();
+        await h.ShowAsync();
+        h.Config.StationBaseUrl = StationB;
+        h.Station.Down.Add("station-b.example");
+        await Assert.ThrowsAsync<HttpRequestException>(h.ShowAsync);
+
+        h.Advance(ScheduleCache.RetryDelay - TimeSpan.FromSeconds(1));
+        Assert.Null(await h.ShowAsync());
+        Assert.Equal(2, h.Station.Seen.Count);
+
+        h.Station.Down.Clear();
+        h.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal("station-b.example", await h.ShowAsync());
+        Assert.Equal(3, h.Station.Seen.Count);
+    }
 }
