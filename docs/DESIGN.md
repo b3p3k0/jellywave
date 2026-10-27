@@ -180,8 +180,8 @@ property name and takes the returned string.
   injected code to drive Jellyfin's player.
 
 `JellywaveWebController` serves the two assets anonymously (they are part of the page load, before
-sign-in; ETag and a day of caching keyed on the assembly version), `GET /Jellywave/Feed` to any
-signed-in user (the poller's last feed reduced to display fields plus the channel id, the live
+sign-in; ETag and a day of caching keyed on the assembly version), `GET /Jellywave/Feed` to users
+who can see the channel (see "Station route authorization"; the poller's last feed reduced to display fields plus the channel id, the live
 item id and its image tag; never the station URL), `POST /Jellywave/Request` and
 `GET /Jellywave/Request/{id}` for listener requests, and `GET /Jellywave/WebUi` (admin) for the
 status line on the configuration page.
@@ -209,7 +209,7 @@ The script (`Web/ui.js`) does three things:
    every Jellyfin user is one caller to it; HI chose to honour that and explain it under the box
    rather than add a limiter in the plugin.
 
-Extras (card 8d), each a signed-in endpoint on `JellywaveWebController` and a block in the header:
+Extras (card 8d), each an endpoint on `JellywaveWebController` behind the same access filter and a block in the header:
 
 | Feature | Server side | Page |
 |---|---|---|
@@ -233,6 +233,41 @@ Known limits: the DOM selectors (`.itemsContainer[data-parentid]`, `.nowPlayingB
 jellyfin-web internals and can move between releases; the page degrades to "nothing happens"
 rather than breaking the client. The Android app wraps the web client and needs a force-close to
 refetch `index.html` after the plugin is first installed.
+
+## Station route authorization (card 13)
+
+Jellyfin's default policy (`DefaultAuthorizationHandler`, 12.3) lets any API key through unrestricted and
+never looks at channel visibility, so plain `[Authorize]` is not enough for the station routes. Every
+user route on `JellywaveWebController` (Feed, Avatar, Like GET and POST, Schedule, Lyrics, Request POST,
+Request/{id}) also carries `[StationAccess]`, an `IAuthorizationFilter` attribute. It runs after
+Jellyfin's authentication and before model binding, so a refused caller's body is never read, and asks
+the `StationAccess` singleton, which refuses in this order:
+
+1. `Jellyfin-IsApiKey` is anything but `False` (Jellyfin sets it with `bool.ToString` on every request).
+2. `Jellyfin-UserId` is missing, unreadable or empty (API keys carry an empty id), or names no user
+   (`IUserStore.GetUser`).
+3. The channel entity is missing (`LiveItemFinder.FindChannel`): fail closed.
+4. Jellyfin's own `Channel.IsVisible(user)` is false: block list, enabled list or `EnableAllChannels`,
+   then the parental check (tags and rating). Administrators are not exempt, same as in Jellyfin.
+
+A refusal is a plain 403 with no `X-Application-Error-Code` (jellyfin-web logs a user out on a 403 that
+carries `ParentalControl`) and one Debug line with the rule. An allowed caller's user id is left in
+`HttpContext.Items` for the action. The assets stay anonymous and `WebUi` stays admin-only; a reflection
+test fails when an action is neither anonymous, admin-only nor filtered.
+
+Listener requests: the station sees this server as one caller, so the plugin keeps the user binding
+itself. `RequestReceipts` (a singleton, in memory) maps each accepted request id to the submitting
+user, for 30 minutes and at most 1000 entries (the oldest goes), pruned on every insert, under a lock.
+`GET /Jellywave/Request/{id}` answers 403 when the receipt belongs to someone else, and "unknown"
+("The station lost track of that request.") without calling the station when there is no live
+receipt. Receipts do not survive a restart: a request pending across one shows that same message. The
+free-text name still goes to the station unchanged (HI decision); accounting is the receipt plus the
+existing Information line with the request id and user id, never the name or the text.
+
+The page: a 403 from `Jellywave/Feed` (ApiClient rejects with the fetch `Response`, so the script reads
+its `status`) drops the feed, the header and the drawer link, and the next feed request waits
+`FEED_FORBIDDEN_RETRY_MS` (five minutes) instead of the usual 15 seconds. The other routes are only
+called once a feed exists.
 
 ## Poller health (card 10)
 
