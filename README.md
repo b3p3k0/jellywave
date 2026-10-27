@@ -141,7 +141,8 @@ is shared by everyone on it.
   be about someone else's request. The page says so under the box. The plugin adds no limiter of
   its own.
 - **The name is free text.** It is prefilled with the Jellyfin user name, but the listener can type
-  anything up to 40 characters, and the DJ sees exactly that. Nothing checks it.
+  anything; the plugin cuts it at 40 characters and passes it to the station's DJ unchanged.
+  Nothing checks it against the Jellyfin account.
 - **The server knows who sent it.** Jellyfin keeps the real user id with each accepted request: in
   the receipt that lets only that user follow the request, and in one Information log line (request
   id and user id; never the name or the text). That is the accounting trail if a name is abused.

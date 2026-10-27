@@ -1,7 +1,8 @@
 # Jellywave design
 
 How the plugin works, what it relies on in Jellyfin, and why it is shaped this way.
-Written against Jellyfin 12.3; file references are to the Jellyfin server source.
+Written against Jellyfin 12.3; file references are to the Jellyfin server source. Trust boundaries
+and accepted risks are collected in [`THREAT-MODEL.md`](THREAT-MODEL.md).
 
 ## The tile
 
@@ -99,8 +100,10 @@ carry the server-side URL so ffmpeg still has a usable input if a client falls b
 transcoding. The web client's universal audio endpoint redirects the browser straight to
 `Path` in this mode.
 
-In both modes the station URLs are part of the playback info every signed-in user can
-fetch. SUB/WAVE streams are public by design; the plugin does not support listener auth.
+In both modes the station URLs are part of the live item's playback info, which Jellyfin hands to
+any caller allowed to play the item (in Direct mode the client then fetches the URL itself). The
+plugin's own station routes never return it. SUB/WAVE streams are public by design; the plugin does
+not support listener auth.
 
 ## Why the media source advertises a runtime
 
@@ -138,15 +141,17 @@ field differs), so a re-save by Jellyfin's own channel refresh, which can overwr
 from an older in-memory copy, is repaired on the next poll rather than the next track.
 Jellyfin does not raise the library-changed event for channel items, so nothing is pushed;
 clients show the new text and art on their next list load or playback start, and the
-playing bar keeps what it copied at playback start.
+playing bar keeps what it copied at playback start (the station page repaints it in the web
+client and the Android app; see "Station page").
 
 Not written, on purpose: `Album`. The playing bar would show it as its first line, but
 `Audio.GetUserDataKeys()` prefixes the item's user-data key with `Album`, and
 `UserDataManager.SaveUserData` writes one row per key and keeps rows under old keys, so a
 value that changes every track would leave an orphan user-data row per track and listener.
-`Name` and `AlbumArtists` are in the same key and are left alone for the same reason. The channel entity is looked up with a
-plain item query, not through the channel manager, because the latter creates channel
-entities on demand and the poller must not race Jellyfin's startup channel refresh.
+`Name` and `AlbumArtists` are in the same key and are left alone for the same reason. The channel
+entity is loaded by its derived id (`LiveItemFinder.Resolve`, see "Channel identity"), not through
+the channel manager, because the latter creates channel entities on demand and the poller must not
+race Jellyfin's startup channel refresh.
 
 Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
 channel item's `ImageUrl` only when it creates the item, so the poller saves the image
@@ -171,7 +176,8 @@ validator create a Music-library artist for every track the station plays.
 Failure handling: one warning when the station becomes unreachable, one info line when it
 answers again; the loop never throws; while unreachable or disabled the item falls back to
 the default overview. Clients show the text when they reload the list or start playback;
-the playing bar does not update mid-track.
+on standard clients the playing bar does not update mid-track (the station page's repaint is the
+only exception).
 
 ## Who can see the channel
 
@@ -256,13 +262,15 @@ The script (`Web/ui.js`) does three things:
    visible grid, and the browser `MediaSession` metadata (lock-screen art) every five seconds from
    the feed. `playbackManager.currentItem(player)` throws when no player exists, so the script asks
    `getCurrentPlayer()` first and guards each step.
-3. **Requests.** The form posts text and a name (prefilled with the Jellyfin user name) to the
+3. **Requests.** The form posts text and a free-text name (prefilled with the Jellyfin user name;
+   the listener can change it, and the plugin passes it on unchanged apart from a 40-character cut) to the
    plugin, which forwards them to the station's `POST /api/request` and maps the receipt (202) or
    the refusal (400, 429 with `retryAfter`, 503) into one outcome object; the page then polls
    `GET /Jellywave/Request/{id}` every three seconds until the station resolves it and shows the
    DJ's acknowledgement, the queued track and its position. The station limits by caller IP, and
    every Jellyfin user is one caller to it; HI chose to honour that and explain it under the box
-   rather than add a limiter in the plugin.
+   rather than add a limiter in the plugin. The server keeps the real user id with each accepted
+   request (see "Station route authorization").
 
 Extras (card 8d), each an endpoint on `JellywaveWebController` behind the same access filter and a block in the header:
 
@@ -412,8 +420,10 @@ decodes it, and the station is admin-configured.
 ## Poller health (card 10)
 
 `PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
-error with time, and whether the channel name collides, card 15) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
-description and image key and whether the item exists. The configuration page shows it under
+error with time) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
+description and image key and whether the item exists. The route resolves a channel-name collision
+itself when read (card 15); the poller still records a collision flag the route does not read,
+which card 17 removes. The configuration page shows it under
 "Now playing" with a "Refresh status" button, so an admin never has to read the server log to know
 whether the station is being reached.
 
@@ -422,7 +432,8 @@ whether the station is being reached.
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional
 client URL, tile name and tagline, stream format (filled by the config page's "Fetch from
 station" button through the admin-only `GET /Jellywave/Station?baseUrl=` endpoint),
-now-playing toggle and interval, and `LastChangedUtc`, set by the page on save. All URL
+now-playing toggle and interval, the cover-art toggle, the "visible to every user" switch, and
+`LastChangedUtc`, set by the page on save. All URL
 handling lives in `StationUrls`, which resolves the stream path under the base URL and
 rejects anything that escapes it (another scheme, host, port or userinfo, an absolute path, `..`);
 see "Outbound requests".
