@@ -154,6 +154,14 @@ entity is loaded by its derived id (`LiveItemFinder.Resolve`, see "Channel ident
 the channel manager, because the latter creates channel entities on demand and the poller must not
 race Jellyfin's startup channel refresh.
 
+**One station at a time (card 17).** Everything cached from the station is kept with its station
+origin, `StationUrls.Origin(baseUrl)` (the parsed base URL in full, `baseUrl.AbsoluteUri`), so a
+change of the station URL never mixes two stations. `NowPlayingState.Update` takes the origin with
+each feed and clears the `/api/state` data (history, up next, the lyrics flag) when it differs from
+the last one; `UpdateStationState` stores a state only for the current feed's origin. A failed
+`/api/state` fetch therefore keeps the last state of the same station, and none after a switch.
+`ScheduleCache` and the applied cover (below) are keyed the same way.
+
 Cover art (`LiveItemArtwork`, config `CoverArtEnabled`, default on): Jellyfin applies a
 channel item's `ImageUrl` only when it creates the item, so the poller saves the image
 itself with `IProviderManager.SaveImage(item, stream, mimeType, Primary, ...)`. That writes a
@@ -161,7 +169,13 @@ file under the item's metadata folder, deletes the previous one, and stamps the 
 `DateModified`, which is what the client-facing image tag hashes, so clients refetch. The
 station answers 502 with an empty body when a track has no art; then, and when cover art is
 off, polling is off, or the station is unreachable, the logo is saved instead so the item
-never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF of at most 4 MB and at most
+never shows a blank. A cover the station has no art for is remembered by origin and id for
+`MissingCoverRetry` (30 minutes): while that holds, the poller uses the logo without asking, until
+the track's cover id or the station changes, so a track without art costs one request instead of
+one per poll (180 to 720 an hour). Art the station gains for that track later shows within that
+time. The applied cover is keyed by origin and id too (`AppliedOrigin` next to `Applied`), so two
+stations whose tracks share an id never share art; Health shows the bare id. The clock is a
+`TimeProvider`, so both rules are unit-tested. Accepted covers are JPEG, PNG, WebP or GIF of at most 4 MB and at most
 4096 px a side, identified from their bytes (see "Outbound requests"); anything else is "no
 art". The download happens before the item is looked up,
 so the item is held for milliseconds. A transport failure (timeout, a chunked body over the
@@ -176,7 +190,9 @@ validator create a Music-library artist for every track the station plays.
 
 Failure handling: one warning when the station becomes unreachable, one info line when it
 answers again; the loop never throws; while unreachable or disabled the item falls back to
-the default overview. Clients show the text when they reload the list or start playback;
+the default overview. A feed that parses as JSON `null` counts as a failure (card 17): health
+records "the station answered with an empty feed", the state is cleared and the item falls back
+the same way, instead of the last track staying up with neither success nor failure recorded. Clients show the text when they reload the list or start playback;
 on standard clients the playing bar does not update mid-track (the station page's repaint is the
 only exception).
 
@@ -209,7 +225,9 @@ dashboard's Add User form, when the provisioning tool's template includes it, or
 An admin who unticks the station on a user's Access page is not overruled in the background, but the
 next press re-adds it: an unticked user looks the same as one never granted. Only a `BlockedChannels`
 entry survives a press, and jellyfin-web has no screen for it; the page tells the admin to untick
-those users again after pressing.
+those users again after pressing. Saving a user's Access page in jellyfin-web clears any
+`BlockedChannels` entry: `Access.tsx` posts the policy with `BlockedChannels = null`, so a block set
+through the API or a provisioning tool is gone after the next dashboard save of that user.
 
 Each user is re-read by id immediately before it is written, because `GetUsers` hands out untracked
 snapshots and `UpdateUserAsync` saves the whole entity. Presses are serialized (card 15): one
@@ -302,10 +320,10 @@ Extras (card 8d), each an endpoint on `JellywaveWebController` behind the same a
 | Feature | Server side | Page |
 |---|---|---|
 | DJ portrait | `GET /Jellywave/Avatar/{id}` proxies the station's `/api/persona-avatar/{id}` (id validated, 4 MB cap, one hour private cache); the id comes from the feed's `dj.avatar` path | `<img>` next to the DJ line; the bytes are fetched with the session through `ApiClient.ajax` and shown as a blob URL (revoked on change), because Jellyfin honours `?api_key=` only under `EnableLegacyAuthorization` and an `<img>` cannot send the header |
-| Up next, recently played | the poller also fetches `/api/state` each cycle; `Feed` carries `UpNext` and up to 8 `Recent` lines ("· requested by X") | one line and a collapsible list |
+| Up next, recently played | the poller also fetches `/api/state` each cycle (a failure keeps the same station's last state, see "One station at a time"); `Feed` carries `UpNext` and up to 8 `Recent` lines ("· requested by X"), skipping null entries | one line and a collapsible list |
 | Like | `GET`/`POST /Jellywave/Like` map the station's `/api/like` (403 off, 409 track ended, 429 too fast) into `LikeOutcome` | heart with the count, per track |
-| Lyrics | `GET /Jellywave/Lyrics?songId=` maps `/api/lyrics/current` (403 off, 401 private station, 409 ended, 503 music server) into `ok/none/pending/off/unavailable/ended`; shown only when `state.lyrics.enabled` | collapsible panel, one fetch per track while open, plain lines (no timing-based highlight: the stream's buffering makes a client-side clock unreliable) |
-| Today's programme | `GET /Jellywave/Schedule`: `ScheduleCache` holds `/api/schedule` for five minutes (stale on failure, retried after one minute) and `BuildToday` turns the Sunday-first weekly grid into today's blocks in the station's time zone with the current one marked (unit-tested, falls back to UTC on an unknown zone) | collapsible panel with hour ranges, show and host; refetched every five minutes while open so the current block moves |
+| Lyrics | `GET /Jellywave/Lyrics?songId=` maps `/api/lyrics/current` (403 off, 401 private station, 409 ended, 503 music server) into `ok/none/pending/off/unavailable/ended` (null lines skipped); shown only when `state.lyrics.enabled` | collapsible panel, one fetch per track while open, plain lines (no timing-based highlight: the stream's buffering makes a client-side clock unreliable) |
+| Today's programme | `GET /Jellywave/Schedule`: `ScheduleCache` holds `/api/schedule` for five minutes with its station origin (stale copy of the same station on failure, retried after one minute; a new station URL drops the copy first, so a failing new station shows no schedule rather than the old one) and `BuildToday` turns the Sunday-first weekly grid into today's blocks in the station's time zone with the current one marked (unit-tested, falls back to UTC on an unknown zone; a repeated show or persona id keeps the first, null entries are skipped) | collapsible panel with hour ranges, show and host; refetched every five minutes while open so the current block moves |
 
 Layout (card 9, HI's option A, "fill the width"): the header is a CSS grid with four named areas,
 `cover | body | request` on the first row and `panels` spanning the second, and each direct child
@@ -453,8 +471,8 @@ decodes it, and the station is admin-configured.
 `PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
 error with time) and `GET /Jellywave/Health` (admin) reads, together with the live item's current
 description and image key and whether the item exists. The route resolves a channel-name collision
-itself when read (card 15); the poller still records a collision flag the route does not read,
-which card 17 removes. The configuration page shows it under
+itself when read (card 15); the poller records no collision flag (card 17 removed the unread one).
+The configuration page shows it under
 "Now playing" with a "Refresh status" button, so an admin never has to read the server log to know
 whether the station is being reached.
 
