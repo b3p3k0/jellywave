@@ -9,7 +9,10 @@
 
     var POLL_MS = 5000;
     var FEED_RETRY_MS = 15000;
-    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0 };
+    /* 403: this user may not see the channel (blocked, not enabled) or is an API key. Ask rarely. */
+    var FEED_FORBIDDEN_RETRY_MS = 300000;
+    var HTTP_FORBIDDEN = 403;
+    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, feedRetryMs: FEED_RETRY_MS, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0 };
 
     function api() { return window.ApiClient || null; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
@@ -17,12 +20,30 @@
     function fetchFeed() {
         var client = api();
         if (!client || !client.accessToken || !client.accessToken()) { return Promise.resolve(null); }
-        if (state.feedFailedAt && Date.now() - state.feedFailedAt < FEED_RETRY_MS) { return Promise.resolve(null); }
+        if (state.feedFailedAt && Date.now() - state.feedFailedAt < state.feedRetryMs) { return Promise.resolve(null); }
         return client.getJSON(client.getUrl('Jellywave/Feed')).then(function (feed) {
             state.feed = feed;
             state.feedFailedAt = 0;
             return feed;
-        }).catch(function () { state.feedFailedAt = Date.now(); return null; });
+        }).catch(function (err) {
+            state.feedFailedAt = Date.now();
+            state.feedRetryMs = FEED_RETRY_MS;
+            // ApiClient rejects with the fetch Response on an HTTP error; a network failure has no status.
+            if (err && err.status === HTTP_FORBIDDEN) {
+                state.feedRetryMs = FEED_FORBIDDEN_RETRY_MS;
+                forgetStation();
+            }
+            return null;
+        });
+    }
+
+    /* Refused by the server: drop what an earlier answer showed, so a blocked user sees nothing. */
+    function forgetStation() {
+        state.feed = null;
+        if (state.header && state.header.parentNode) { state.header.parentNode.removeChild(state.header); }
+        state.header = null;
+        var link = document.querySelector('.jellywave-link');
+        if (link && link.parentNode) { link.parentNode.removeChild(link); }
     }
 
     function imageUrl(feed, size) {

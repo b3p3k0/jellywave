@@ -29,6 +29,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IUserStore, UserManagerStore>();
         serviceCollection.AddSingleton<IChannelLocator, LibraryChannelLocator>();
         serviceCollection.AddSingleton<AccessGranter>();
+        serviceCollection.AddSingleton<StationAccess>();
+        serviceCollection.AddSingleton<RequestReceipts>();
         serviceCollection.AddHostedService<AccessGrantService>();
         serviceCollection.AddScoped<IEventConsumer<UserCreatedEventArgs>, UserCreatedConsumer>();
         serviceCollection.AddScoped<IEventConsumer<UserUpdatedEventArgs>, UserUpdatedConsumer>();
