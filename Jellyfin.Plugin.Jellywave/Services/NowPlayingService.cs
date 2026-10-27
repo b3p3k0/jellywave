@@ -307,6 +307,12 @@ public sealed class NowPlayingService : IHostedService, IDisposable
         {
             // The feed answered but the cover did not; the text still goes out and the cover is tried again next poll.
             _logger.LogDebug("Cover art fetch failed: {Message}", ex.Message);
+            if (baseUrl is not null && !string.Equals(StationUrls.Origin(baseUrl), _artwork.AppliedOrigin, StringComparison.Ordinal))
+            {
+                // The item's cover is not this station's (a station switch): the logo stands in rather than leaving the
+                // old station's art beside the new station's text.
+                artwork = new PreparedArtwork(null, LiveItemArtwork.LogoKey, null);
+            }
         }
 
         // A collision withholds the entity (it may be another plugin's channel), so nothing below is written.

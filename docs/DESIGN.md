@@ -185,7 +185,9 @@ stations whose tracks share an id never share art; Health shows the bare id. The
 4096 px a side, identified from their bytes (see "Outbound requests"); anything else is "no
 art". The download happens before the item is looked up,
 so the item is held for milliseconds. A transport failure (timeout, a chunked body over the
-cap) keeps the text update and is retried on the next poll; a failure to write the file is
+cap) keeps the text update and is retried on the next poll, and when the item's cover is another
+station's (a station switch) the logo is saved meanwhile, so the old art never sits beside the new
+station's text; a failure to write the file is
 logged once per streak and the text still goes out. Because the item's parent is a `Channel`,
 Jellyfin's `UpdateImagesAsync` takes its "live TV" branch and computes neither dimensions
 nor a blurhash for the image, so there is no blurred placeholder while it loads. The tile in

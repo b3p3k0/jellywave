@@ -45,6 +45,8 @@ public class NowPlayingPollTests
 
         public HashSet<string> Art { get; } = new();
 
+        public HashSet<string> Broken { get; } = new();
+
         public List<string> Seen { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -52,6 +54,11 @@ public class NowPlayingPollTests
             var host = request.RequestUri!.Host;
             var path = request.RequestUri.AbsolutePath;
             Seen.Add(host + path);
+            if (Broken.Contains(host + path))
+            {
+                throw new HttpRequestException("timed out");
+            }
+
             if (Art.Contains(host + path))
             {
                 var image = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(ImageFixtures.For("image/jpeg")) };
@@ -91,10 +98,11 @@ public class NowPlayingPollTests
             Library.ListedItems.Add(LiveItem);
             var client = new StationClient(new StubFactory(Stations));
             var finder = new LiveItemFinder(Library.Manager, () => new List<IChannel>(), NullLogger<LiveItemFinder>.Instance);
+            Artwork = new LiveItemArtwork(client, SaveImageAsync, NullLogger<LiveItemArtwork>.Instance);
             Poller = new NowPlayingService(
                 client,
                 State,
-                new LiveItemArtwork(client, SaveImageAsync, NullLogger<LiveItemArtwork>.Instance),
+                Artwork,
                 finder,
                 Health,
                 Library.Manager,
@@ -116,6 +124,8 @@ public class NowPlayingPollTests
         public PluginConfiguration Config { get; } = new() { StationName = Station, StationBaseUrl = "http://" + HostA };
 
         public NowPlayingService Poller { get; }
+
+        public LiveItemArtwork Artwork { get; }
 
         public List<string> ImagesSaved { get; } = new();
 
@@ -227,5 +237,36 @@ public class NowPlayingPollTests
 
         Assert.Equal(true, server.Health.Snapshot().Reachable);
         Assert.Equal("Back", server.State.Feed()?.NowPlaying?.Title);
+    }
+
+    [Fact]
+    public async Task After_a_station_switch_a_failing_cover_fetch_shows_the_logo_not_the_old_cover()
+    {
+        var server = new Server();
+        server.Stations.Art.Add(HostA + "/api/cover/cov1");
+        await server.PollAsync();
+        server.Config.StationBaseUrl = "http://" + HostB;
+        server.Stations.Broken.Add(HostB + "/api/cover/cov1");
+
+        await server.PollAsync();
+
+        Assert.StartsWith("Now playing: Artist B – Song B", server.LiveItem.Overview, StringComparison.Ordinal);
+        Assert.Equal(new[] { "image/jpeg", "image/png" }, server.ImagesSaved);
+        Assert.Equal(LiveItemArtwork.LogoKey, server.Artwork.Applied);
+    }
+
+    [Fact]
+    public async Task On_the_same_station_a_failing_cover_fetch_keeps_the_current_cover()
+    {
+        var server = new Server();
+        server.Stations.Art.Add(HostA + "/api/cover/cov1");
+        await server.PollAsync();
+        server.Stations.NowPlaying[HostA] = """{"nowPlaying":{"artist":"Artist A","title":"Next","subsonic_id":"cov2"},"streamOnline":true}""";
+        server.Stations.Broken.Add(HostA + "/api/cover/cov2");
+
+        await server.PollAsync();
+
+        Assert.Equal(new[] { "image/jpeg" }, server.ImagesSaved);
+        Assert.Equal("cov1", server.Artwork.Applied);
     }
 }
