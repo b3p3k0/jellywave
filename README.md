@@ -36,7 +36,7 @@ Dashboard → Plugins → Jellywave.
 
 | Setting | Meaning |
 |---|---|
-| Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700` |
+| Station base URL | SUB/WAVE as reached from the Jellyfin server, e.g. `http://your.host:7700`. No credentials, query or fragment (see below) |
 | Fetch from station | Reads the name, tagline, stream path and stream format from the station's public API |
 | Tile name | Shown in My Media; renaming creates a new channel entry |
 | Description | Optional channel description; "Fetch from station" fills it with the on-air DJ's tagline |
@@ -49,6 +49,12 @@ Dashboard → Plugins → Jellywave.
 | Show cover art | On by default. The live item's image follows the current track (the station logo when a track has no art) |
 | Station page | Optional, needs the File Transformation plugin (see below). The channel's own page gets a live header with cover, track, DJ, show, what's next, listeners, Play/Stop and a request box; the playing bar and the grid card follow the track while it plays |
 | Make the station visible to every user | Off by default. Adds this channel to every user's channel list; "Run now" shows the counts |
+
+The station base URL must not contain credentials (`user:password@`), a query (`?…`) or a
+fragment (`#…`). Such a value counts as "not configured". The plugin never follows a redirect from the
+station. If the URL redirects (for example http to https, or to a new host), "Fetch from station"
+says "the station redirected to …; use that address instead". Enter that address. Plain `http://`
+is fine. A *Client stream URL* must not contain credentials either; it may name any host.
 
 After saving, the tile updates on the next reload. If you renamed it, run the
 "Refresh Internet Channels" scheduled task to drop the old entry.

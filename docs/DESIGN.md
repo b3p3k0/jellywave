@@ -113,9 +113,9 @@ file under the item's metadata folder, deletes the previous one, and stamps the 
 `DateModified`, which is what the client-facing image tag hashes, so clients refetch. The
 station answers 502 with an empty body when a track has no art; then, and when cover art is
 off, polling is off, or the station is unreachable, the logo is saved instead so the item
-never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF (a missing content type
-counts as JPEG, the station's default) of at most 4 MB, judged from the headers before the
-body is read; anything else is "no art". The download happens before the item is looked up,
+never shows a blank. Accepted covers are JPEG, PNG, WebP or GIF of at most 4 MB and at most
+4096 px a side, identified from their bytes (see "Outbound requests"); anything else is "no
+art". The download happens before the item is looked up,
 so the item is held for milliseconds. A transport failure (timeout, a chunked body over the
 cap) keeps the text update and is retried on the next poll; a failure to write the file is
 logged once per streak and the text still goes out. Because the item's parent is a `Channel`,
@@ -279,6 +279,68 @@ its `status`) drops the feed, the header and the drawer link, and the next feed 
 the 15 seconds. The other routes are only called once a feed exists; a 403 on a request submit or poll
 says "You don't have access to this station." instead of a connection error.
 
+## Outbound requests (card 14)
+
+Every request to the station goes through `StationClient`, and every `StationClient` call goes
+through one private `CreateClient`, which asks for the plugin's own named client `Jellywave` and
+sets the 8 s budget and the body cap (256 KB for JSON, 4 MB for images).
+
+**Own client, redirects refused.** Jellyfin's `NamedClient.Default` keeps `SocketsHttpHandler`'s
+default `AllowAutoRedirect = true`, so a station answer could send the server to any host or port
+(SSRF). `PluginServiceRegistrator` registers `Jellywave` with `AllowAutoRedirect = false`,
+`AutomaticDecompression = All` and the User-Agent `Jellywave/<assembly version>`. `AddHttpClient`
+comes from the ASP.NET Core shared framework the server already loads, so no package is added and
+the zip stays the DLL, `meta.json` and `thumb.png`. Jellyfin's own clients also set its dual-stack
+`ConnectCallback` (`HttpClientExtension.OnConnect`, which honours the server's IPv6 setting); it lives
+in a server assembly the plugin does not reference, so the plugin uses the default connect. The
+station is a LAN host; a name that resolves to an unreachable IPv6 address first costs part of the
+8 s budget before IPv4 is tried. A 3xx is the station's answer, not a hop:
+
+- JSON reads (now playing, state, schedule) throw `StationRedirectException`, an
+  `HttpRequestException` with the status and the resolved `Location`, so every existing failure path
+  handles it. Its message is generic and never carries the location, because it reaches the poller
+  status line.
+- Images are "no art" (null), like any other non-success.
+- Like, lyrics and the request routes get the status without the body (a redirect's body is not
+  the station's answer). Like shows a refusal ("The station did not take the like."), lyrics are
+  "unavailable", a request submit is "refused" with no receipt recorded, and a request poll is
+  "unavailable" with the receipt kept.
+- The admin probe (`GET /Jellywave/Station`) answers `Ok = false` with "the station redirected to
+  <base>; use that address instead". The base is the `Location` with the `api/…` path the probe
+  asked for, and any query, cut off. Only this admin-only route shows it.
+
+**URL rules** (`StationUrls`, pure functions; every caller treats a rejected value as "not
+configured", exactly as before):
+
+- Base URL: absolute http or https, with no userinfo (not even an empty `@`), no query and no
+  fragment. The value is checked as typed, before the trailing slash is added (otherwise
+  `http://host/radio?x=1` would turn into a query of `?x=1/`). The probe answers 400 for such a value,
+  and the configuration page says why.
+- Stream path: leading slashes are trimmed, so `//x` stays a path under the base. A path that still
+  parses as an absolute URI (it has a scheme, or is a backslash network path) is refused. The built
+  URL must equal the base on scheme, host, effective port and userinfo
+  (`Uri.Compare(..., SchemeAndServer | UserInfo, ...)`) and stay under the base's path, with no `..`
+  segment. A query or fragment in the stream path stays allowed.
+- Client stream URL (Direct mode): absolute http or https without userinfo. Any host and port stays
+  allowed, because Direct mode hands this URL to clients on purpose. A rejected value logs the
+  existing warning, and Direct mode falls back to the server URL.
+- Plain HTTP stays allowed: the station normally runs on plain HTTP on the LAN.
+
+**Image checks** (`ImageSniffer`, covers and avatars). The declared content type must be missing
+or start with `image/`; it no longer decides the type, and a missing type is no longer taken as
+JPEG. The type comes from the magic bytes (JPEG `FF D8 FF`, PNG's 8-byte signature, `GIF87a` and
+`GIF89a`, `RIFF`…`WEBP`). The size comes from the header: PNG IHDR, the GIF logical screen
+descriptor, WebP VP8 (lossy keyframe), VP8L and VP8X, and for JPEG a bounds-checked marker walk to
+the first SOF0–SOF15 frame header (DHT `C4`, JPG `C8` and DAC `CC` are skipped). An unknown type, a
+side of 0, a side over `MaxImageDimension` (4096), or an area over `MaxImagePixels` (16 777 216) is
+"no art". With the side limit the area limit cannot trigger on its own; it is kept as a named
+bound in case the side limit is ever raised. Every read is bounds-checked, and malformed or
+truncated input is "unknown", never an exception. The sniffed type is what Jellyfin saves and what
+the avatar route serves.
+
+Accepted risk: the GIF frame count is not checked. A GIF of at most 4096 × 4096 and 4 MB can still
+carry many frames. Jellyfin's image processor decodes it, and the station is admin-configured.
+
 ## Poller health (card 10)
 
 `PollerHealth` is a singleton snapshot the poller writes (running, reachable, last success, last
@@ -294,7 +356,8 @@ client URL, tile name and tagline, stream format (filled by the config page's "F
 station" button through the admin-only `GET /Jellywave/Station?baseUrl=` endpoint),
 now-playing toggle and interval, and `LastChangedUtc`, set by the page on save. All URL
 handling lives in `StationUrls`, which resolves the stream path under the base URL and
-rejects anything that escapes it (different host, `..`).
+rejects anything that escapes it (another scheme, host, port or userinfo, an absolute path, `..`);
+see "Outbound requests".
 
 No environment-specific value lives in source: the base URL is empty until configured,
 and the channel publishes no items while it is empty.
