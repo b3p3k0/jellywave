@@ -5,6 +5,11 @@ name: Release
 # manifest.json to main. Safe to re-run: release and asset uploads are idempotent.
 # Can also be started by hand for an existing tag (Actions > Release > Run workflow,
 # or `gh workflow run Release -f tag=v0.1.0.0`), e.g. when a tag was pushed before main existed.
+#
+# Two jobs so the write token never meets the build: `build` restores packages, runs the analyzers
+# and tests and stages the zip with a read-only token and no stored credentials; `publish` gets
+# contents: write and runs only gh, jq and scripts/update-manifest.sh against that zip.
+# Actions are pinned to full commit SHAs (tag in the comment); Dependabot proposes updates.
 on:
   push:
     tags: ['v*']
@@ -15,22 +20,24 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
+permissions: {}
+
+env:
+  VERSION: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ inputs.tag || github.ref_name }}
+    permissions:
+      contents: read
     steps:
       - name: Check out the tagged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
-          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
 
@@ -43,28 +50,54 @@ jobs:
       - name: Check metadata agreement
         run: scripts/check-manifest.sh
 
+      - name: Hand the zip to the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/Jellywave_*.zip
+            dist/Jellywave_*/meta.json
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out main (the manifest's source of truth)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch the built zip
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: dist
+
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${VERSION#v}"
-          NOTES="$(. scripts/lib.sh; yaml_get changelog)"
+          NOTES="$(jq -r .changelog "dist/Jellywave_${V}/meta.json")"
           gh release view "$VERSION" >/dev/null 2>&1 \
-            || gh release create "$VERSION" --title "Jellywave $V" --notes "$NOTES"
+            || gh release create "$VERSION" --verify-tag --title "Jellywave $V" --notes "$NOTES"
           gh release upload "$VERSION" "dist/Jellywave_${V}.zip" --clobber
 
       - name: Commit manifest.json to main
         run: |
           V="${VERSION#v}"
-          CHANGELOG="$(. scripts/lib.sh; yaml_get changelog)"
-          # Reuse the build's timestamp so meta.json inside the zip and the manifest entry agree.
-          TIMESTAMP="$(jq -r .timestamp "dist/Jellywave_${V}/meta.json")"
+          META="dist/Jellywave_${V}/meta.json"
+          # Changelog, timestamp and targetAbi come from the zip's own meta.json, so the entry describes that zip.
+          CHANGELOG="$(jq -r .changelog "$META")"
+          TIMESTAMP="$(jq -r .timestamp "$META")"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout -- manifest.json             # build.sh rewrote it in the tag tree; main is the source of truth
-          git checkout -B main origin/main          # dist/ is untracked, so the zip survives
-          scripts/update-manifest.sh "$V" "$CHANGELOG" "$TIMESTAMP"
+          TARGET_ABI="$(jq -r .targetAbi "$META")" scripts/update-manifest.sh "$V" "$CHANGELOG" "$TIMESTAMP"
           git add manifest.json
           git diff --cached --quiet && { echo "manifest already current"; exit 0; }
           git commit -m "chore: manifest for ${VERSION}"

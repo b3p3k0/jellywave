@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assert the plugin GUID, version and ABI agree everywhere they are declared:
 #   Plugin.cs, configPage.html, build.yaml, manifest.json, Directory.Build.props,
+#   the Jellyfin package versions in both csproj files,
 #   and, when dist/ holds the current version, its meta.json and zip checksum.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -27,7 +28,21 @@ elif [ "$(printf '%s\n%s\n' "$V_MAN" "$V_PROPS" | sort -V | tail -1)" = "$V_PROP
 else
     echo "FAIL props $V_PROPS is older than manifest[0] $V_MAN"; fail=1
 fi
-check "targetAbi manifest[0] == yaml"     "$ABI_MAN" "$ABI_YAML"
+if [ "$V_MAN" = "$V_PROPS" ]; then
+    check "targetAbi manifest[0] == yaml" "$ABI_MAN" "$ABI_YAML"
+elif [ "$(printf '%s\n%s\n' "$ABI_MAN" "$ABI_YAML" | sort -V | tail -1)" = "$ABI_YAML" ]; then
+    echo "ok   targetAbi yaml $ABI_YAML (unreleased; manifest[0] $V_MAN has $ABI_MAN)"
+else
+    echo "FAIL targetAbi yaml $ABI_YAML is older than manifest[0]'s $ABI_MAN"; fail=1
+fi
+# targetAbi is the oldest server Jellyfin offers this build to, so it must name the Jellyfin packages the
+# assembly is compiled against (a 12.3 build references 12.3.0.0 assemblies, which a 12.0 server cannot load).
+for proj in Jellyfin.Plugin.Jellywave/Jellyfin.Plugin.Jellywave.csproj Jellyfin.Plugin.Jellywave.Tests/Jellyfin.Plugin.Jellywave.Tests.csproj; do
+    for pkg in Jellyfin.Controller Jellyfin.Model; do
+        V_PKG="$(sed -n "s:.*<PackageReference Include=\"$pkg\" Version=\"\([^\"]*\)\".*:\1:p" "$ROOT/$proj")"
+        check "$pkg in $(basename "$proj") == targetAbi" "$V_PKG.0" "$ABI_YAML"
+    done
+done
 jq -e '.[0].versions[0].checksum | test("^[0-9A-F]{32}$")' "$ROOT/manifest.json" >/dev/null \
   && echo "ok   checksum is uppercase MD5" || { echo "FAIL checksum format"; fail=1; }
 

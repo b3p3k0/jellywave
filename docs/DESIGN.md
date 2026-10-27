@@ -263,3 +263,21 @@ refreshes it locally on purpose). `scripts/check-manifest.sh` asserts the GUID, 
 across `Plugin.cs`, the config page, `build.yaml`, `manifest.json`,
 `Directory.Build.props` and the staged `meta.json`. The release workflow builds the
 tagged commit and commits the manifest to `main`.
+
+`targetAbi` (12.3.0.0) is the oldest server Jellyfin offers a build to, and the runtime binds an
+assembly reference only to a loaded assembly of the same or a newer version. A build compiled
+against the 12.3.0 packages references 12.3.0.0 assemblies, which a 12.0–12.2 server cannot load, so
+`targetAbi` must name the packages the plugin is compiled against. Two checks keep them together:
+`check-manifest.sh` compares the `Jellyfin.Controller` and `Jellyfin.Model` versions in both csproj
+files with `targetAbi`, and `AbiTests` fails when any `Jellyfin.*` or `MediaBrowser.*` reference in
+the built assembly is newer than `targetAbi`. Releases up to v0.3.4.0 claimed 12.0.0.0 while
+referencing 12.3.0.0; their manifest entries are left as published.
+
+The release workflow has two jobs. `build` (token `contents: read`, checkout without stored
+credentials) restores packages, runs the analyzers, tests, `build.sh` and `check-manifest.sh`, and
+uploads the zip and `meta.json` as an artifact. `publish` (`contents: write`) downloads that
+artifact, creates or updates the GitHub release and writes the manifest entry, taking changelog,
+timestamp and `targetAbi` from the zip's own `meta.json`. No package restore or project code runs
+while the write token is present. `ci.yml` runs build, tests, `dotnet format --verify-no-changes`,
+`node --check`, `bash -n` and `check-manifest.sh` on every push and pull request with a read-only
+token. Every action is pinned to a full commit SHA; `.github/dependabot.yml` proposes updates.

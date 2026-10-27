@@ -1,6 +1,6 @@
 # Jellywave
 
-SUB/WAVE internet radio as a "My Media" tile in Jellyfin 12.x.
+SUB/WAVE internet radio as a "My Media" tile in Jellyfin 12.3.
 
 Jellywave is a Jellyfin channel plugin. It registers one channel named after
 your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
@@ -107,7 +107,8 @@ is shared by everyone on it.
 
 ```bash
 scripts/build.sh          # dist/Jellywave_<version>/ and .zip (manifest.json is written by the release workflow)
-scripts/check-manifest.sh # GUID and version agree across all declarations
+scripts/check-manifest.sh # GUID, version and targetAbi agree across all declarations, and targetAbi
+                          # names the Jellyfin packages the plugin is compiled against
 dotnet test               # unit tests (URLs, data version, now-playing text, feed fixtures)
 ```
 
@@ -120,7 +121,11 @@ Requires the .NET 10 SDK, `jq`, and `zip`.
 3. The `Release` workflow builds the tagged commit, attaches `dist/Jellywave_<version>.zip`
    to a GitHub release, and commits the updated `manifest.json` to `main`.
 
-The workflow fails on purpose if the tag version does not match `Directory.Build.props`.
+The workflow fails on purpose if the tag version does not match `Directory.Build.props`. It runs as
+two jobs: `build` (tests, analyzers and packaging with a read-only token and no stored credentials)
+hands the zip to `publish`, the only job allowed to write to the repository. The `CI` workflow runs
+the same checks on every push and pull request. Actions are pinned to commit SHAs; Dependabot
+proposes updates.
 
 ## License
 
