@@ -7,7 +7,7 @@ your [SUB/WAVE](https://github.com/perminder-klair/subwave) station, which
 Jellyfin shows beside your libraries and Live TV on every client. Open it,
 press play, hear the station.
 
-Status: v0.2.0.0 released; v1 (stream tile, now playing, visible to every user) complete. See `docs/PLAN.md` and `docs/DESIGN.md`.
+Status: v0.3.0.0; v1 (stream tile, now playing, visible to every user) plus cover art and the optional station page. See `docs/PLAN.md` and `docs/DESIGN.md`.
 
 ## How it works, and what users can see
 

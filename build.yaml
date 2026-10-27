@@ -8,4 +8,4 @@ description: "Adds a SUB/WAVE radio station tile to My Media on every Jellyfin c
 category: "General"
 owner: "b3p3k0"
 artifacts: "Jellyfin.Plugin.Jellywave.dll"
-changelog: "The live item shows the current cover art, the track as its album line, and what is up next."
+changelog: "Cover art and what is up next on the live item; optional station page (needs the File Transformation plugin) with live track, DJ, show, requests, and a playing bar that follows the track."
