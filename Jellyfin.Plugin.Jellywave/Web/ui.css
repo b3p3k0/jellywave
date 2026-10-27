@@ -20,6 +20,12 @@
 .jellywave-like .material-icons{font-size:1.3em}
 .jellywave-dj{display:flex;align-items:center;gap:.6em;margin-top:.6em;opacity:.85}
 .jellywave-dj-avatar{width:2.6em;height:2.6em;border-radius:50%;object-fit:cover;background:rgba(128,128,128,.2)}
-.jellywave-recent{margin-top:.7em;font-size:.9em;opacity:.8}
-.jellywave-recent summary{cursor:pointer}
+.jellywave-recent,.jellywave-lyrics,.jellywave-schedule{margin-top:.5em;font-size:.9em;opacity:.85}
+.jellywave-recent summary,.jellywave-lyrics summary,.jellywave-schedule summary{cursor:pointer}
 .jellywave-recent ol{margin:.3em 0 0;padding-left:1.4em}
+.jellywave-lyrics-body{margin-top:.4em;max-height:14em;overflow:auto;white-space:normal;line-height:1.5}
+.jellywave-schedule-body{margin-top:.4em}
+.jellywave-schedule-row{display:flex;gap:.8em;padding:.1em 0}
+.jellywave-schedule-when{flex:0 0 9em;opacity:.7;white-space:nowrap}
+.jellywave-schedule-now{font-weight:600}
+.jellywave-schedule-note{margin-top:.4em;font-size:.85em;opacity:.6}

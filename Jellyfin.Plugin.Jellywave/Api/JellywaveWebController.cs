@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Jellywave.Channels;
@@ -42,6 +44,7 @@ public class JellywaveWebController : ControllerBase
     private readonly LiveItemFinder _finder;
     private readonly IImageProcessor _imageProcessor;
     private readonly StationClient _stationClient;
+    private readonly ScheduleCache _schedule;
     private readonly ILogger<JellywaveWebController> _logger;
 
     /// <summary>
@@ -51,13 +54,15 @@ public class JellywaveWebController : ControllerBase
     /// <param name="finder">The live item finder.</param>
     /// <param name="imageProcessor">The image processor, for image tags.</param>
     /// <param name="stationClient">The station client, for requests.</param>
+    /// <param name="schedule">The schedule cache.</param>
     /// <param name="logger">The logger.</param>
-    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ILogger<JellywaveWebController> logger)
+    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, ILogger<JellywaveWebController> logger)
     {
         _state = state;
         _finder = finder;
         _imageProcessor = imageProcessor;
         _stationClient = stationClient;
+        _schedule = schedule;
         _logger = logger;
     }
 
@@ -227,6 +232,86 @@ public class JellywaveWebController : ControllerBase
     }
 
     /// <summary>
+    /// Today's programme in the station's time zone (any signed-in user; cached a few minutes server-side).
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The blocks.</returns>
+    [HttpGet("Schedule")]
+    [Authorize]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ScheduleResponse>> Schedule(CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null)
+        {
+            return new ScheduleResponse();
+        }
+
+        ScheduleInfo? info;
+        try
+        {
+            info = await _schedule.GetAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogDebug("Schedule fetch failed: {Message}", ex.Message);
+            return new ScheduleResponse();
+        }
+
+        return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Lyrics of the track on air (any signed-in user).
+    /// </summary>
+    /// <param name="songId">The song id from the feed.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The lines, or why there are none.</returns>
+    [HttpGet("Lyrics")]
+    [Authorize]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
+        {
+            return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "No track to look up." };
+        }
+
+        try
+        {
+            var reply = await _stationClient.GetLyricsAsync(baseUrl, songId, cancellationToken).ConfigureAwait(false);
+            var body = reply.Body;
+            switch (reply.StatusCode)
+            {
+                case StatusCodes.Status403Forbidden:
+                    return new LyricsResponse { SongId = songId, Status = "off", Message = "The station has lyrics switched off." };
+                case StatusCodes.Status401Unauthorized:
+                    return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "The station is private; lyrics need its password." };
+                case StatusCodes.Status409Conflict:
+                    return new LyricsResponse { SongId = songId, Status = "ended", Message = "That track is no longer on air." };
+                case StatusCodes.Status200OK when body is not null:
+                    var lines = (body.Lines ?? []).Select(l => Collapse(l.Text)).Where(t => t.Length > 0).ToList();
+                    if (lines.Count == 0)
+                    {
+                        return new LyricsResponse { SongId = songId, Status = body.Pending == true ? "pending" : "none", Message = body.Pending == true ? "Still looking…" : "No lyrics for this one." };
+                    }
+
+                    return new LyricsResponse { SongId = songId, Status = "ok", Synced = body.Synced == true, Lines = lines };
+                default:
+                    return new LyricsResponse { SongId = songId, Status = "unavailable", Message = body?.Error ?? "The station could not get lyrics right now." };
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug("Lyrics fetch failed: {Message}", ex.Message);
+            return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "The station did not answer." };
+        }
+    }
+
+    /// <summary>
     /// Submits a listener request to the station on behalf of the signed-in user. The station's own limits apply
     /// (a wait between requests and a few per hour, shared by everyone on this server, since the station sees one caller).
     /// </summary>
@@ -348,6 +433,74 @@ public class JellywaveWebController : ControllerBase
     [Authorize(Policy = Policies.RequiresElevation)]
     [Produces("application/json")]
     public ActionResult<WebUiStatus> WebUi() => WebUiStartupTask.Status;
+
+    /// <summary>
+    /// Turns the weekly grid into today's blocks in the station's time zone. Internal for tests.
+    /// </summary>
+    /// <param name="info">The schedule.</param>
+    /// <param name="nowUtc">The current time.</param>
+    /// <returns>The response.</returns>
+    internal static ScheduleResponse BuildToday(ScheduleInfo info, DateTime nowUtc)
+    {
+        TimeZoneInfo zone;
+        try
+        {
+            zone = string.IsNullOrWhiteSpace(info.Timezone) ? TimeZoneInfo.Utc : TimeZoneInfo.FindSystemTimeZoneById(info.Timezone);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            zone = TimeZoneInfo.Utc;
+        }
+
+        var local = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, zone);
+        var dayKey = ((int)local.DayOfWeek).ToString(System.Globalization.CultureInfo.InvariantCulture);   // Sunday = 0, as the station's grid
+        var response = new ScheduleResponse { Timezone = info.Timezone, Day = local.DayOfWeek.ToString(), Hour = local.Hour };
+        if (info.Schedule is null || !info.Schedule.TryGetValue(dayKey, out var hours) || hours is null)
+        {
+            return response;
+        }
+
+        var shows = (info.Shows ?? []).Where(s => s.Id is not null).ToDictionary(s => s.Id!, s => s);
+        var personas = (info.Personas ?? []).Where(p => p.Id is not null).ToDictionary(p => p.Id!, p => p.Name);
+        var blocks = new List<ScheduleBlock>();
+        ScheduleBlock? open = null;
+        string? openId = null;
+        for (var hour = 0; hour < Math.Min(hours.Count, 24); hour++)
+        {
+            var id = hours[hour];
+            if (open is not null && string.Equals(id, openId, StringComparison.Ordinal))
+            {
+                open.EndHour = hour + 1;
+                continue;
+            }
+
+            open = null;
+            openId = null;
+            if (id is null || !shows.TryGetValue(id, out var show))
+            {
+                continue;
+            }
+
+            open = new ScheduleBlock
+            {
+                StartHour = hour,
+                EndHour = hour + 1,
+                Show = Collapse(show.Name),
+                Host = show.PersonaId is not null && personas.TryGetValue(show.PersonaId, out var host) ? Collapse(host) : null
+            };
+            openId = id;
+            blocks.Add(open);
+        }
+
+        foreach (var block in blocks)
+        {
+            block.Now = local.Hour >= block.StartHour && local.Hour < block.EndHour;
+        }
+
+        response.Available = true;
+        response.Today = blocks;
+        return response;
+    }
 
     private static LikeOutcome MapLike(StationReply<LikeStatus> reply)
     {

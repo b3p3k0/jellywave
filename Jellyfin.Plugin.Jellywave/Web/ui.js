@@ -9,7 +9,7 @@
 
     var POLL_MS = 5000;
     var FEED_RETRY_MS = 15000;
-    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, like: null, likeSongId: null, likeBusy: false };
+    var state = { feed: null, deps: null, timer: null, header: null, lastTag: null, lastCardTag: null, feedFailedAt: 0, like: null, likeSongId: null, likeBusy: false, lyrics: null, lyricsSongId: null, schedule: null, scheduleAt: 0 };
 
     function api() { return window.ApiClient || null; }
     function norm(id) { return id ? String(id).replace(/-/g, '').toLowerCase() : ''; }
@@ -135,12 +135,92 @@
         if (!client || !state.like || !state.like.SongId || state.likeBusy) { return; }
         state.likeBusy = true;
         renderLike();
+        fetchLyrics(false);
+        var sched = h.querySelector('.jellywave-schedule');
+        if (sched) { sched.style.display = ''; }
         client.ajax({
             type: 'POST', url: client.getUrl('Jellywave/Like'), dataType: 'json', contentType: 'application/json',
             data: JSON.stringify({ SongId: state.like.SongId })
         }).then(function (r) {
             state.like = r && r.Enabled ? r : state.like;
         }).catch(function () { /* keep the old status */ }).then(function () { state.likeBusy = false; renderLike(); });
+    }
+
+    /* Lyrics: one fetch per track while the panel is open; the station only serves the track on air. */
+    function fetchLyrics(force) {
+        var h = state.header;
+        var client = api();
+        if (!h || !client || !state.feed) { return; }
+        var panel = h.querySelector('.jellywave-lyrics');
+        if (!state.feed.LyricsEnabled || !state.feed.SongId) { panel.style.display = 'none'; return; }
+        panel.style.display = '';
+        if (!panel.open) { return; }
+        if (!force && state.lyricsSongId === state.feed.SongId) { return; }
+        var songId = state.feed.SongId;
+        state.lyricsSongId = songId;
+        client.getJSON(client.getUrl('Jellywave/Lyrics', { songId: songId })).then(function (r) {
+            if (state.lyricsSongId !== songId) { return; }
+            state.lyrics = r;
+            renderLyrics();
+            if (r && r.Status === 'pending') { setTimeout(function () { if (state.lyricsSongId === songId) { state.lyricsSongId = null; fetchLyrics(); } }, 8000); }
+        }).catch(function () { state.lyrics = { Status: 'unavailable', Message: 'Could not reach the server.' }; renderLyrics(); });
+    }
+
+    function renderLyrics() {
+        var h = state.header;
+        if (!h) { return; }
+        var body = h.querySelector('.jellywave-lyrics-body');
+        var l = state.lyrics;
+        body.innerHTML = '';
+        if (!l) { body.textContent = 'Loading…'; return; }
+        if (l.Status !== 'ok') { body.textContent = l.Message || l.Status; return; }
+        l.Lines.forEach(function (line) { var d = document.createElement('div'); d.textContent = line; body.appendChild(d); });
+    }
+
+    /* Today's programme in the station's time zone; refetched every ten minutes at most. */
+    function fetchSchedule() {
+        var h = state.header;
+        var client = api();
+        if (!h || !client) { return; }
+        var panel = h.querySelector('.jellywave-schedule');
+        if (!panel.open) { return; }
+        if (state.schedule && Date.now() - state.scheduleAt < 600000) { renderSchedule(); return; }
+        client.getJSON(client.getUrl('Jellywave/Schedule')).then(function (r) {
+            state.schedule = r;
+            state.scheduleAt = Date.now();
+            renderSchedule();
+        }).catch(function () { state.schedule = { Available: false }; renderSchedule(); });
+    }
+
+    function hourLabel(hour) {
+        var h12 = hour % 12 === 0 ? 12 : hour % 12;
+        return h12 + (hour < 12 || hour === 24 ? ' am' : ' pm');
+    }
+
+    function renderSchedule() {
+        var h = state.header;
+        if (!h) { return; }
+        var body = h.querySelector('.jellywave-schedule-body');
+        var s = state.schedule;
+        body.innerHTML = '';
+        if (!s || !s.Available) { body.textContent = 'No schedule published.'; return; }
+        if (!s.Today || !s.Today.length) { body.textContent = (s.Day || 'Today') + ': default programming all day.'; return; }
+        s.Today.forEach(function (b) {
+            var row = document.createElement('div');
+            row.className = 'jellywave-schedule-row' + (b.Now ? ' jellywave-schedule-now' : '');
+            var when = document.createElement('span');
+            when.className = 'jellywave-schedule-when';
+            when.textContent = hourLabel(b.StartHour) + ' – ' + hourLabel(b.EndHour);
+            var what = document.createElement('span');
+            what.textContent = b.Show + (b.Host ? ' with ' + b.Host : '');
+            row.appendChild(when);
+            row.appendChild(what);
+            body.appendChild(row);
+        });
+        var note = document.createElement('div');
+        note.className = 'jellywave-schedule-note';
+        note.textContent = (s.Day || '') + (s.Timezone ? ' · station time (' + s.Timezone + ')' : '');
+        body.appendChild(note);
     }
 
     function render() {
@@ -226,6 +306,8 @@
             '<div class="jellywave-dj" style="display:none"><img class="jellywave-dj-avatar" alt="" /><div class="jellywave-dj-text"></div></div>' +
             '<div class="jellywave-meta"></div>' +
             '<details class="jellywave-recent" style="display:none"><summary>Recently played</summary><ol></ol></details>' +
+            '<details class="jellywave-lyrics" style="display:none"><summary>Lyrics</summary><div class="jellywave-lyrics-body"></div></details>' +
+            '<details class="jellywave-schedule" style="display:none"><summary>Today on the station</summary><div class="jellywave-schedule-body"></div></details>' +
             '<div class="jellywave-actions">' +
             '<button is="emby-button" type="button" class="raised button-submit emby-button jellywave-play"><span class="material-icons play_arrow" aria-hidden="true"></span><span>Play</span></button>' +
             '<button is="emby-button" type="button" class="raised emby-button jellywave-stop"><span class="material-icons stop" aria-hidden="true"></span><span>Stop</span></button>' +
@@ -238,6 +320,8 @@
             '<div class="jellywave-request-help">Requests go to the station\'s DJ and share the station\'s limits: a short wait between requests, one pending at a time and a few per hour for everyone on this server together, so a "still queued" or "try again later" answer may be about someone else\'s request.</div>' +
             '</form></div>';
         header.querySelector('.jellywave-like').addEventListener('click', sendLike);
+        header.querySelector('.jellywave-lyrics').addEventListener('toggle', function () { fetchLyrics(true); });
+        header.querySelector('.jellywave-schedule').addEventListener('toggle', function () { fetchSchedule(); });
         header.querySelector('.jellywave-play').addEventListener('click', function () { play(); setTimeout(render, 800); });
         header.querySelector('.jellywave-stop').addEventListener('click', function () { stop(); setTimeout(render, 300); });
         wireRequests(header);

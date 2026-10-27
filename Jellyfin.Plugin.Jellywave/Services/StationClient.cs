@@ -131,6 +131,38 @@ public class StationClient
         return new StationReply<LikeStatus>((int)response.StatusCode, await ReadBodyAsync<LikeStatus>(response, cancellationToken).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Gets the weekly schedule: <c>GET /api/schedule</c>.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The schedule, or null when the answer was not the expected JSON.</returns>
+    public Task<ScheduleInfo?> GetScheduleAsync(Uri baseUrl, CancellationToken cancellationToken)
+        => GetJsonAsync<ScheduleInfo>(new Uri(baseUrl, "api/schedule"), cancellationToken);
+
+    /// <summary>
+    /// Gets the lyrics of the track on air: <c>GET /api/lyrics/current?songId=</c>. 403 when the station has lyrics
+    /// off, 401 when the station is private (the page then says lyrics are unavailable), 409 when the track ended,
+    /// 503 when the music server did not answer.
+    /// </summary>
+    /// <param name="baseUrl">The station base URL with a trailing slash.</param>
+    /// <param name="songId">The song id from the feed.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The status code and body.</returns>
+    public async Task<StationReply<LyricsPayload>> GetLyricsAsync(Uri baseUrl, string songId, CancellationToken cancellationToken)
+    {
+        if (!IsValidId(songId))
+        {
+            return new StationReply<LyricsPayload>(400, null);
+        }
+
+        using var client = _httpClientFactory.CreateClient(NamedClient.Default);
+        client.Timeout = RequestTimeout;
+        client.MaxResponseContentBufferSize = MaxResponseBytes;
+        using var response = await client.GetAsync(new Uri(baseUrl, "api/lyrics/current?songId=" + Uri.EscapeDataString(songId)), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        return new StationReply<LyricsPayload>((int)response.StatusCode, await ReadBodyAsync<LyricsPayload>(response, cancellationToken).ConfigureAwait(false));
+    }
+
     private async Task<StationImage?> GetImageAsync(Uri baseUrl, string relativePath, CancellationToken cancellationToken)
     {
         using var client = _httpClientFactory.CreateClient(NamedClient.Default);
