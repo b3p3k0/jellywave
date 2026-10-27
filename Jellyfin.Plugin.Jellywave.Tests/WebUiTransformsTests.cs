@@ -30,7 +30,8 @@ public class WebUiTransformsTests
         var result = WebUiTransforms.ConfigJson(new TransformPayload { Contents = json });
         Assert.Contains("\"plugins\": [\n    \"JellywaveUi\", \"htmlAudioPlayer/plugin\"", result, System.StringComparison.Ordinal);
         Assert.Equal(result, WebUiTransforms.ConfigJson(new TransformPayload { Contents = result }));
-        Assert.Equal("{\"plugins\":[\"JellywaveUi\", ]}", WebUiTransforms.ConfigJson(new TransformPayload { Contents = "{\"plugins\":[]}" }));
+        Assert.Equal("{\"plugins\":[\"JellywaveUi\"]}", WebUiTransforms.ConfigJson(new TransformPayload { Contents = "{\"plugins\":[]}" }));
+        Assert.Equal("{\"plugins\": [ \"JellywaveUi\"]}", WebUiTransforms.ConfigJson(new TransformPayload { Contents = "{\"plugins\": [ ]}" }));
     }
 
     [Fact]

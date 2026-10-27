@@ -150,6 +150,70 @@ nothing, so there is no loop). Each user is re-read by id immediately before it 
 the setting off stops future passes and revokes nothing. One Information line per pass carries
 counts, never user names.
 
+## Station page (optional, cards 8s–8c)
+
+jellyfin-web has no hook for a plugin page that non-admin users can reach: plugin pages, the
+`configurationpage` route and `EnableInMainMenu` all live behind the admin dashboard, the
+"custom menu links" setting opens external tabs, and CSS cannot navigate. The only maintained way
+in is the third-party File Transformation plugin, which rewrites web files as Jellyfin serves them.
+Jellywave treats it as an optional extra: `WebUiStartupTask` (an `IScheduledTask` on the startup
+trigger, like SeerrFin's) looks for an assembly named `*.FileTransformation`, and when it is absent
+logs one Information line and records `WebUiState.NotInstalled` for the configuration page.
+
+Registration goes through reflection, because plugins cannot reference each other. The other
+plugin's `PluginInterface.RegisterTransformation` takes a Newtonsoft `JObject` from its own load
+context; the task takes that parameter type from the method signature and calls its static
+`Parse(string)` on a JSON string, so Jellywave carries no Newtonsoft reference and nothing crosses
+load contexts. Two transformations are registered with the plain file names `index.html` and
+`config.json`: File Transformation keeps one pipeline per pattern string and runs only the first
+pipeline whose pattern matches a request, so an anchored regex for the same file would never run
+once another plugin registered the plain name (SeerrFin does). Callbacks are static methods on
+`WebUiTransforms`; the other plugin converts `{"contents": ...}` into `TransformPayload` by
+property name and takes the returned string.
+
+- `index.html`: a stylesheet link and a **synchronous** `<script>` at the end of `head`, with
+  relative URLs (`../Jellywave/ui.js`) so base-URL and reverse-proxy setups keep working. The
+  bundles are `defer`, so the script defines `window.JellywaveUi` before the plugin loader runs.
+- `config.json`: `"JellywaveUi"` added to the `plugins` array. jellyfin-web's plugin manager loads a
+  string that names a window global as a client plugin and instantiates it with its own
+  `playbackManager`, `appRouter`, `events` and connections, which is the only sanctioned way for
+  injected code to drive Jellyfin's player.
+
+`JellywaveWebController` serves the two assets anonymously (they are part of the page load, before
+sign-in; ETag and a day of caching keyed on the assembly version), `GET /Jellywave/Feed` to any
+signed-in user (the poller's last feed reduced to display fields plus the channel id, the live
+item id and its image tag; never the station URL), `POST /Jellywave/Request` and
+`GET /Jellywave/Request/{id}` for listener requests, and `GET /Jellywave/WebUi` (admin) for the
+status line on the configuration page.
+
+The script (`Web/ui.js`) does three things:
+
+1. **The page.** The default (modern) layout has no user drawer, so the station page is the channel's
+   own library page, one click from the tile or the top bar. Both layouts render a channel through
+   the legacy list controller, whose `.itemsContainer` carries `data-parentid`; when that equals the
+   channel id, a header is inserted above the toolbar row: cover (the live item's own Primary image,
+   by tag), track, DJ with tagline, show, what's next, listener count, Play/Stop through
+   `playbackManager.play({ids:[liveItemId]})` and `stop()`, and the request form. In the legacy
+   layout a drawer link named after the station opens the same page via `appRouter.showItem`.
+2. **Repainting while the station plays.** Every client copies the playing item at playback start
+   and never re-reads it (`playbackmanager.js` `getNowPlayingItemForReporting`), so while the live
+   item is the current item the script repaints the bar's thumbnail and text, the item's card in any
+   visible grid, and the browser `MediaSession` metadata (lock-screen art) every five seconds from
+   the feed. `playbackManager.currentItem(player)` throws when no player exists, so the script asks
+   `getCurrentPlayer()` first and guards each step.
+3. **Requests.** The form posts text and a name (prefilled with the Jellyfin user name) to the
+   plugin, which forwards them to the station's `POST /api/request` and maps the receipt (202) or
+   the refusal (400, 429 with `retryAfter`, 503) into one outcome object; the page then polls
+   `GET /Jellywave/Request/{id}` every three seconds until the station resolves it and shows the
+   DJ's acknowledgement, the queued track and its position. The station limits by caller IP, and
+   every Jellyfin user is one caller to it; HI chose to honour that and explain it under the box
+   rather than add a limiter in the plugin.
+
+Known limits: the DOM selectors (`.itemsContainer[data-parentid]`, `.nowPlayingBar`, `.card`) are
+jellyfin-web internals and can move between releases; the page degrades to "nothing happens"
+rather than breaking the client. The Android app wraps the web client and needs a force-close to
+refetch `index.html` after the plugin is first installed.
+
 ## Configuration surface
 
 `PluginConfiguration` holds the station base URL, stream path, delivery mode, optional

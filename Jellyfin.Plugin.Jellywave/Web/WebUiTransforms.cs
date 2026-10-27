@@ -55,7 +55,7 @@ public static partial class WebUiTransforms
             return json;
         }
 
-        return PluginsArrayStart().Replace(json, m => m.Value + "\"" + WebPluginName + "\", ", 1);
+        return PluginsArrayStart().Replace(json, m => m.Value + "\"" + WebPluginName + "\"" + (m.Groups["close"].Success ? string.Empty : ", "), 1);
     }
 
     /// <summary>
@@ -65,6 +65,6 @@ public static partial class WebUiTransforms
     public static string AssetVersion()
         => typeof(WebUiTransforms).Assembly.GetName().Version?.ToString() ?? "0";
 
-    [GeneratedRegex("\"plugins\"\\s*:\\s*\\[\\s*")]
+    [GeneratedRegex("\"plugins\"\\s*:\\s*\\[\\s*(?=(?<close>\\])|)")]
     private static partial Regex PluginsArrayStart();
 }
