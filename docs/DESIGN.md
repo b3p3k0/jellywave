@@ -346,6 +346,33 @@ drops under cover and body (`"cover body" "request request" "panels panels"`), a
 stacks and the cover becomes a full-width square. Inside the form the text field spans both of its
 columns and the name and Send sit on one row (`minmax(0, 1fr) auto`).
 
+Lifecycle (card 18):
+
+- **Boot.** `boot()` runs once even if the plugin manager constructs the plugin twice: one observer, one
+  `viewshow` listener, one set of `playbackManager` listeners.
+- **Finding the page.** jellyfin-web 12.3 dispatches a bubbling `viewshow` on every view it shows
+  (`viewManager.js` for legacy views, `Page.tsx` for React ones; `appRouter` itself listens for it on
+  `document`), and the list controller sets `data-parentid` in its constructor, before that event. The
+  script listens on `document` and looks for the channel's container inside the shown view. A
+  `MutationObserver` on `body` stays as the fallback for what `viewshow` does not cover (the legacy
+  drawer, late renders). Its callback does no document query: it arms one pending timer
+  (`DOM_DEBOUNCE_MS`, 250 ms) and returns. The pass that timer runs first reads the length of two live
+  collections (`itemsContainer`, `customMenuOptions`) and stops when both are empty, so a page without
+  a list or a drawer costs one length check per window. The header goes into the container whose
+  `data-parentid` is the channel, not the first container found, because cached views keep other
+  libraries' containers in the document.
+- **Session key.** The state belongs to `ApiClient.serverId()` plus `ApiClient.getCurrentUserId()`
+  (jellyfin-apiclient 1.11.0, which 12.3 bundles; both return null when signed out). Each tick, feed
+  request and DOM pass compares that key with the stored one. On a change, or a sign-out (no access
+  token), the script drops the feed, like, lyrics, schedule, cover tags and feed back-off, removes
+  every header and drawer link, and revokes the portrait's blob URL.
+- **Stale replies.** Each reset bumps an epoch counter. The feed, like, lyrics, schedule and portrait
+  requests capture it, and a reply that comes back under another epoch is dropped. `fetchLike` also
+  captures the song id it asked about, hides the previous track's heart until the new status arrives,
+  and drops a reply once the feed's `SongId` or `likeSongId` has moved on. `sendLike` posts the
+  captured id and ignores a reply once the shown heart is for another song, or when the reply names
+  another song.
+
 Known limits: the DOM selectors (`.itemsContainer[data-parentid]`, `.nowPlayingBar`, `.card`) are
 jellyfin-web internals and can move between releases; the page degrades to "nothing happens"
 rather than breaking the client. The Android app wraps the web client and needs a force-close to
@@ -389,8 +416,9 @@ whose polls then show "lost track". The impact is low, because the station's own
 requests per hour for the whole server) keeps the map far below 1000 in practice. A 403 versus
 "unknown" does reveal whether a request id exists here; accepted, since the ids are station-generated.
 
-The page: a 403 from `Jellywave/Feed` (ApiClient rejects with the fetch `Response`, so the script reads
-its `status`) drops the feed, the header and the drawer link, and the next feed request waits
+The page: a 403 or a 404 from `Jellywave/Feed` (ApiClient rejects with the fetch `Response`, so the script
+reads its `status`) drops the feed, every header and the drawer link (card 18 added the 404 case, so a
+renamed channel does not leave a stale header). After a 403 the next feed request waits
 `FEED_FORBIDDEN_RETRY_MS` (five minutes) instead of the usual 15 seconds; a 404 (no channel yet) keeps
 the 15 seconds. The other routes are only called once a feed exists; a 403 on a request submit or poll
 says "You don't have access to this station." instead of a connection error.
