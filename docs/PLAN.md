@@ -1,6 +1,6 @@
 # Jellywave: SUB/WAVE radio as a "My Media" entry in Jellyfin 12.x
 
-Status: cards 1–7 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Phase 2 continues with card 8s. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
+Status: cards 1–8 accepted (1–4: 3ebcd03, c63aa14, b096685, 9953caf; 5 docs: ec8efde; 6: c370a24; 7: 2026-10-27, commits 0228d43 and 8edfa75; 8s/8a/8b/8c: 2026-10-27, commits d95f759 through 13b9ebf, see the phase 2 closeout table). v1 is closed: release v0.1.0.0 is published and HI confirmed installing from the manifest URL in the dashboard catalog on 2026-10-27. Phase 2 remaining: the 8d extras and the poller-health item on the configuration page. Original plan approved 2026-10-26; sections marked "corrected"/"changed" record what implementation taught. Role at writing: PA. Track: full process.
 Research performed 2026-10-26 against Jellyfin v12.3 source, jellyfin-web, jellyfin-roku, jellyfin-androidtv, the plugin template, the SUB/WAVE repo, and live probes of the Jellyfin test host and the station host.
 
 ## Context
@@ -203,6 +203,21 @@ None expected in code. Restarting Jellyfin on the Jellyfin test host is done by 
 | 7 richer live item (phase 2) | accepted 2026-10-27 (0228d43 implementation, 8edfa75 review fixes) | plugin 0.3.0.0 on the test host, loaded 13:09:58 UTC: "Live item cover updated" at 13:10:03, 13:12:44 and 13:15:24 (one per track), 2 "Live item overview updated" lines in the same window (the first poll's text matched the pre-restart text), 0 ERR/WRN mentioning Jellywave, cover or ImageSaver, 0 "Deleting previous image" lines (all covers JPEG, overwritten in place); HI: cover changes with the track after a list reload. Open: the mini-player thumbnail keeps its playback-start snapshot (documented; the card 8 page script will refresh it) |
 
 Found during closeout: users need channel access (`EnableAllChannels` or the channel in `EnabledChannels`); 39 of 41 test-host users had neither. The interim bulk script was removed once card 6 (in-plugin grant) landed; HI wanted no scripts or manual passes for end users.
+
+## Phase 2 closeout status (2026-10-27)
+
+Test host: Jellyfin 12.3 with File Transformation 3.0.0.0 and SeerrFin installed; plugin 0.3.0.0 built from 13b9ebf (installed dll md5 895ad751 equals the local build). Review: one RA code review on d95f759..b1f9fe9 plus 929992e found no Blocker and five Suggested items, all addressed in c920130 and 13b9ebf; the acceptance review re-verified each fix in the final code.
+
+| Card | Accepted | Runtime evidence |
+|---|---|---|
+| 8s spike: page injection | d95f759, 4f92c23 (decision A by HI: File Transformation as an optional extra; without it the tile keeps working and the config page says why) | "Station page registered with File Transformation 3.0.0.0" once per restart (6 lines on 2026-10-27), 0 File Transformation errors; the first cut's injection never ran because File Transformation runs one pipeline per pattern (fixed by joining the plain-name pipelines in 4f92c23) |
+| 8a feed endpoints | d95f759, b1f9fe9, c920130 | `Feed`, `Request`, `Request/{id}` behind `[Authorize]`, `WebUi` behind `RequiresElevation`, assets anonymous; no station URL in any response; one Information line per accepted request: `Listener request "3fe3e37b-..." accepted for user "692533d8..."` at 14:41:18 UTC; 0 ERR/WRN mentioning Jellywave all day |
+| 8b station page | d95f759, 4f92c23, 916d53d, 929992e, c920130, 13b9ebf | HI: header renders on the channel page with cover, track, DJ, show, listeners; cover, bar thumbnail and grid card rotate on track change ("loading immediately at or even slightly before the new track"); Firefox and Chrome on Ubuntu 26.04 (Intel and AMD machines) and the Jellyfin Android app 2.7.3 (Pixel 9, GrapheneOS); after 13b9ebf Play/Stop reverts after the bar's stop and pause/resume keeps the bar text; 32 "Live item cover updated" lines that day. Bugs HI found and DA fixed: injection never ran (4f92c23), refresh loop died on "player cannot be null" (916d53d), Stop button did not revert (13b9ebf) |
+| 8c requests | b1f9fe9, c920130 | HI: a request sent from the page reached the station ("watching it come thru on the subwave UI") and the DJ's answer came back in Jellyfin; "all smoke tests are clear" |
+
+Verification at acceptance (13b9ebf): `dotnet build -c Release` 0 errors; `dotnet test --no-build` 96/96; `scripts/check-manifest.sh` 10 ok lines; `node --check Web/ui.js` clean; host-name grep empty; `git ls-files local/` empty.
+
+Open after card 8: the 8d extras (DJ portrait, recent tracks, like, schedule strip, lyrics) and the poller-health item on the configuration page; the Android app needs a force-close to refetch `index.html` after the plugin is first installed (README notes it); the page's DOM selectors (`.itemsContainer[data-parentid]`, `.nowPlayingBar`, `.card`) are jellyfin-web internals and may move between releases, degrading to "nothing happens" (DESIGN notes it).
 
 ## Post-approval housekeeping (MI)
 
