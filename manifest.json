@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",
     "versions": [
       {
+        "version": "0.5.0.0",
+        "changelog": "Requires Jellyfin 12.4; earlier Jellywave versions are no longer offered. Live Radio: the SUB/WAVE tile becomes a 'Live Radio' tile with a station list, for SUB/WAVE stations and plain MP3, AAC and HLS streams. Add a station by pasting a URL and pressing Check. A fresh install starts with five stations; upgrades get none. Every station now plays through Jellyfin: each listener runs one ffmpeg on the server, and users need 'Allow audio playback that requires transcoding'. The optional station page follows what plays, shows plain streams' titles, and replaces pause with Stop. A SUB/WAVE station is asked for now playing only while someone listens. Safer settings: a save swaps in a complete new file and keeps the last one as .previous; an unreadable file is copied aside, never overwritten, and the page says so. New per-user limits on station calls, likes and song requests, with a 'try again in N s' on the page. Animated images are refused. A station on a publicly known id gets a new random id once, so its favourites and play state are reset. The plugin page warns that tile access hides the tile but does not lock it, warns about secrets in a stream URL, and asks before a tile rename. Never put secrets in stream URLs: signed-in users can read them. Security fix: stream URLs now reach ffmpeg escaped, so a quote in an admin-entered URL can no longer add ffmpeg options (0.1.0.0 to 0.4.2.0 are affected; admin configuration only). Upgrading from 0.4.x: press 'Give them access to the renamed tile' on the plugin page, run 'Refresh Channels', and see the README.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/b3p3k0/jellywave/releases/download/v0.5.0.0/Jellywave_0.5.0.0.zip",
+        "checksum": "D418703286B9271A35781D9223F4ED21",
+        "timestamp": "2026-10-30T18:59:02.0000000Z"
+      },
+      {
         "version": "0.4.2.0",
         "changelog": "Station page: signing out, or signing in as another user or on another server, clears what the page showed before; a station that becomes unavailable to you (access removed, channel renamed) takes its header and drawer link away; the like button no longer sends the previous track's like after a track change; the page does less work on every screen change in the web client.",
         "targetAbi": "12.3.0.0",
