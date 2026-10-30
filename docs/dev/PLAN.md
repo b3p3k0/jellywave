@@ -3395,3 +3395,8 @@ R1 settings safety ─► R2a server tightening ─► R2b page ─► R3 CI/rel
 4. MI retires 0.1.0.0 to 0.4.2.0: removes the catalog entries first, then deletes the releases. Existing installs are
    not touched. Git tags stay.
 5. `live-radio` is deleted.
+
+- **Released 2026-10-30.** Squash 3154159 (it adds no host names), CI green, tag v0.5.0.0 on that commit, release run
+  green on all four jobs, manifest entry 0028268. The published zip's MD5 equals the live catalog entry
+  (`D418703286B9271A35781D9223F4ED21`). The catalog now lists 0.5.0.0 only; the ten older releases are deleted once that
+  is live. Git tags stay.
