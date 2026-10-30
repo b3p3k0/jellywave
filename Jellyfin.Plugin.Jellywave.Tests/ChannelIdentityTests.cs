@@ -37,7 +37,7 @@ public class ChannelIdentityTests
             => Levels.Add(logLevel);
     }
 
-    private static PluginConfiguration Config(string name = Station) => new() { StationName = name };
+    private static PluginConfiguration Config(string name = Station) => new() { LibraryName = name };
 
     private static Channel AddChannelEntity(FakeLibrary library, string name = Station)
     {
@@ -82,13 +82,24 @@ public class ChannelIdentityTests
     }
 
     [Fact]
-    public void The_trimmed_fallback_name_is_what_the_id_is_derived_from()
+    public void The_trimmed_name_is_what_the_id_is_derived_from()
     {
         var library = FakeLibrary.Create();
         var channel = AddChannelEntity(library);
 
-        Assert.Same(channel, Finder(library).FindChannel(null));
         Assert.Same(channel, Finder(library).FindChannel(Config("  " + Station + "  ")));
+    }
+
+    [Fact]
+    public void Without_a_configuration_or_with_a_blank_tile_name_the_live_radio_fallback_is_used()
+    {
+        // Live Radio (card L1): the tile name falls back to "Live Radio", no longer to "SUB/WAVE".
+        var library = FakeLibrary.Create();
+        AddChannelEntity(library);
+        var liveRadio = AddChannelEntity(library, PluginConfiguration.DefaultLibraryName);
+
+        Assert.Same(liveRadio, Finder(library).FindChannel(null));
+        Assert.Same(liveRadio, Finder(library).FindChannel(Config("   ")));
     }
 
     [Fact]
@@ -96,7 +107,7 @@ public class ChannelIdentityTests
     {
         var library = FakeLibrary.Create();
         var channel = AddChannelEntity(library);
-        var ours = new JellywaveChannel(NullLogger<JellywaveChannel>.Instance, new NowPlayingState());   // Name: "SUB/WAVE" (no plugin instance)
+        var ours = new JellywaveChannel(NullLogger<JellywaveChannel>.Instance, new NowPlayingState(), null!, new RenameBridge(_ => Guid.Empty), () => Config());   // Name: "SUB/WAVE"
 
         Assert.Same(channel, Finder(library, ours, OtherPluginChannel.Named("Some Other Radio")).FindChannel(Config()));
     }
@@ -174,7 +185,7 @@ public class ChannelIdentityTests
         manager.OnCreate = () => created = AddChannelEntity(library);
         var locator = new LibraryChannelLocator(Finder(library), manager.Manager);
 
-        var resolution = await locator.LocateAsync(new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" }, CancellationToken.None);
+        var resolution = await locator.LocateAsync(new PluginConfiguration { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } }, CancellationToken.None);
 
         Assert.Equal(1, manager.Creations);
         Assert.NotNull(created);
@@ -189,10 +200,78 @@ public class ChannelIdentityTests
         var colliding = new LibraryChannelLocator(Finder(library, OtherPluginChannel.Named(Station)), manager.Manager);
         var unconfigured = new LibraryChannelLocator(Finder(library), manager.Manager);
 
-        Assert.True((await colliding.LocateAsync(new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" }, CancellationToken.None)).Collides);
-        Assert.Same(ChannelResolution.Missing, await unconfigured.LocateAsync(new PluginConfiguration { StationName = Station }, CancellationToken.None));
+        Assert.True((await colliding.LocateAsync(new PluginConfiguration { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } }, CancellationToken.None)).Collides);
+        Assert.Same(ChannelResolution.Missing, await unconfigured.LocateAsync(new PluginConfiguration { LibraryName = Station }, CancellationToken.None));
         Assert.Equal(0, manager.Creations);
     }
+
+    // Card L7, finding F1: the locator creates the entity whenever a station is listed, not only a SUB/WAVE one.
+    private static StationDefinition Plain(string id, string url, bool enabled = true)
+        => new() { Id = id, Kind = StationKind.Stream, StreamUrl = url, Enabled = enabled };
+
+    [Fact]
+    public async Task The_locator_creates_the_entity_once_for_plain_streams_only()
+    {
+        var library = FakeLibrary.Create();
+        var manager = CountingChannelManager.Create();
+        Channel? created = null;
+        manager.OnCreate = () => created = AddChannelEntity(library);
+        var locator = new LibraryChannelLocator(Finder(library), manager.Manager);
+        var config = new PluginConfiguration { LibraryName = Station, Stations = { Plain("a", "https://cdn.example/a.mp3") } };
+
+        var first = await locator.LocateAsync(config, CancellationToken.None);
+        var second = await locator.LocateAsync(config, CancellationToken.None);
+
+        Assert.Equal(1, manager.Creations);
+        Assert.NotNull(created);
+        Assert.Same(created, first.Channel);
+        Assert.Same(created, second.Channel);
+    }
+
+    [Theory]
+    [InlineData("pls")]
+    [InlineData("disabled")]
+    public async Task The_locator_creates_nothing_when_no_station_is_listed(string why)
+    {
+        var library = FakeLibrary.Create();
+        var manager = CountingChannelManager.Create();
+        manager.OnCreate = () => AddChannelEntity(library);
+        var locator = new LibraryChannelLocator(Finder(library), manager.Manager);
+        var station = why == "pls" ? Plain("a", "https://cdn.example/listen.pls") : Plain("a", "https://cdn.example/a.mp3", enabled: false);
+
+        var resolution = await locator.LocateAsync(new PluginConfiguration { LibraryName = Station, Stations = { station } }, CancellationToken.None);
+
+        Assert.Same(ChannelResolution.Missing, resolution);
+        Assert.Equal(0, manager.Creations);
+    }
+
+    [Fact]
+    public async Task The_locator_creates_the_entity_for_a_listed_plain_stream_next_to_a_refused_sub_wave_station()
+    {
+        var library = FakeLibrary.Create();
+        var manager = CountingChannelManager.Create();
+        Channel? created = null;
+        manager.OnCreate = () => created = AddChannelEntity(library);
+        var locator = new LibraryChannelLocator(Finder(library), manager.Manager);
+        var config = new PluginConfiguration
+        {
+            LibraryName = Station,
+            Stations =
+            {
+                new StationDefinition { Id = "live", BaseUrl = "http://user:pw@radio.example:7700" },
+                Plain("a", "https://cdn.example/a.mp3"),
+            }
+        };
+
+        var resolution = await locator.LocateAsync(config, CancellationToken.None);
+
+        Assert.Equal(1, manager.Creations);
+        Assert.Same(created, resolution.Channel);
+    }
+
+    [Fact]
+    public void The_missing_channel_error_asks_for_a_station_not_a_url()
+        => Assert.Equal("the tile does not exist yet (add a station and save)", AccessGranter.MissingChannelError);
 
     [Fact]
     public void The_registered_channels_are_resolved_on_first_use_not_at_construction()

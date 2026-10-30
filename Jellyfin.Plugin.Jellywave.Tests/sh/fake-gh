@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Stand-in for the gh release commands scripts/publish-release.sh uses, keeping one release's state in $FAKE_GH_STATE:
+#   exists, draft (true/false), assets/<name>, asset-state/<name> (absent = "uploaded"), calls (one line per command).
+# FAKE_GH_FAIL=<command> makes that command fail once before doing anything ("view" fails with a server error, not
+# "release not found"); FAKE_GH_FAIL_AFTER=<command> makes it fail once after doing its work (the client sees an
+# error, the server kept the change). FAKE_GH_IMMUTABLE=1 refuses asset changes on a published release.
+# FAKE_GH_ON_EDIT, when set, is run (by bash) just before a publish takes effect.
+set -euo pipefail
+S="${FAKE_GH_STATE:?}"
+[ "$1" = release ] || { echo "fake-gh: only 'release' is supported" >&2; exit 2; }
+cmd="$2"; shift 2
+echo "$cmd $*" >> "$S/calls"
+once() { [ "${1:-}" = "$cmd" ] && [ ! -f "$S/failed-$2-$cmd" ] && touch "$S/failed-$2-$cmd"; }
+if once "${FAKE_GH_FAIL:-}" before; then
+    [ "$cmd" = view ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "fake-gh: $cmd failed (injected)" >&2; exit 1
+fi
+immutable() { [ -n "${FAKE_GH_IMMUTABLE:-}" ] && [ "$(cat "$S/draft")" = false ]; }
+case "$cmd" in
+    view)
+        [ -f "$S/exists" ] || { echo "release not found" >&2; exit 1; }
+        assets="$(for f in "$S"/assets/*; do [ -e "$f" ] || continue; n="$(basename "$f")"
+            jq -n --arg n "$n" --arg s "$(cat "$S/asset-state/$n" 2>/dev/null || echo uploaded)" '{name: $n, state: $s}'; done | jq -s .)"
+        jq -n --argjson d "$(cat "$S/draft")" --argjson a "$assets" '{isDraft: $d, assets: $a}' ;;
+    create)
+        # Real gh can create a second draft for a tag that has one; only a published release blocks it.
+        [ ! -f "$S/exists" ] || [ "$(cat "$S/draft")" = true ] || { echo "already_exists" >&2; exit 1; }
+        [ ! -f "$S/exists" ] || echo second-draft >> "$S/duplicates"
+        draft=false; for a in "$@"; do [ "$a" = --draft ] && draft=true; done
+        touch "$S/exists"; echo "$draft" > "$S/draft"; mkdir -p "$S/assets" "$S/asset-state" ;;
+    upload)
+        f="$2"; for a in "$@"; do [ "$a" = --clobber ] && { echo "fake-gh: --clobber is not allowed" >&2; exit 1; }; done
+        [ ! -e "$S/assets/$(basename "$f")" ] || { echo "asset under the same filename already exists" >&2; exit 1; }
+        immutable && { echo "immutable release" >&2; exit 1; }
+        cp "$f" "$S/assets/" ;;
+    delete-asset)
+        immutable && { echo "immutable release" >&2; exit 1; }
+        rm -f "$S/assets/$2" "$S/asset-state/$2" ;;
+    download)
+        pattern=""; dir="."
+        while [ $# -gt 0 ]; do case "$1" in --pattern) pattern="$2"; shift ;; --dir) dir="$2"; shift ;; esac; shift; done
+        mkdir -p "$dir"; cp "$S/assets/$pattern" "$dir/" ;;
+    edit)
+        [ -z "${FAKE_GH_ON_EDIT:-}" ] || bash -c "$FAKE_GH_ON_EDIT"
+        for a in "$@"; do [ "$a" = --draft=false ] && echo false > "$S/draft"; done ;;
+    *) echo "fake-gh: unsupported '$cmd'" >&2; exit 2 ;;
+esac
+if once "${FAKE_GH_FAIL_AFTER:-}" after; then
+    echo "fake-gh: $cmd reported a failure after it took effect (injected)" >&2; exit 1
+fi

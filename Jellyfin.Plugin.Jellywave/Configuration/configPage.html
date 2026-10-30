@@ -6,125 +6,224 @@
 </head>
 <body>
     <div id="JellywaveConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <style>
+            #JellywaveConfigPage .jwTableWrap { overflow-x: auto; margin: 0.5em 0 1em; }
+            #JellywaveConfigPage .jwTable { border-collapse: collapse; width: 100%; min-width: 46em; }
+            #JellywaveConfigPage .jwTable th, #JellywaveConfigPage .jwTable td { text-align: left; vertical-align: top; padding: 0.45em 0.5em; border-bottom: 1px solid rgba(128,128,128,0.35); }
+            #JellywaveConfigPage .jwTable th { font-weight: 600; white-space: nowrap; }
+            #JellywaveConfigPage .jwTable td.jwStatus { min-width: 14em; }
+            #JellywaveConfigPage .jwTable button { margin: 0 0.15em 0.2em 0; min-width: 2.4em; padding: 0.3em 0.6em; font-size: 0.9em; }
+            #JellywaveConfigPage .jwBox { border: 1px solid rgba(128,128,128,0.5); border-radius: 0.3em; padding: 0.8em; margin-bottom: 1em; }
+            #JellywaveConfigPage .jwLines { list-style: none; padding: 0; margin: 0.5em 0; }
+            #JellywaveConfigPage .jwLines li { margin: 0.25em 0; }
+            #JellywaveConfigPage .jwLines li button { margin-left: 0.5em; }
+            #JellywaveConfigPage details { margin: 0.5em 0 1em; }
+            /* jellyfin-web loads the emby-textarea layout lazily; without it the box is a tiny inline one. Fixed at
+               5 lines: 280 characters fill about 3 on a desktop and scroll on a phone. */
+            #JellywaveConfigPage #edNotes { box-sizing: border-box; display: block; width: 100%; margin: 0; padding: 0.35em 0.25em; font: inherit; font-size: 110%; line-height: 1.4; height: calc(5 * 1.4em + 0.7em) !important; resize: none; overflow-y: auto; }
+            #JellywaveConfigPage summary { cursor: pointer; padding: 0.3em 0; }
+            /* Status heads (card L5c): each colour has at least 3:1 contrast on #101010 and on #ffffff; the symbol carries the meaning without colour. */
+            #JellywaveConfigPage .jwHead { font-weight: 600; }
+            #JellywaveConfigPage .jwOk { color: #2b9348; }
+            #JellywaveConfigPage .jwWarn { color: #b07800; }
+            #JellywaveConfigPage .jwBad { color: #e5383b; }
+            #JellywaveConfigPage .jwMuted { color: #808080; }
+            /* Card L13: a notice at the top of the page; the coloured edge repeats the head's colour, the symbol carries the meaning. */
+            #JellywaveConfigPage .jwBanner { border-left: 0.3em solid #808080; padding: 0.5em 0.8em; margin: 0 0 0.8em; background: rgba(128,128,128,0.08); }
+            #JellywaveConfigPage .jwBanner button { margin: 0.5em 0 0; }
+            #JellywaveConfigPage .jwBannerOk { border-left-color: #2b9348; }
+            #JellywaveConfigPage .jwBannerWarn { border-left-color: #b07800; }
+            #JellywaveConfigPage .jwBannerBad { border-left-color: #e5383b; }
+            #JellywaveConfigPage #pageIntro { margin-bottom: 1em; }
+            #JellywaveConfigPage .jwSummaryTitle { display: inline; }
+            #JellywaveConfigPage .jwSubTitle { margin: 1.2em 0 0.5em; }
+            #JellywaveConfigPage #saveNear { margin-left: 1em; white-space: nowrap; }
+        </style>
         <div data-role="content">
             <div class="content-primary">
-                <form id="JellywaveConfigForm">
-                    <div class="verticalSection">
-                        <h2 class="sectionTitle">Station</h2>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StationBaseUrl">Station base URL</label>
-                            <input id="StationBaseUrl" name="StationBaseUrl" type="url" is="emby-input" required />
-                            <div class="fieldDescription">SUB/WAVE as reached from this Jellyfin server, e.g. http://your.host:7700. No trailing slash, credentials, query or fragment.</div>
-                            <div class="fieldDescription" id="stationUrlWarning" style="display:none"></div>
+                <form id="JellywaveConfigForm" novalidate>
+                    <div class="fieldDescription" id="pageIntro">Internet radio in a "<span id="introTileName">Live Radio</span>" tile in My Media.</div>
+
+                    <!-- Card L13: notices about the tile, each shown only while it applies. -->
+                    <div id="banners">
+                        <div class="jwBanner" id="channelStatus" role="status" style="display:none"></div>
+                        <div class="jwBanner" id="renameNotice" style="display:none">
+                            <div><span id="renameHead" class="jwHead"></span><span id="renameText"></span></div>
+                            <button is="emby-button" type="button" id="btnCarry" class="raised emby-button"><span>Give them access to the renamed tile</span></button>
+                            <div class="fieldDescription" id="carryResult"></div>
                         </div>
-                        <div class="inputContainer">
-                            <button is="emby-button" type="button" id="btnProbe" class="raised block emby-button"><span>Fetch from station</span></button>
-                            <div class="fieldDescription" id="probeResult">Reads the station name, tagline and stream format from the station's public API and fills the fields below.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StationName">Tile name</label>
-                            <input id="StationName" name="StationName" type="text" is="emby-input" required />
-                            <div class="fieldDescription">Shown in My Media. Jellyfin derives the channel id from this name, so pick one no other channel plugin uses. Renaming creates a new channel entry: access granted to the old one does not carry over, and the old one is cleaned up by the "Refresh Internet Channels" task.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StationTagline">Description</label>
-                            <input id="StationTagline" name="StationTagline" type="text" is="emby-input" />
-                            <div class="fieldDescription">Optional channel description.</div>
-                        </div>
+                        <div class="jwBanner" id="carrySkipped" style="display:none"></div>
+                        <div class="jwBanner jwBannerWarn" id="configWarning" style="display:none"></div>
                     </div>
 
                     <div class="verticalSection">
-                        <h2 class="sectionTitle">Stream</h2>
+                        <h2 class="sectionTitle">Stations</h2>
+                        <div class="fieldDescription">
+                            Each enabled station is one item in the tile, in this order. SUB/WAVE stations get now playing, covers, likes, lyrics, schedule and requests; plain streams get a name, a logo, a genre, a website link and the title they send (on the station page). Every station plays through this Jellyfin server, which relays it to each listener with ffmpeg.
+                            Jellyfin checks each saved station: one it refuses is left out of the tile, with the reason. Changes take effect when you press Save.
+                            Reload status also asks each SUB/WAVE station once: one that nobody listens to is not asked otherwise.
+                        </div>
+                        <!-- Card R2b (HI decision C): what tile access does not protect. -->
+                        <div class="jwBanner jwBannerWarn" id="exposureWarning"><span class="jwHead jwWarn" aria-hidden="true">⚠ </span>Tile access only hides the tile. On Jellyfin 12.4, any signed-in user can still read every station's address and play it through Jellyfin's own API. Anyone who has a station's item id can play it without signing in. Jellyfin works this way for all media, not only Jellywave. Don't add private streams, or addresses that contain passwords or keys.</div>
+                        <div class="jwTableWrap">
+                            <table class="jwTable" id="stationTable">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Order</th>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">On</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stationRows"></tbody>
+                            </table>
+                        </div>
+                        <div class="fieldDescription" id="stationsEmpty" style="display:none">No stations yet. Add one with its stream URL.</div>
+                        <div class="fieldDescription" id="tableNote" aria-live="polite"></div>
                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StreamPath">Stream path</label>
-                            <input id="StreamPath" name="StreamPath" type="text" is="emby-input" required />
-                            <div class="fieldDescription">Mount under the base URL, normally /stream.mp3.</div>
+                            <button is="emby-button" type="button" id="btnAdd" class="raised emby-button"><span>+ Add station</span></button>
+                            <button is="emby-button" type="button" id="btnHealth" class="raised emby-button"><span>Reload status</span></button>
+                            <span id="saveNear" style="display:none"><span class="jwHead">Unsaved changes.</span> <button is="emby-button" type="button" id="btnSaveNear" class="raised button-submit emby-button"><span>Save</span></button></span>
                         </div>
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="Delivery">Delivery</label>
-                            <select is="emby-select" id="Delivery" name="Delivery" class="emby-select-withcolor emby-select">
-                                <option value="Relay">Relay through Jellyfin (default)</option>
-                                <option value="Direct">Direct: clients fetch the stream themselves</option>
-                            </select>
-                            <div class="fieldDescription">Relay works for every client that can reach Jellyfin and uses ffmpeg. Direct needs every client to reach the station.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="ClientStreamUrl">Client stream URL (Direct only)</label>
-                            <input id="ClientStreamUrl" name="ClientStreamUrl" type="url" is="emby-input" />
-                            <div class="fieldDescription">Stream URL as clients see it. Leave empty to use the base URL and stream path.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StreamBitrateKbps">Bitrate (kbit/s)</label>
-                            <input id="StreamBitrateKbps" name="StreamBitrateKbps" type="number" is="emby-input" min="8" max="1536" />
-                            <div class="fieldDescription">Filled by "Fetch from station". Used to describe the stream to clients, not to transcode.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StreamSampleRate">Sample rate (Hz)</label>
-                            <input id="StreamSampleRate" name="StreamSampleRate" type="number" is="emby-input" min="8000" max="192000" />
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="StreamChannels">Channels</label>
-                            <input id="StreamChannels" name="StreamChannels" type="number" is="emby-input" min="1" max="8" />
-                        </div>
-                    </div>
+                        <div class="fieldDescription" id="saveNoteNear" aria-live="polite" style="display:none"></div>
 
-                    <div class="verticalSection">
-                        <h2 class="sectionTitle">Now playing</h2>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
-                                <span>Show the current track on the live item</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">Polls the station's public now-playing feed and writes the current track, DJ, show and what is up next into the live item's description. Clients show it when they reload the list or start playback; the playing bar keeps what it copied at playback start unless the station page below is active.</div>
-                        </div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="CoverArtEnabled" name="CoverArtEnabled" type="checkbox" is="emby-checkbox" />
-                                <span>Show the current track's cover art on the live item</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">Downloads the cover from the station on every track change and saves it as the live item's image. Tracks without art, and this box unticked, show the station logo instead. The tile in the My Media row always keeps the logo.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <div class="fieldDescription" id="pollerHealth">Poller status: checking…</div>
-                            <button is="emby-button" type="button" id="btnHealth" class="raised emby-button"><span>Refresh status</span></button>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="NowPlayingPollSeconds">Poll interval (seconds)</label>
-                            <input id="NowPlayingPollSeconds" name="NowPlayingPollSeconds" type="number" is="emby-input" min="5" max="300" step="1" />
-                            <div class="fieldDescription">5 to 300. Tracks change every few minutes, so 20 is plenty.</div>
+                        <div class="jwBox" id="stationEditor" style="display:none" role="group" aria-labelledby="editorTitle">
+                            <h3 id="editorTitle" tabindex="-1">Add station</h3>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="edUrl">Stream URL</label>
+                                <input id="edUrl" type="text" is="emby-input" autocomplete="off" spellcheck="false" />
+                                <div class="fieldDescription">As reached from this Jellyfin server: an MP3, AAC or HLS stream, a .pls or .m3u playlist, or a SUB/WAVE station's address. http:// or https://, no user:password@, no #fragment; a ?query is allowed but every user who can play the station can read it.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <button is="emby-button" type="button" id="btnCheck" class="raised emby-button"><span>Check</span></button>
+                                <ul class="jwLines" id="edLines" aria-live="polite"></ul>
+                                <div class="fieldDescription" id="edKind"></div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="edName">Name</label>
+                                <input id="edName" type="text" is="emby-input" />
+                                <div class="fieldDescription">Filled from the station when you press Check. Shown on the station's item in the tile; renaming a station renames its item within one update interval (Jellyfin keeps users' favourites and play state on the item).</div>
+                            </div>
+                            <div class="inputContainer" id="edTaglineBox">
+                                <label class="inputLabel inputLabelUnfocused" for="edTagline">Description</label>
+                                <input id="edTagline" type="text" is="emby-input" />
+                                <div class="fieldDescription">SUB/WAVE stations: optional, filled from the station.</div>
+                            </div>
+                            <div class="inputContainer" id="edLogoBox">
+                                <label class="inputLabel inputLabelUnfocused" for="edLogo">Logo URL</label>
+                                <input id="edLogo" type="text" is="emby-input" autocomplete="off" spellcheck="false" />
+                                <div class="fieldDescription">Plain streams: optional. A JPEG, PNG, GIF or WebP the server downloads (at most 4 MB and 4096 px). Blank shows the Jellywave logo.</div>
+                            </div>
+                            <div class="inputContainer" id="edGenreBox">
+                                <label class="inputLabel inputLabelUnfocused" for="edGenre">Genre</label>
+                                <input id="edGenre" type="text" is="emby-input" maxlength="60" />
+                                <div class="fieldDescription">Plain streams: optional, at most 60 characters, shown in the station page header. Check fills it from the stream when it is empty.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="edNotes">Notes</label>
+                                <textarea id="edNotes" is="emby-textarea" class="emby-textarea" rows="5" maxlength="280"></textarea>
+                                <div class="fieldDescription" id="edNotesCount">0 of 280 characters</div>
+                                <div class="fieldDescription">Optional plain text, shown in the station page header. On a plain stream it is also the item's description in every app.</div>
+                            </div>
+                            <div class="inputContainer" id="edWebsiteBox">
+                                <label class="inputLabel inputLabelUnfocused" for="edWebsite">Website</label>
+                                <input id="edWebsite" type="text" is="emby-input" maxlength="2048" autocomplete="off" spellcheck="false" />
+                                <div class="fieldDescription">Plain streams: optional http:// or https:// link in the station page header; it opens in a new tab. The server never visits it.</div>
+                            </div>
+                            <details id="edAdvanced">
+                                <summary>Advanced: format</summary>
+                                <div class="fieldDescription" id="edSubWaveAddress"></div>
+                                <div class="selectContainer">
+                                    <label class="selectLabel" for="edCodec">Codec</label>
+                                    <select is="emby-select" id="edCodec" class="emby-select-withcolor emby-select">
+                                        <option value="mp3">MP3</option>
+                                        <option value="aac">AAC</option>
+                                    </select>
+                                </div>
+                                <div class="selectContainer">
+                                    <label class="selectLabel" for="edContainer">Container</label>
+                                    <select is="emby-select" id="edContainer" class="emby-select-withcolor emby-select">
+                                        <option value="mp3">MP3</option>
+                                        <option value="aac">AAC</option>
+                                        <option value="hls">HLS</option>
+                                    </select>
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="edBitrate">Bitrate (kbit/s)</label>
+                                    <input id="edBitrate" type="number" is="emby-input" min="8" max="1536" />
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="edSampleRate">Sample rate (Hz)</label>
+                                    <input id="edSampleRate" type="number" is="emby-input" min="8000" max="192000" />
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="edChannels">Channels</label>
+                                    <input id="edChannels" type="number" is="emby-input" min="1" max="8" />
+                                </div>
+                                <div class="fieldDescription">Filled by Check. They describe the stream to clients; a codec that does not match the stream can fail playback.</div>
+                            </details>
+                            <ul class="jwLines" id="edHints" aria-live="polite"></ul>
+                            <div class="inputContainer">
+                                <button is="emby-button" type="button" id="btnEdOk" class="raised button-submit emby-button"><span id="btnEdOkText">Add to list</span></button>
+                                <button is="emby-button" type="button" id="btnEdCancel" class="raised emby-button"><span>Cancel</span></button>
+                            </div>
                         </div>
                     </div>
 
                     <div class="verticalSection">
                         <h2 class="sectionTitle">Who can see it</h2>
-                        <div class="fieldDescription">
-                            Jellyfin's own Channel Access setting on each user (Dashboard → Users → user → Access) decides who sees the station.
-                            The button below adds the station to everyone who cannot see it right now, including anyone you unticked earlier; after pressing, untick those users again.
-                            It never removes the station from anyone, changes nothing else in a user's policy, and skips users whose block list names the station.
-                            New users do not get it automatically. The dashboard's Add User page leaves "Enable access to all channels" unticked, so tick that or the station on the form; for users from a provisioning tool, include the station in the tool's template; or press the button again.
-                            To hide the station from one user, untick it on their Access page. Nothing in the background re-adds it, but the next press of the button does.
-                        </div>
+                        <div class="fieldDescription">Users see all the stations or none; set it per user under Dashboard → Users → Access, where Jellyfin calls the tile a channel. The button adds the tile for everyone who doesn't have it, including anyone you switched off on purpose.</div>
+                        <div class="fieldDescription" id="viewerCount"></div>
                         <div class="inputContainer">
-                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Add the station to every user now</span></button>
-                            <div class="fieldDescription" id="grantResult">Save the station settings first.</div>
+                            <button is="emby-button" type="button" id="btnGrant" class="raised block emby-button"><span>Add the tile to every user now</span></button>
+                            <div class="fieldDescription" id="grantResult"></div>
                         </div>
+                        <div class="fieldDescription" id="noTranscode" style="display:none"></div>
                     </div>
 
                     <div class="verticalSection">
-                        <h2 class="sectionTitle">Station page</h2>
-                        <div class="fieldDescription">
-                            Optional. With the <a is="emby-linkbutton" class="button-link" href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener noreferrer">File Transformation</a>
-                            plugin installed (repository <code>https://www.iamparadox.dev/jellyfin/plugins/manifest.json</code>), users who can see the channel get a live header on the
-                            channel's page in the web client, Android app included: cover, track, DJ, show, what is next, play and stop, and a request box. Without it the tile keeps working; only the page is missing.
-                            As of 2026-10-27 that repository offers no File Transformation build to Jellyfin 12.3 servers (its newest entry targets 12.2), so it does not show in the catalog here.
-                        </div>
+                        <h2 class="sectionTitle">Live panel</h2>
+                        <div class="fieldDescription">Optional. Install <a is="emby-linkbutton" class="button-link" href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener noreferrer">File Transformation</a> to get a live panel on the tile's page. Everything else works without it.</div>
                         <div class="fieldDescription" id="webUiStatus">Checking…</div>
                     </div>
 
+                    <details class="verticalSection" id="advancedSettings">
+                        <summary><h2 class="sectionTitle jwSummaryTitle">Advanced</h2></summary>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="LibraryName">Tile name</label>
+                            <input id="LibraryName" name="LibraryName" type="text" is="emby-input" />
+                            <div class="fieldDescription">Shown in My Media. Renaming makes a new tile; see README first.</div>
+                        </div>
+                        <h3 class="jwSubTitle">Now playing</h3>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="NowPlayingEnabled" name="NowPlayingEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Show what's playing</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">SUB/WAVE stations: while someone plays one or has its station page open, the server keeps its item's description on the current track, DJ, show and what's next (most apps show it when the list is reopened), and the station page shows the live track; otherwise the server asks the station nothing and its item shows its own picture and text. Plain streams: while someone plays one, the server reads the title it sends every 15 seconds for the station page, each time a short extra listener on the station.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="CoverArtEnabled" name="CoverArtEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Show the current track's cover art on the item</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Uses each track's cover as the station's picture. Without it, or when a track has no art, the Jellywave logo shows. The My Media tile always shows the logo.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="NowPlayingPollSeconds">Update every (seconds)</label>
+                            <input id="NowPlayingPollSeconds" name="NowPlayingPollSeconds" type="number" is="emby-input" min="5" max="300" step="1" />
+                            <div class="fieldDescription">5 to 300. Tracks change every few minutes, so 20 is plenty.</div>
+                        </div>
+                        <div class="fieldDescription" id="pollerStatus">Now playing updates: checking…</div>
+                    </details>
+
                     <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <button is="emby-button" type="submit" id="btnSave" class="raised button-submit block emby-button">
                             <span>Save</span>
                         </button>
+                        <div class="fieldDescription" id="saveNote" aria-live="polite"></div>
                     </div>
                 </form>
             </div>
@@ -133,16 +232,830 @@
             (function () {
                 var pluginId = '6ca437a0-5b11-41c6-8fe7-92e5de66e2fe';
                 var page = document.querySelector('#JellywaveConfigPage');
-                var fields = ['StationBaseUrl', 'StationName', 'StationTagline', 'StreamPath', 'Delivery', 'ClientStreamUrl',
-                    'StreamBitrateKbps', 'StreamSampleRate', 'StreamChannels', 'NowPlayingPollSeconds'];
+                var defaultTile = 'Live Radio';
+                var idRule = /^[A-Za-z0-9_-]{1,64}$/;
+                var levelMark = { ok: '✓', warn: '⚠', error: '✕', redirect: '↪' };
+                // Card L8: the limits the server enforces again where it reads the fields.
+                var maxNotes = 280;
+                var maxWebsite = 2048;
+                var logoText = { own: 'own logo', embedded: 'Jellywave logo (no logo URL)', deferred: 'logo downloading', failed: '⚠ logo failed; retried within 30 min' };
+                // Status lines (card L5c): a coloured head (symbol and one or two words), then a plain tail.
+                var statusClass = { ok: 'jwOk', warn: 'jwWarn', bad: 'jwBad', off: 'jwMuted', plain: '', moved: 'jwWarn' };
+                var statusMark = { ok: '✓ ', warn: '⚠ ', bad: '✕ ', off: '', plain: '', moved: '↪ ' };
+                // The poll interval the server uses: the field clamped like collect() does, the default for a blank or non-number.
+                var defaultPollSeconds = 20;
+                var minPollSeconds = 5;
+                var maxPollSeconds = 300;
+                // The poller line turns yellow when the last poll took longer than this share of the poll interval,
+                // and red when it took longer than the whole interval (the items then update less often than set).
+                var slowPollShare = 0.5;
+                var tooSlowPollShare = 1;
+                // Card L11: a blank name. A SUB/WAVE station keeps "SUB/WAVE"; a plain stream is named after its stream URL's
+                // host (ASCII form, as JellywaveChannel.StationName does), or this when the URL has no host.
+                var subWaveName = 'SUB/WAVE';
+                var unnamedStream = 'Unnamed stream';
+                // Card R2b (HI decision C): every signed-in user can read a station's address through Jellyfin's own API, so the
+                // dialog warns when the stream URL's query has a parameter named like a secret, case-insensitive: one of its words
+                // is in secretParams (words split at punctuation, camelCase, an acronym before a word and digits: api_key,
+                // accessToken, APIKey, token2), a word or the whole name is a joined name in secretJoined (apikey, PHPSESSID), or a
+                // word ends in one of secretSuffixes (mytoken). A warning only; Add still works. A secret in the path is not seen.
+                var secretParams = ['token', 'key', 'auth', 'sig', 'signature', 'secret', 'pass', 'password', 'session', 'sid'];
+                var secretJoined = ['apikey', 'accesskey', 'accesstoken', 'authtoken', 'authkey', 'passkey', 'secretkey', 'streamkey', 'sessionid',
+                    'sessid', 'phpsessid', 'pwd', 'passwd', 'credential', 'hdnts'];
+                var secretSuffixes = ['token', 'secret', 'password', 'signature', 'credential'];
+                var secretWarning = 'Every signed-in user can read this address, even users the tile is hidden from. Leave secrets out of it.';
+
+                // Page state. Every station-supplied or probe-supplied string reaches the page through textContent or value only.
+                // health is null until the first answer; healthFailed says the last Health request failed.
+                // savedList: the station list as last loaded from the server (listSignature), for the unsaved-changes guard;
+                // loaded: the last load succeeded (a page that failed to load must not save its empty list over the real one);
+                // shown: this page is the view on screen (jellyfin-web keeps hidden views in the document).
+                // tileName: the saved tile name (the collision banner names it); noteCause: what the save note is about ('dialog'
+                // while it asks to finish the station dialog, 'rename' while it asks about a new tile name), so the note goes with
+                // its cause (fix round N3).
+                var state = { stations: [], health: null, healthFailed: false, removing: -1, editor: null, savedList: null, loaded: false, shown: false,
+                    tileName: defaultTile, noteCause: null };
+                // Numbers each Viewers read; only the newest answer is shown (fix round N2).
+                var viewerSeq = 0;
+                // Numbers each Check; an answer is applied only to the check, dialog and URL it was asked for.
+                var checkSeq = 0;
 
                 function el(id) { return page.querySelector('#' + id); }
+                function setText(id, text) { el(id).textContent = text; }
+                function show(id, visible) { el(id).style.display = visible ? '' : 'none'; }
+                function failText(e) { return 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error')); }
+
+                // ---- Status lines ----
+
+                function statusOf(level, head, tail) { return { level: level, head: head, tail: tail || '' }; }
+
+                function span(text, cls) {
+                    var s = document.createElement('span');
+                    if (cls) { s.className = cls; }
+                    s.textContent = text;
+                    return s;
+                }
+
+                // Writes label, head and tail as text only: server-supplied parts (ChannelStatus, LastError, versions) never become markup.
+                function statusLine(node, label, l) {
+                    node.textContent = '';
+                    if (label) { node.appendChild(span(label)); }
+                    node.appendChild(span(statusMark[l.level] + l.head, 'jwHead' + (statusClass[l.level] ? ' ' + statusClass[l.level] : '')));
+                    if (l.tail) { node.appendChild(span(l.tail)); }
+                }
+
+                // Card L13: a notice at the top of the page, shown only while it applies (no line for a tile that is fine).
+                var bannerClass = { ok: 'jwBannerOk', warn: 'jwBannerWarn', bad: 'jwBannerBad' };
+                function banner(id, l) {
+                    var node = el(id);
+                    node.className = 'jwBanner' + (l && bannerClass[l.level] ? ' ' + bannerClass[l.level] : '');
+                    if (l) { statusLine(node, '', l); } else { node.textContent = ''; }
+                    node.style.display = l ? '' : 'none';
+                }
+
+                // The note about the last Save, next to the bottom Save and next to the one beside the table (card L13).
+                // cause: what the note is about ('dialog' while it asks to finish the station dialog), so it can go with it.
+                function saveNote(l, cause) {
+                    state.noteCause = cause || null;
+                    state.note = l;
+                    ['saveNote', 'saveNoteNear'].forEach(function (id) {
+                        if (typeof l === 'string') { setText(id, l); } else { statusLine(el(id), '', l); }
+                    });
+                }
+
+                // ---- Station helpers (pure) ----
+
+                // A GUID in "N" format: 32 hex digits. crypto.getRandomValues works on plain http, randomUUID does not.
+                function newId() {
+                    var b = new Uint8Array(16);
+                    crypto.getRandomValues(b);
+                    b[6] = (b[6] & 0x0f) | 0x40;
+                    b[8] = (b[8] & 0x3f) | 0x80;
+                    return Array.prototype.map.call(b, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+                }
+
+                function kindOf(s) {
+                    if (s.Kind === 'Stream' || s.Kind === 1) { return 'Stream'; }
+                    if (s.Kind === 'SubWave' || s.Kind === 0 || s.Kind == null) { return 'SubWave'; }
+                    return String(s.Kind);
+                }
+                function lower(v) { return (v || '').trim().toLowerCase(); }
                 function trimSlashes(value) { return (value || '').trim().replace(/\/+$/, ''); }
+                function joinUrl(base, path) { return trimSlashes(base) + '/' + (path || '').trim().replace(/^\/+/, ''); }
+                function serverUrlOf(s) { return kindOf(s) === 'Stream' ? (s.StreamUrl || '') : (s.BaseUrl ? joinUrl(s.BaseUrl, s.StreamPath) : ''); }
+                // The host of an http(s) URL in its ASCII form (URL.hostname is punycode, like .NET's Uri.IdnHost), or ''.
+                function hostOf(url) {
+                    try {
+                        var u = new URL((url || '').trim());
+                        return u.protocol === 'http:' || u.protocol === 'https:' ? u.hostname : '';
+                    } catch (e) { return ''; }
+                }
+                function fallbackName(s) { return kindOf(s) === 'SubWave' ? subWaveName : (hostOf(s.StreamUrl) || unnamedStream); }
+                function displayName(s) { return (s.Name || '').trim() || fallbackName(s); }
+                function pathOf(url) { try { return new URL(url).pathname.toLowerCase(); } catch (e) { return ''; } }
+                function isHls(s) { var c = lower(s.Container); return c === 'hls' || c === 'm3u8' || /\.m3u8$/.test(pathOf(serverUrlOf(s))); }
+                function codecOf(s) { return lower(s.Codec) || 'mp3'; }
+
+                function sortStations(list) {
+                    return (list || []).filter(function (s) { return s; })
+                        .map(function (s, i) { return { s: s, i: i }; })
+                        .sort(function (a, b) { return ((a.s.SortOrder || 0) - (b.s.SortOrder || 0)) || (a.i - b.i); })
+                        .map(function (x) { return x.s; });
+                }
+
+                function newStation() {
+                    return { Id: newId(), Kind: 'Stream', Enabled: true, SortOrder: 0, Name: '', BaseUrl: '', StreamPath: '/stream.mp3',
+                        StreamUrl: '', LogoUrl: '', Tagline: '', Genre: '', Notes: '', Website: '', Codec: 'mp3', Container: 'mp3',
+                        BitrateKbps: 192, SampleRate: 44100, Channels: 2 };
+                }
+
+                function kindLabel(s) { var k = kindOf(s); return k === 'SubWave' ? 'SUB/WAVE' : (k === 'Stream' ? 'Stream' : 'unknown (' + k + ')'); }
+
+                // A time in the future (a clock ahead of this browser's) reads "0 s ago". Fix round N1: days from 48 h on.
+                var secondsUpTo = 90;
+                var minutesUpTo = 90 * 60;
+                var hoursUpTo = 48 * 3600;
+                function ago(iso) {
+                    if (!iso) { return 'never'; }
+                    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+                    if (s < secondsUpTo) { return s + ' s ago'; }
+                    if (s < minutesUpTo) { return Math.round(s / 60) + ' min ago'; }
+                    return s < hoursUpTo ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
+                }
+
+                // The status column: the server's view of the saved station (Health.Stations), never a URL.
+                function statusText(s, h, top) {
+                    if (s._unsaved) { return statusOf('off', 'not saved yet'); }
+                    if (!top) { return state.healthFailed ? statusOf('warn', 'couldn\'t check') : statusOf('plain', 'checking…'); }
+                    if (!h) { return statusOf('off', 'not saved yet'); }
+                    var st;
+                    var extra = [];
+                    if (!h.Enabled) { st = statusOf('off', 'disabled'); }
+                    else if (!h.Listed) { st = statusOf('bad', 'left out of the tile', ': ' + (h.NotListedReason || 'refused')); }
+                    else if (h.Kind === 'SubWave') {
+                        if (!top.PollingEnabled) { st = statusOf('off', 'in the tile', ' · now playing is off'); }
+                        else if (!top.Running) { st = statusOf('warn', 'in the tile', ' · now playing updates not running yet'); }
+                        // Card L14: the server asks a station only while someone listens or has its page open; idle is grey, not
+                        // a failure, and never an old "on air" time. An answer after the idle time came from Reload status.
+                        else if (h.IdleSinceUtc) { st = idleStatus(h); }
+                        // A normal state right after a save (card L11: grey, not yellow).
+                        else if (h.Reachable === null || h.Reachable === undefined) { st = statusOf('off', 'in the tile', ' · waiting for the first update'); }
+                        else if (h.Reachable) { st = statusOf('ok', 'on air', ' · ' + ago(h.LastSuccessUtc)); }
+                        else { st = statusOf('warn', 'failing', (h.LastError ? ': ' + h.LastError : '') + ' · last success ' + ago(h.LastSuccessUtc)); }
+                        if (h.Cover) { extra.push(h.Cover === 'logo' ? 'image: logo' : 'image: track cover'); }
+                    } else {
+                        // Card L13: the last time the server read the stream for its title (only while someone played it with
+                        // "Show what's playing" on, since the last restart; HLS streams are never read).
+                        // Fix round S2: a redirect is "moved" (the relay follows it and plays; titles need the new address).
+                        var read = h.LastReadUtc ? h.LastReadOutcome : null;
+                        if (read === 'Answered') { st = statusOf('ok', 'answered', ' ' + ago(h.LastReadUtc)); }
+                        else if (read === 'Moved') { st = statusOf('moved', 'moved', ' ' + ago(h.LastReadUtc) + ': Edit → Check → Use it to read titles'); }
+                        else if (read === 'NoAnswer') { st = statusOf('warn', 'no answer', ' ' + ago(h.LastReadUtc)); }
+                        else { st = statusOf('ok', 'in the tile'); }
+                        if (h.Logo) { extra.push(logoText[h.Logo] || h.Logo); }
+                    }
+                    st.tail += extra.map(function (x) { return ' · ' + x; }).join('');
+                    // A warning in the tail (a failed logo) makes a green head yellow.
+                    if (st.level === 'ok' && extra.some(function (x) { return x.indexOf('⚠') === 0; })) { st.level = 'warn'; }
+                    return st;
+                }
+
+                // Card L14: an idle SUB/WAVE station, with what Reload status found when it asked the station on purpose.
+                var idleText = 'idle: nobody listening';
+                function idleStatus(h) {
+                    var since = new Date(h.IdleSinceUtc).getTime();
+                    var after = function (iso) { return !!iso && new Date(iso).getTime() >= since; };
+                    if (h.Reachable === true && after(h.LastSuccessUtc)) { return statusOf('ok', 'answered', ' when checked ' + ago(h.LastSuccessUtc) + ' · ' + idleText); }
+                    if (h.Reachable === false && after(h.LastErrorUtc)) {
+                        return statusOf('warn', 'failing', (h.LastError ? ': ' + h.LastError : '') + ' when checked ' + ago(h.LastErrorUtc) + ' · ' + idleText);
+                    }
+                    return statusOf('off', 'idle', ': nobody listening');
+                }
+
+                function pollSeconds() {
+                    return Math.min(maxPollSeconds, Math.max(minPollSeconds, parseInt(el('NowPlayingPollSeconds').value, 10) || defaultPollSeconds));
+                }
+
+                function allIdle(h) {
+                    var subWave = (h.Stations || []).filter(function (s) { return s.Kind === 'SubWave' && s.Listed; });
+                    return subWave.length > 0 && subWave.every(function (s) { return !!s.IdleSinceUtc; });
+                }
+
+                function pollerLine(h) {
+                    if (!h.PollingEnabled) { return statusOf('plain', 'now playing is off', '.'); }
+                    if (!h.Running) { return statusOf('warn', 'not running', ' (starts after server startup).'); }
+                    var took = h.LastFetchSeconds;
+                    // Card L14 fix round: the server clears the time when its last update asked no station, so an old one
+                    // never shows; with every SUB/WAVE station idle the line says why nothing was asked.
+                    if (took === null || took === undefined) { return statusOf('ok', 'running', allIdle(h) ? '. No SUB/WAVE station is in use (nobody plays one or has its page open), so none is asked.' : '.'); }
+                    var interval = pollSeconds();
+                    var fetched = '. The last update asked the SUB/WAVE stations someone listens to in ' + took + ' s';
+                    if (took > interval * tooSlowPollShare) { return statusOf('bad', 'too slow', fetched + ', longer than the update interval: the stations update less often than set.'); }
+                    if (took > interval * slowPollShare) { return statusOf('warn', 'running slow', fetched + ', more than half the update interval (' + interval + ' s).'); }
+                    return statusOf('ok', 'running', fetched + '.');
+                }
+
+                function webUiLine(s) {
+                    if (s.State === 'Active') {
+                        return statusOf('ok', 'Active', ' with File Transformation' + (s.FileTransformationVersion ? ' ' + s.FileTransformationVersion : '')
+                            + '. Users may need to reload the web client once.');
+                    }
+                    // Card L11: optional, so grey; red stays for a registration that failed. Card U1: its catalog offers it for 12.0-12.4.
+                    if (s.State === 'NotInstalled') { return statusOf('off', 'Not installed', ': add the repository https://www.iamparadox.dev/jellyfin/plugins/manifest.json (Dashboard → Plugins → Repositories), install File Transformation, then restart.'); }
+                    if (s.State === 'Failed') { return statusOf('bad', 'Not active', ': registration failed; see the server log.'); }
+                    if (s.State === 'Unknown') { return statusOf('warn', 'Not checked', ' yet (the check runs at server startup).'); }
+                    return statusOf('warn', 'Unknown state', s.Message ? ': ' + s.Message : '.');
+                }
+
+                // Health lists the saved stations in grid order; ids can repeat (a refused duplicate), so take them in turn.
+                function healthFor(stations, health) {
+                    var queues = {};
+                    ((health && health.Stations) || []).forEach(function (h) { (queues[h.Id] = queues[h.Id] || []).push(h); });
+                    return stations.map(function (s) { var q = queues[s.Id || '']; return q && q.length ? q.shift() : null; });
+                }
+
+                // The website rule (StationUrls.WebsiteLink): a hint only; the server drops a refused website where it reads it.
+                function websiteProblem(value) {
+                    var raw = (value || '').trim();
+                    if (!raw) { return null; }
+                    if (raw.length > maxWebsite) { return 'it is longer than ' + maxWebsite + ' characters'; }
+                    var u;
+                    try { u = new URL(raw); } catch (e) { return 'it is not an absolute URL'; }
+                    if (u.protocol !== 'http:' && u.protocol !== 'https:') { return 'only http:// and https:// are allowed'; }
+                    if (u.username || u.password || /^[a-z]+:\/\/[^\/?#]*@/i.test(raw)) { return 'it contains credentials (user:password@)'; }
+                    return null;
+                }
+
+                // Client-side hints only: the server (StationSources) decides, and the table shows its reason after Save.
+                function urlProblem(value, allowPlaylist) {
+                    var raw = (value || '').trim();
+                    if (!raw) { return null; }
+                    var u;
+                    try { u = new URL(raw); } catch (e) { return 'it is not an absolute URL'; }
+                    if (u.protocol !== 'http:' && u.protocol !== 'https:') { return 'only http:// and https:// are allowed'; }
+                    if (u.username || u.password || /^[a-z]+:\/\/[^\/?#]*@/i.test(raw)) { return 'it contains credentials (user:password@)'; }
+                    if (raw.indexOf('#') >= 0) { return 'it contains a fragment (#…)'; }
+                    var path = u.pathname.toLowerCase();
+                    if (!allowPlaylist && (/\.pls$/.test(path) || /\.m3u$/.test(path))) { return 'it is a .pls or .m3u playlist: press Check to use the stream it lists'; }
+                    if (/\.mpd$/.test(path)) { return 'it is a DASH manifest (.mpd), which Jellywave does not serve'; }
+                    return null;
+                }
+
+                function secretInQuery(value) {
+                    var u;
+                    try { u = new URL((value || '').trim()); } catch (e) { return false; }
+                    var found = false;
+                    u.searchParams.forEach(function (v, name) { if (secretName(name)) { found = true; } });
+                    return found;
+                }
+
+                function secretName(name) {
+                    var words = name.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z])([A-Z])/g, '$1 $2')
+                        .replace(/([A-Za-z])([0-9])/g, '$1 $2').replace(/([0-9])([A-Za-z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/);
+                    var whole = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    function endsInSecret(w) {
+                        return secretSuffixes.some(function (x) { return w.length > x.length && w.slice(-x.length) === x; });
+                    }
+                    return secretJoined.indexOf(whole) >= 0 || words.some(function (w) {
+                        return secretParams.indexOf(w) >= 0 || secretJoined.indexOf(w) >= 0 || endsInSecret(w);
+                    });
+                }
+
+                // nameHint: whether to warn about a blank name (card L11 N2: in an Add box only after a Check has answered or
+                // Add to list was pressed, since Check usually fills the name).
+                function hints(d, nameHint) {
+                    var out = [];
+                    if (!idRule.test(d.Id || '')) { out.push('The station id is not 1 to 64 letters, digits, _ or -.'); }
+                    var main = urlProblem(serverUrlOf(d), false);
+                    if (main) { out.push('Stream URL: ' + main + '.'); }
+                    if (!serverUrlOf(d)) { out.push('No stream URL yet.'); }
+                    if (kindOf(d) === 'Stream') { var logo = urlProblem(d.LogoUrl, true); if (logo) { out.push('Logo URL: ' + logo + '.'); } }
+                    if (kindOf(d) === 'Stream') { var site = websiteProblem(d.Website); if (site) { out.push('Website: ' + site + '; the header leaves it out.'); } }
+                    if (nameHint && !(d.Name || '').trim()) { out.push('Name is blank: the station shows as "' + fallbackName(d) + '".'); }
+                    return out;
+                }
+
+                // The station list in table order without the page-only key, for the unsaved-changes guard: a row edited and
+                // put back as it was (an Enabled box ticked twice, a station moved down and up) counts as unchanged.
+                function listSignature(list) {
+                    return JSON.stringify(list.map(function (s) { var copy = Object.assign({}, s); delete copy._unsaved; return copy; }));
+                }
+
+                function unsavedList() { return state.savedList !== null && listSignature(state.stations) !== state.savedList; }
+
+                // ---- Table ----
+
+                function button(text, label, onClick, disabled) {
+                    // No options argument: jellyfin-web's custom-elements polyfill expects a string there and throws on an object.
+                    var b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'raised emby-button';
+                    b.textContent = text;
+                    if (label) { b.setAttribute('aria-label', label); b.title = label; }
+                    b.disabled = !!disabled;
+                    b.addEventListener('click', onClick);
+                    return b;
+                }
+
+                function cell(row, text, cls) {
+                    var td = document.createElement('td');
+                    if (cls) { td.className = cls; }
+                    td.textContent = text;
+                    row.appendChild(td);
+                    return td;
+                }
+
+                function renderTable(focus) {
+                    var body = el('stationRows');
+                    body.textContent = '';
+                    var health = healthFor(state.stations, state.health);
+                    state.stations.forEach(function (s, i) {
+                        var name = displayName(s);
+                        var tr = document.createElement('tr');
+                        var order = cell(tr, '');
+                        var up = button('↑', 'Move ' + name + ' up', function () { move(i, -1, 'up'); }, i === 0);
+                        var down = button('↓', 'Move ' + name + ' down', function () { move(i, 1, 'down'); }, i === state.stations.length - 1);
+                        up.dataset.focus = 'up' + i;
+                        down.dataset.focus = 'down' + i;
+                        order.appendChild(up);
+                        order.appendChild(down);
+                        cell(tr, name + (s.Enabled ? '' : ' (off)'));
+                        cell(tr, kindLabel(s));
+                        var enabled = document.createElement('input');
+                        enabled.type = 'checkbox';
+                        enabled.checked = !!s.Enabled;
+                        enabled.setAttribute('aria-label', 'Enabled: ' + name);
+                        enabled.addEventListener('change', function () { s.Enabled = enabled.checked; s._unsaved = true; changed(); });
+                        cell(tr, '').appendChild(enabled);
+                        statusLine(cell(tr, '', 'jwStatus'), '', statusText(s, health[i], state.health));
+                        var actions = cell(tr, '');
+                        if (state.removing === i) {
+                            var ask = document.createElement('span');
+                            ask.textContent = 'Remove ' + name + '? ';
+                            actions.appendChild(ask);
+                            var yes = button('Remove', 'Remove ' + name + ' now', function () { removeAt(i); });
+                            yes.dataset.focus = 'confirm' + i;
+                            actions.appendChild(yes);
+                            actions.appendChild(button('Keep', 'Keep ' + name, function () { state.removing = -1; renderTable('remove' + i); }));
+                        } else {
+                            var edit = button('Edit', 'Edit ' + name, function () { openEditor(i); });
+                            edit.dataset.focus = 'edit' + i;
+                            var remove = button('✕', 'Remove ' + name, function () { state.removing = i; renderTable('confirm' + i); });
+                            remove.dataset.focus = 'remove' + i;
+                            actions.appendChild(edit);
+                            actions.appendChild(remove);
+                        }
+                        body.appendChild(tr);
+                    });
+                    show('stationTable', state.stations.length > 0);
+                    show('stationsEmpty', state.stations.length === 0);
+                    // Card L13: a second Save beside the table, only while the list differs from the last save.
+                    var unsaved = unsavedList();
+                    show('saveNear', unsaved);
+                    show('saveNoteNear', unsaved);
+                    if (focus) {
+                        var target = body.querySelector('[data-focus="' + focus + '"]');
+                        if (target && !target.disabled) { target.focus(); }
+                    }
+                }
+
+                function changed() {
+                    setText('tableNote', '');
+                    renderTable();
+                }
+
+                function move(i, delta, which) {
+                    var j = i + delta;
+                    if (j < 0 || j >= state.stations.length) { return; }
+                    var s = state.stations.splice(i, 1)[0];
+                    state.stations.splice(j, 0, s);
+                    state.removing = -1;
+                    setText('tableNote', '');
+                    // Keep the focus on the same arrow of the moved station, or on the other one at the end of the list.
+                    var keep = (which === 'up' && j === 0) ? 'down' : (which === 'down' && j === state.stations.length - 1 ? 'up' : which);
+                    renderTable(keep + j);
+                }
+
+                function removeAt(i) {
+                    var removed = state.stations.splice(i, 1)[0];
+                    state.removing = -1;
+                    setText('tableNote', 'Station removed: press Save to apply.');
+                    if (state.editor && state.editor.target === removed) {
+                        // Its dialog would otherwise put it back on Apply.
+                        closeEditorQuietly();
+                        setText('tableNote', 'Station removed, and its open dialog closed without applying: press Save to apply.');
+                    }
+                    renderTable();
+                    el('btnAdd').focus();
+                }
+
+                // ---- Add / Edit dialog ----
+
+                function editorFields(d) {
+                    el('edUrl').value = serverUrlOf(d);
+                    el('edName').value = d.Name || '';
+                    el('edTagline').value = d.Tagline || '';
+                    el('edLogo').value = d.LogoUrl || '';
+                    el('edGenre').value = d.Genre || '';
+                    el('edNotes').value = d.Notes || '';
+                    el('edWebsite').value = d.Website || '';
+                    notesCount();
+                    el('edCodec').value = codecOf(d) === 'aac' ? 'aac' : 'mp3';
+                    el('edContainer').value = isHls(d) ? 'hls' : (lower(d.Container) === 'aac' ? 'aac' : (lower(d.Container) === 'mp3' ? 'mp3' : el('edCodec').value));
+                    el('edBitrate').value = d.BitrateKbps || '';
+                    el('edSampleRate').value = d.SampleRate || '';
+                    el('edChannels').value = d.Channels || '';
+                }
+
+                function openEditor(index) {
+                    var adding = index === null;
+                    var source = adding ? newStation() : state.stations[index];
+                    state.removing = -1;
+                    // The station object, not its index: the table can be reordered while the dialog is open.
+                    state.editor = { index: index, target: adding ? null : source, draft: Object.assign({}, source), originalUrl: adding ? '' : serverUrlOf(source),
+                        probe: null, probeUrl: null, autoName: null, auto: {}, confirmUnchecked: false, confirmDowngrade: false,
+                        // Card L11: an Add box shows no hints until the URL field is typed in or Check is pressed; Edit at once.
+                        touched: !adding, nameHint: !adding };
+                    resetCheck();
+                    editorFields(state.editor.draft);
+                    setText('editorTitle', adding ? 'Add station' : 'Edit ' + displayName(source));
+                    setText('btnEdOkText', adding ? 'Add to list' : 'Apply to list');
+                    el('edLines').textContent = '';
+                    el('edAdvanced').open = false;
+                    refreshEditor();
+                    show('stationEditor', true);
+                    el('editorTitle').focus();
+                    renderTable();
+                }
+
+                // Fix round N3: a note asking to finish the dialog goes when the dialog does.
+                function dialogClosed() {
+                    if (state.noteCause === 'dialog') { saveNote(''); }
+                }
+
+                function closeEditor(focusId) {
+                    state.editor = null;
+                    dialogClosed();
+                    resetCheck();
+                    show('stationEditor', false);
+                    el(focusId || 'btnAdd').focus();
+                }
+
+                // The kind the dialog will save: the last successful check for the URL in the field, else the stored one.
+                function editorKind() {
+                    var ed = state.editor;
+                    var url = el('edUrl').value.trim();
+                    if (ed.probe && ed.probe.Ok && ed.probeUrl === url) { return ed.probe.Kind; }
+                    if (ed.index !== null && url === ed.originalUrl) { return kindOf(ed.draft); }
+                    return null;
+                }
+
+                function refreshEditor() {
+                    var ed = state.editor;
+                    if (!ed) { return; }
+                    var kind = editorKind();
+                    var probe = ed.probe && ed.probe.Ok && ed.probeUrl === el('edUrl').value.trim() ? ed.probe : null;
+                    var kindText;
+                    if (kind === 'SubWave') { kindText = 'Type: SUB/WAVE station' + (probe ? ' (detected)' : '') + '.'; }
+                    else if (kind === 'Stream') { kindText = 'Type: stream' + (probe ? ' (checked)' : '') + '.'; }
+                    else { kindText = 'Type: not checked yet. Press Check; the type comes from the station.'; }
+                    setText('edKind', kindText);
+                    show('edTaglineBox', kind === 'SubWave');
+                    show('edLogoBox', kind !== 'SubWave');
+                    show('edGenreBox', kind !== 'SubWave');
+                    show('edWebsiteBox', kind !== 'SubWave');
+                    var sub = kind === 'SubWave' ? (probe ? { BaseUrl: probe.BaseUrl, StreamPath: probe.StreamPath } : ed.draft) : null;
+                    setText('edSubWaveAddress', sub ? 'SUB/WAVE address: ' + trimSlashes(sub.BaseUrl) + ' · stream path: ' + (sub.StreamPath || '') : '');
+                    var list = el('edHints');
+                    list.textContent = '';
+                    if (!ed.touched) { return; }
+                    var draft = draftFromEditor(false);
+                    hints(draft, ed.nameHint).forEach(function (text) { addLine(list, 'warn', 'Hint: ' + text); });
+                    // Card R2b: the URL as typed, and the stream a check found (a playlist's entry may carry the secret).
+                    if (secretInQuery(el('edUrl').value) || secretInQuery(serverUrlOf(draft))) { addLine(list, 'warn', secretWarning); }
+                }
+
+                function addLine(list, level, text) {
+                    var li = document.createElement('li');
+                    li.textContent = (levelMark[level] || '•') + ' ' + text;
+                    list.appendChild(li);
+                    return li;
+                }
+
+                function numberOr(id, fallback) { var n = parseInt(el(id).value, 10); return n > 0 ? n : fallback; }
+
+                // The station the dialog describes. For an unchecked new URL the kind is a plain stream (the server decides).
+                function draftFromEditor(final) {
+                    var ed = state.editor;
+                    var d = Object.assign({}, ed.draft);
+                    var url = el('edUrl').value.trim();
+                    var probe = ed.probe && ed.probe.Ok && ed.probeUrl === url ? ed.probe : null;
+                    if (probe) {
+                        d.Kind = probe.Kind;
+                        if (probe.Kind === 'SubWave') { d.BaseUrl = probe.BaseUrl; d.StreamPath = probe.StreamPath; d.StreamUrl = ''; }
+                        else { d.StreamUrl = probe.StreamUrl; d.BaseUrl = ''; }
+                    } else if (!(ed.index !== null && url === ed.originalUrl)) {
+                        d.Kind = 'Stream';
+                        d.StreamUrl = url;
+                        d.BaseUrl = '';
+                    }
+                    d.Name = el('edName').value.trim();
+                    d.Tagline = kindOf(d) === 'SubWave' ? el('edTagline').value.trim() : (d.Tagline || '');
+                    d.LogoUrl = kindOf(d) === 'Stream' ? el('edLogo').value.trim() : '';
+                    // Genre and website show in a plain stream's header only; a SUB/WAVE station keeps what it had.
+                    d.Genre = kindOf(d) === 'Stream' ? el('edGenre').value.trim() : (d.Genre || '');
+                    d.Website = kindOf(d) === 'Stream' ? el('edWebsite').value.trim() : (d.Website || '');
+                    d.Notes = el('edNotes').value.trim();
+                    d.Codec = el('edCodec').value;
+                    d.Container = el('edContainer').value;
+                    // Blank means "default", never 0 (the server would describe a 0 kbit/s stream).
+                    d.BitrateKbps = numberOr('edBitrate', 192);
+                    d.SampleRate = numberOr('edSampleRate', 44100);
+                    d.Channels = numberOr('edChannels', 2);
+                    if (final) { d._unsaved = true; }
+                    return d;
+                }
+
+                function applyProbe(r, url) {
+                    var ed = state.editor;
+                    ed.probe = r;
+                    ed.probeUrl = url;
+                    ed.confirmUnchecked = false;
+                    ed.confirmDowngrade = false;
+                    var list = el('edLines');
+                    list.textContent = '';
+                    (r.Lines || []).forEach(function (line) {
+                        var li = addLine(list, line.Level, line.Text);
+                        if (line.Level === 'redirect' && r.Redirect) {
+                            var use = button('Use it', 'Use the redirected address', function () {
+                                el('edUrl').value = r.Redirect;
+                                el('edUrl').focus();
+                                refreshEditor();
+                            });
+                            li.appendChild(use);
+                        }
+                    });
+                    if (!r.Lines || !r.Lines.length) { addLine(list, r.Ok ? 'ok' : 'error', r.Ok ? 'Checked.' : 'Nothing found.'); }
+                    if (r.Ok) {
+                        var name = el('edName').value.trim();
+                        if (r.Name && (!name || name === ed.autoName)) { el('edName').value = r.Name; ed.autoName = r.Name; }
+                        if (r.Tagline && !el('edTagline').value.trim()) { el('edTagline').value = r.Tagline; }
+                        // Card L8: like the name, a field is filled when it is empty or still holds the last filled value.
+                        fillFromCheck('edGenre', 'genre', r.Genre);
+                        fillFromCheck('edNotes', 'notes', r.Notes);
+                        fillFromCheck('edWebsite', 'website', r.Website);
+                        notesCount();
+                        if (r.Codec) { el('edCodec').value = r.Codec; }
+                        if (r.Container) { el('edContainer').value = r.Container; }
+                        if (r.BitrateKbps) { el('edBitrate').value = r.BitrateKbps; }
+                        if (r.SampleRate) { el('edSampleRate').value = r.SampleRate; }
+                        if (r.Channels) { el('edChannels').value = r.Channels; }
+                    }
+                    refreshEditor();
+                }
+
+                function fillFromCheck(id, key, value) {
+                    var ed = state.editor;
+                    var current = el(id).value.trim();
+                    if (value && (!current || current === ed.auto[key])) { el(id).value = value; ed.auto[key] = value; }
+                }
+
+                function notesCount() {
+                    setText('edNotesCount', el('edNotes').value.length + ' of ' + maxNotes + ' characters');
+                }
+
+                // A new dialog never waits for, or receives, the answer of a check started in an earlier one.
+                function resetCheck() {
+                    checkSeq++;
+                    el('btnCheck').disabled = false;
+                }
+
+                function checkBody(ed, url) {
+                    var body = { Url: url };
+                    // Re-checking a SUB/WAVE station: the server also tries its stored base, so a deeper stream path stays SUB/WAVE.
+                    if (ed.target && kindOf(ed.target) === 'SubWave' && ed.target.BaseUrl) { body.BaseUrl = ed.target.BaseUrl; }
+                    return body;
+                }
+
+                function runCheck() {
+                    var ed = state.editor;
+                    if (!ed || el('btnCheck').disabled) { return; }   // Enter while a check runs starts no second one
+                    var url = el('edUrl').value.trim();
+                    var list = el('edLines');
+                    list.textContent = '';
+                    if (!ed.touched) { ed.touched = true; refreshEditor(); }
+                    if (!url) { checked(ed); addLine(list, 'error', 'Enter the stream URL first.'); return; }
+                    addLine(list, 'ok', 'Checking from the server…');
+                    var seq = ++checkSeq;
+                    el('btnCheck').disabled = true;
+                    function current() { return seq === checkSeq && state.editor === ed; }
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/Probe'), data: JSON.stringify(checkBody(ed, url)),
+                        contentType: 'application/json', dataType: 'json' }).then(function (r) {
+                        if (!current()) { return; }
+                        checked(ed);
+                        if (el('edUrl').value.trim() === url) { applyProbe(r, url); return; }
+                        list.textContent = '';
+                        addLine(list, 'warn', 'The URL changed while it was being checked; press Check again.');
+                    }).catch(function (e) {
+                        if (!current()) { return; }
+                        checked(ed);
+                        list.textContent = '';
+                        addLine(list, 'error', failText(e));
+                    }).then(function () { if (seq === checkSeq) { el('btnCheck').disabled = false; } });
+                }
+
+                // A Check answered (or Add to list was pressed): from now on the dialog warns about a blank name.
+                function checked(ed) {
+                    if (ed.nameHint) { return; }
+                    ed.nameHint = true;
+                    refreshEditor();
+                }
+
+                function commitEditor() {
+                    var ed = state.editor;
+                    if (!ed) { return; }
+                    checked(ed);
+                    var url = el('edUrl').value.trim();
+                    var list = el('edLines');
+                    if (!url) { list.textContent = ''; addLine(list, 'error', 'Enter the stream URL first.'); el('edUrl').focus(); return; }
+                    var kind = editorKind();
+                    // A SUB/WAVE station saved as anything but SUB/WAVE (a check found a plain stream, or its URL changed
+                    // without a check) gets the SUB/WAVE warning, and one confirming press covers both cases.
+                    if (ed.target && kindOf(ed.target) === 'SubWave' && kind !== 'SubWave' && !ed.confirmDowngrade) {
+                        ed.confirmDowngrade = true;
+                        ed.confirmUnchecked = true;
+                        addLine(list, 'warn', (kind
+                            ? 'This is a SUB/WAVE station, but the check found a plain stream. Press '
+                            : 'This is a SUB/WAVE station, and its new URL has not been checked successfully. Press Check, or press ')
+                            + el('btnEdOkText').textContent + ' again to save it as a plain stream'
+                            + (kind ? '' : ' with the format under Advanced')
+                            + ': now playing, covers, likes and requests stop for it. Cancel keeps it as it is.');
+                        return;
+                    }
+                    if (!kind && !ed.confirmUnchecked) {
+                        ed.confirmUnchecked = true;
+                        addLine(list, 'warn', 'This URL has not been checked successfully. Press Check, or press '
+                            + el('btnEdOkText').textContent + ' again to save it as a plain stream with the format under Advanced.');
+                        return;
+                    }
+                    var d = draftFromEditor(true);
+                    var at = ed.target ? state.stations.indexOf(ed.target) : -1;
+                    if (ed.target && at < 0) {
+                        closeEditor('btnAdd');
+                        setText('tableNote', 'That station is no longer in the list; nothing was applied.');
+                        return;
+                    }
+                    if (ed.target) { d.Enabled = ed.target.Enabled; }   // the table's Enabled box may have changed meanwhile
+                    if (at < 0) { state.stations.push(d); at = state.stations.length - 1; } else { state.stations[at] = d; }
+                    closeEditor('btnAdd');
+                    setText('tableNote', '');
+                    renderTable(ed.target ? 'edit' + at : null);
+                }
+
+                // ---- Load and save ----
 
                 function load(config) {
-                    fields.forEach(function (f) { el(f).value = config[f] == null ? '' : config[f]; });
+                    el('LibraryName').value = config.LibraryName || defaultTile;
+                    state.tileName = tileNameOf(config.LibraryName);
+                    setText('introTileName', state.tileName);
+                    state.stations = sortStations(config.Stations).map(function (s) { return Object.assign({}, s); });
+                    state.removing = -1;
+                    el('NowPlayingPollSeconds').value = config.NowPlayingPollSeconds == null ? '' : config.NowPlayingPollSeconds;
                     el('NowPlayingEnabled').checked = !!config.NowPlayingEnabled;
                     el('CoverArtEnabled').checked = config.CoverArtEnabled !== false;
+                    state.savedList = listSignature(state.stations);
+                    saveNote('');   // a note from a failed save or load no longer describes this page
+                    state.loaded = true;
+                    setText('tableNote', '');
+                    renderTable();
+                }
+
+                function collect(config) {
+                    // The server records the outgoing tile name itself on a rename and keeps the bridge lists (rename bridge).
+                    config.LibraryName = tileNameOf(el('LibraryName').value);
+                    // The legacy flat fields are left as loaded: only the 0.4.x migration and a downgrade read them.
+                    config.Stations = state.stations.map(function (s, i) {
+                        var copy = Object.assign({}, s);
+                        delete copy._unsaved;
+                        copy.SortOrder = i;
+                        return copy;
+                    });
+                    config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
+                    config.CoverArtEnabled = el('CoverArtEnabled').checked;
+                    config.NowPlayingPollSeconds = pollSeconds();
+                    // LastChangedUtc is left as read: the server stamps every save itself (card R1).
+                    return config;
+                }
+
+                function loadHealth() { return showHealth(ApiClient.getJSON(ApiClient.getUrl('Jellywave/Health'))); }
+
+                // Card L14: Reload status asks every SUB/WAVE station once on the server (it can take a few seconds), then
+                // shows the health that check left. The button waits for it, and comes back whatever happens.
+                function reloadStatus() {
+                    var button = el('btnHealth');
+                    button.disabled = true;
+                    var done = function () { button.disabled = false; };
+                    return showHealth(ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/Health/Check'), dataType: 'json' }))
+                        .then(done, function (e) { done(); console.warn('[Jellywave] status failed', e); });
+                }
+
+                function showHealth(request) {
+                    return request.then(function (h) {
+                        state.health = h;
+                        state.healthFailed = false;
+                        // Card L9: a fresh install whose first save failed had no file to read; it says so instead.
+                        // Card R1: an unreadable file is copied aside before anything writes; the banner names the copy, or
+                        // says that saves are refused while the copy fails.
+                        banner('configWarning', !h.ConfigurationWarning ? null
+                            : h.ConfigurationUnsaved ? statusOf('warn', 'Jellywave could not save its settings file.', ' The stations are kept in memory until a save works (see the server log).')
+                            : h.ConfigurationSaveRefusal ? statusOf('bad', 'Jellywave could not read its settings file and could not keep a copy of it.',
+                                ' It runs on defaults, and Save is refused until the copy works, so the file is never overwritten. Check that Jellyfin can read the settings file and write to its folder (see the server log).')
+                            : statusOf('warn', 'Jellywave could not read its settings file and runs on defaults.', h.ConfigurationUnreadableCopy
+                                ? ' The file was kept as ' + h.ConfigurationUnreadableCopy + ' in the plugin configurations folder; Save writes a new settings file.' : ''));
+                        // Card L13: no line while the tile is fine; a collision opens Advanced, where the tile name is.
+                        banner('channelStatus', h.ChannelStatus
+                            ? statusOf('bad', 'Another plugin\'s tile is also called "' + state.tileName + '".', ' Jellywave does nothing until you rename it (Advanced → Tile name).')
+                            : null);
+                        if (h.ChannelStatus) { el('advancedSettings').open = true; }
+                        statusLine(el('pollerStatus'), 'Now playing updates: ', pollerLine(h));
+                        renderTable();
+                    }).catch(function (e) {
+                        // A stale answer would look current: the table says it could not check instead.
+                        state.health = null;
+                        state.healthFailed = true;
+                        statusLine(el('pollerStatus'), 'Now playing updates: ', statusOf('warn', 'couldn\'t check', '. ' + failText(e) + '.'));
+                        banner('channelStatus', statusOf('warn', 'Couldn\'t check the tile', '. ' + failText(e) + '.'));
+                        renderTable();
+                    });
+                }
+
+                // Card L13: who can see the tile (the grant button's rule, counted by the server) and who of them cannot play a
+                // station because "Allow audio playback that requires transcoding" is off (card L10). Reads only. User names
+                // are text, through textContent.
+                // Fix round (MI): at most this many names, then "and N more".
+                var maxNamed = 10;
+                function viewersLine(names) {
+                    var shown = names.slice(0, maxNamed).join(', ') + (names.length > maxNamed ? ' and ' + (names.length - maxNamed) + ' more' : '');
+                    var where = names.length === 1 ? names[0] : 'each user';
+                    return statusOf('warn', '', shown + ' can see the tile but can\'t play stations: "Allow audio playback that requires transcoding" is off for them'
+                        + ' (Dashboard → Users → ' + where + ' → Profile → Media playback).');
+                }
+
+                function loadViewers() {
+                    var seq = ++viewerSeq;
+                    return ApiClient.getJSON(ApiClient.getUrl('Jellywave/Viewers')).then(function (v) {
+                        if (seq !== viewerSeq) { return; }   // a newer read is on its way
+                        var names = (v && !v.Error && v.NoAudioTranscoding) || [];
+                        if (v && v.Error) { statusLine(el('viewerCount'), '', statusOf('plain', 'Not counted', ': ' + v.Error + '.')); }
+                        else { setText('viewerCount', v.Visible + ' of ' + v.Users + (v.Users === 1 ? ' active user' : ' active users') + ' can see the tile.'); }
+                        if (names.length) { statusLine(el('noTranscode'), '', viewersLine(names)); } else { setText('noTranscode', ''); }
+                        show('noTranscode', names.length > 0);
+                    }).catch(function (e) {
+                        if (seq !== viewerSeq) { return; }
+                        statusLine(el('viewerCount'), '', statusOf('warn', 'Couldn\'t count', '. ' + failText(e) + '.'));
+                        setText('noTranscode', '');
+                        show('noTranscode', false);
+                    });
+                }
+
+                // Rename bridge: shown only while users still name an earlier tile without the current one.
+                function quoted(names) { return names.map(function (n) { return '"' + n + '"'; }).join(' or '); }
+                function loadCarry(keepOpen) {
+                    var box = el('renameNotice');
+                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/CarryAccess')).then(function (s) {
+                        var names = s.PreviousNames || [];
+                        var skipped = el('carrySkipped');
+                        skipped.textContent = s.SkippedOtherChannel > 0
+                            ? s.SkippedOtherChannel + (s.SkippedOtherChannel === 1 ? ' earlier tile name now belongs' : ' earlier tile names now belong')
+                                + ' to another plugin\'s tile: access to it is not given to this tile, but users blocked from it still do not see this tile.'
+                            : '';
+                        skipped.style.display = s.SkippedOtherChannel > 0 ? '' : 'none';
+                        if (s.Pending > 0) {
+                            renameHead('warn');
+                            el('renameText').textContent = 'Tile renamed: ' + s.Pending + (s.Pending === 1 ? ' user' : ' users') + ' could see ' + quoted(names)
+                                + ' but not "' + (s.TileName || defaultTile) + '" yet.';
+                            box.style.display = '';
+                        } else if (keepOpen) {
+                            renameHead('ok');
+                            el('renameText').textContent = 'Every user who named an old tile now has the same access to "' + (s.TileName || defaultTile) + '".';
+                        } else {
+                            box.style.display = 'none';
+                        }
+                    }).catch(function () { if (!keepOpen) { box.style.display = 'none'; } });
+                }
+
+                // The rename notice is a yellow banner while users wait for access, green once they all have it.
+                function renameHead(level) {
+                    var head = el('renameHead');
+                    head.textContent = statusMark[level];
+                    head.className = 'jwHead ' + statusClass[level];
+                    el('renameNotice').className = 'jwBanner ' + bannerClass[level];
+                }
+
+                function describeCarry(r) {
+                    if (r.Error) { return 'Nothing done: ' + r.Error + '.'; }
+                    return 'Done: carried over ' + r.CarriedGrants + ', blocks copied ' + r.CarriedBlocks + ', already current ' + r.AlreadyCurrent
+                        + ', not affected ' + r.Untouched + '.';
                 }
 
                 function describeGrant(r) {
@@ -150,114 +1063,164 @@
                     return 'Done: granted ' + r.Granted + ', already visible ' + r.AlreadyVisible + ', blocked by a block list ' + r.Blocked + '.';
                 }
 
-                function runGrant(out) {
-                    out.textContent = 'Running…';
-                    return ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/GrantAccess'), dataType: 'json' }).then(function (r) {
-                        out.textContent = describeGrant(r);
-                    }).catch(function (e) {
-                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
-                    });
-                }
-
-                function collect(config) {
-                    config.StationBaseUrl = trimSlashes(el('StationBaseUrl').value);
-                    config.StationName = el('StationName').value.trim();
-                    config.StationTagline = el('StationTagline').value.trim();
-                    config.StreamPath = el('StreamPath').value.trim() || '/stream.mp3';
-                    config.Delivery = el('Delivery').value;
-                    config.ClientStreamUrl = el('ClientStreamUrl').value.trim();
-                    // Blank means "default", never 0 (0 would fail the inputs' min on the next load).
-                    config.StreamBitrateKbps = parseInt(el('StreamBitrateKbps').value, 10) || 192;
-                    config.StreamSampleRate = parseInt(el('StreamSampleRate').value, 10) || 44100;
-                    config.StreamChannels = parseInt(el('StreamChannels').value, 10) || 2;
-                    config.NowPlayingEnabled = el('NowPlayingEnabled').checked;
-                    config.CoverArtEnabled = el('CoverArtEnabled').checked;
-                    config.NowPlayingPollSeconds = Math.min(300, Math.max(5, parseInt(el('NowPlayingPollSeconds').value, 10) || 20));
-                    config.LastChangedUtc = new Date().toISOString();
-                    return config;
-                }
-
-                page.addEventListener('pageshow', function () {
+                // A failed request never leaves the spinner up (card L11 G1.1). A failed load also blocks Save: the page would
+                // otherwise post its empty list over the stations the server has.
+                function reload() {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         load(config);
                         Dashboard.hideLoadingMsg();
+                        return loadHealth();
+                    }, function (e) {
+                        Dashboard.hideLoadingMsg();
+                        state.loaded = false;
+                        saveNote(statusOf('bad', 'Couldn\'t load the settings', ': ' + failText(e) + '. Reload the page before you save.'));
                     });
-                    loadHealth();
-                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/WebUi')).then(function (s) {
-                        var text = { NotInstalled: 'Not active: the File Transformation plugin is not installed.',
-                                     Active: 'Active with File Transformation ' + (s.FileTransformationVersion || '') + '. Users may need to reload the web client once.',
-                                     Failed: 'Not active: registration failed; see the server log.',
-                                     Unknown: 'Not checked yet (the check runs at server startup).' }[s.State] || s.Message;
-                        el('webUiStatus').textContent = text;
-                    }).catch(function () { el('webUiStatus').textContent = 'Status unavailable.'; });
-                });
-
-                function ago(iso) {
-                    if (!iso) { return 'never'; }
-                    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-                    return s < 90 ? s + ' s ago' : Math.round(s / 60) + ' min ago';
                 }
-                function loadHealth() {
-                    var out = el('pollerHealth');
-                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/Health')).then(function (h) {
-                        var parts = [];
-                        var warn = el('stationUrlWarning');
-                        warn.textContent = h.StationUrlRefusal ? 'Warning: the saved ' + h.StationUrlStatus + '. The station is not used until this is fixed.' : '';
-                        warn.style.display = h.StationUrlRefusal ? '' : 'none';
-                        if (!h.StationConfigured) { parts.push(h.StationUrlStatus || 'no station URL configured'); }
-                        else if (!h.PollingEnabled) { parts.push('polling is off'); }
-                        else if (!h.Running) { parts.push('poller not running (starts after server startup)'); }
-                        else if (h.Reachable === null || h.Reachable === undefined) { parts.push('waiting for the first poll'); }
-                        else { parts.push(h.Reachable ? 'station reachable' : 'station NOT reachable'); }
-                        parts.push('last success ' + ago(h.LastSuccessUtc));
-                        if (h.LastErrorUtc) { parts.push('last error ' + ago(h.LastErrorUtc) + (h.LastError ? ': ' + h.LastError : '')); }
-                        if (h.ChannelStatus) { parts.push(h.ChannelStatus + ' (change the tile name; nothing is written or granted until then)'); }
-                        else { parts.push(h.LiveItemExists ? 'live item: ' + (h.Description || 'no description') + ' · image: ' + (h.Cover || 'not yet set') : 'live item not created yet (open the tile once)'); }
-                        out.textContent = 'Poller status: ' + parts.join(' · ');
-                    }).catch(function () { out.textContent = 'Poller status: unavailable.'; });
-                }
-                el('btnHealth').addEventListener('click', loadHealth);
 
-                el('btnProbe').addEventListener('click', function () {
-                    var baseUrl = trimSlashes(el('StationBaseUrl').value);
-                    var out = el('probeResult');
-                    if (!baseUrl) { out.textContent = 'Enter the station base URL first.'; return; }
-                    out.textContent = 'Contacting the station from the server…';
-                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/Station', { baseUrl: baseUrl })).then(function (r) {
-                        if (!r.Ok) { out.textContent = 'Station probe failed: ' + (r.Error || 'unknown error') + '.'; return; }
-                        if (r.Name) { el('StationName').value = r.Name; }
-                        if (r.Tagline) { el('StationTagline').value = r.Tagline; }
-                        if (r.StreamMount) { el('StreamPath').value = r.StreamMount; }
-                        if (r.StreamBitrateKbps) { el('StreamBitrateKbps').value = r.StreamBitrateKbps; }
-                        if (r.StreamSampleRate) { el('StreamSampleRate').value = r.StreamSampleRate; }
-                        if (r.StreamChannels) { el('StreamChannels').value = r.StreamChannels; }
-                        var notes = [];
-                        notes.push(r.StreamOnline === false ? 'stream offline' : 'stream online');
-                        if (r.StreamFormat && r.StreamFormat !== 'mp3') { notes.push('format ' + r.StreamFormat + ' (plugin expects mp3)'); }
-                        if (r.ListenerAuth) { notes.push('listener auth is ON: this plugin cannot play a private stream yet'); }
-                        if (r.NowPlaying) { notes.push('now playing: ' + r.NowPlaying); }
-                        out.textContent = 'Fetched "' + (r.Name || '?') + '": ' + notes.join('; ') + '. Save to apply.';
-                    }).catch(function (e) {
-                        if (e && e.status === 400) { out.textContent = 'The station base URL must be an absolute http(s) URL without credentials, a query or a fragment.'; return; }
-                        out.textContent = 'Request failed: ' + (e && e.status ? 'HTTP ' + e.status : (e && e.message ? e.message : 'unknown error'));
-                    });
-                });
-
-                el('btnGrant').addEventListener('click', function () { runGrant(el('grantResult')); });
-
-                page.querySelector('#JellywaveConfigForm').addEventListener('submit', function (e) {
+                // Card L11 G1.2: the browser asks before a tab close or reload drops a changed station list. jellyfin-web's own
+                // navigation cannot be stopped (12.3 viewContainer ignores the viewbeforehide result), so "Unsaved changes" stays.
+                function onBeforeUnload(e) {
+                    if (!state.shown || !unsavedList()) { return undefined; }
                     e.preventDefault();
+                    e.returnValue = '';
+                    return '';
+                }
+
+                // ---- Wiring ----
+
+                page.addEventListener('pageshow', function () {
+                    state.shown = true;
+                    closeEditorQuietly();
+                    reload();
+                    loadCarry(false);
+                    loadViewers();
+                    ApiClient.getJSON(ApiClient.getUrl('Jellywave/WebUi')).then(function (s) {
+                        statusLine(el('webUiStatus'), '', webUiLine(s || {}));
+                    }).catch(function (e) { statusLine(el('webUiStatus'), '', statusOf('warn', 'Couldn\'t check', '. ' + failText(e) + '.')); });
+                });
+
+                function closeEditorQuietly() { state.editor = null; dialogClosed(); resetCheck(); show('stationEditor', false); }
+
+                // jellyfin-web 12.3 keeps up to three views in the document and dispatches viewhide (and, for a page like this
+                // one, pagehide) when another view is shown, and viewdestroy when it drops this one.
+                window.addEventListener('beforeunload', onBeforeUnload);
+                ['pagehide', 'viewhide'].forEach(function (name) { page.addEventListener(name, function () { state.shown = false; }); });
+                page.addEventListener('viewdestroy', function () { state.shown = false; window.removeEventListener('beforeunload', onBeforeUnload); });
+
+                el('btnHealth').addEventListener('click', reloadStatus);
+                el('btnAdd').addEventListener('click', function () { openEditor(null); });
+                el('btnCheck').addEventListener('click', runCheck);
+                el('btnEdOk').addEventListener('click', commitEditor);
+                el('btnEdCancel').addEventListener('click', function () { closeEditor('btnAdd'); });
+                el('edUrl').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runCheck(); } });
+                el('stationEditor').addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); closeEditor('btnAdd'); } });
+                ['edUrl', 'edLogo', 'edName'].forEach(function (id) {
+                    el(id).addEventListener('input', function () {
+                        if (!state.editor) { return; }
+                        if (id === 'edUrl') { state.editor.touched = true; }
+                        state.editor.confirmUnchecked = false;
+                        state.editor.confirmDowngrade = false;
+                        refreshEditor();
+                    });
+                });
+                ['edCodec', 'edContainer'].forEach(function (id) { el(id).addEventListener('change', refreshEditor); });
+                el('edWebsite').addEventListener('input', refreshEditor);
+                el('edNotes').addEventListener('input', notesCount);
+
+                el('btnCarry').addEventListener('click', function () {
+                    var out = el('carryResult');
+                    out.textContent = 'Running…';
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/CarryAccess'), dataType: 'json' }).then(function (r) {
+                        out.textContent = describeCarry(r);
+                        loadCarry(true);
+                        loadViewers();
+                    }).catch(function (e) { out.textContent = failText(e); });
+                });
+
+                el('btnGrant').addEventListener('click', function () {
+                    var out = el('grantResult');
+                    out.textContent = 'Running…';
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Jellywave/GrantAccess'), dataType: 'json' }).then(function (r) {
+                        out.textContent = describeGrant(r);
+                        loadViewers();
+                    }).catch(function (e) { out.textContent = failText(e); });
+                });
+
+                // The tile name as the server reads it (ConfigMigration.TileName): trimmed, blank meaning "Live Radio".
+                function tileNameOf(value) { return (value || '').trim() || defaultTile; }
+
+                // Card R2b (HI decision D2): Save with a changed tile name asks first, beside both Saves, as the table asks before
+                // Remove. Rename saves; Cancel leaves the page as it is and saves nothing. Typing in the tile name drops the question.
+                // Fix round: Rename puts the focus back on the Save that was pressed (origin), Cancel on the tile name; state.note
+                // goes, so a Health answer for an earlier failed save cannot replace the question.
+                function askRename(from, to, origin) {
+                    state.noteCause = 'rename';
+                    state.note = null;
+                    ['saveNote', 'saveNoteNear'].forEach(function (id) {
+                        var node = el(id);
+                        node.textContent = '';
+                        node.appendChild(span('Renaming makes a new tile. Users who had "' + from + '" ticked by name will not see "' + to
+                            + '" until you press Give them access to the renamed tile. Rename? '));
+                        node.appendChild(button('Rename', 'Rename the tile and save', function () { el(origin).focus(); save(origin, to); }));
+                        node.appendChild(button('Cancel', 'Keep the saved tile name and save nothing', function () { saveNote(''); el('LibraryName').focus(); }));
+                    });
+                }
+
+                // Both Save buttons (card L13: the bottom one and the one beside the table) run this. origin: the id of the Save
+                // pressed; renamedTo: the tile name the admin agreed to rename to (card R2b); a name typed since is asked about again.
+                function save(origin, renamedTo) {
+                    // Fix round S1: both Saves check the interval field (the form is novalidate, and the field sits in a fold
+                    // that may be closed, where the browser's own check could not show its bubble).
+                    var interval = el('NowPlayingPollSeconds');
+                    if (!interval.checkValidity()) {
+                        el('advancedSettings').open = true;
+                        interval.reportValidity();
+                        return;
+                    }
+                    if (state.editor) {
+                        saveNote('Finish the station dialog first (' + el('btnEdOkText').textContent + ' or Cancel), then Save.', 'dialog');
+                        el('editorTitle').focus();
+                        return;
+                    }
+                    if (!state.loaded) {
+                        saveNote(statusOf('bad', 'Not saved', ': the settings did not load. Reload the page before you save.'));
+                        return;
+                    }
+                    var tile = tileNameOf(el('LibraryName').value);
+                    if (tile !== state.tileName && renamedTo !== tile) { askRename(state.tileName, tile, origin); return; }
+                    saveNote('');
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        var updated = collect(config);
-                        ApiClient.updatePluginConfiguration(pluginId, updated).then(function (result) {
-                            Dashboard.processPluginConfigurationUpdateResult(result);
-                            loadHealth();   // shows a refused URL right after saving; the save itself is never blocked
+                        return ApiClient.updatePluginConfiguration(pluginId, collect(config));
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        reload();            // the table shows the server's verdict on every station (left-out reasons)
+                        loadCarry(false);    // a rename shows the notice at once
+                        loadViewers();       // a rename makes a new tile, seen by other users
+                    }, function (e) {
+                        // Card L11 G1.1: the spinner goes and the reason shows next to Save; the page keeps every change.
+                        Dashboard.hideLoadingMsg();
+                        var failed = statusOf('bad', 'Not saved', ': ' + failText(e) + '. Your changes are still on this page; press Save to try again.');
+                        saveNote(failed);
+                        // Card R1: Jellyfin answers a refused save with a bare error, so the server's reason comes from Health
+                        // (only while this note is still the one shown).
+                        return loadHealth().then(function () {
+                            var refusal = state.health && state.health.ConfigurationSaveRefusal;
+                            if (refusal && state.note === failed) {
+                                saveNote(statusOf('bad', 'Not saved', ': ' + refusal + '. Your changes are still on this page; press Save to try again.'));
+                            }
                         });
                     });
+                }
+
+                el('btnSaveNear').addEventListener('click', function () { save('btnSaveNear'); });
+                page.querySelector('#JellywaveConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    save('btnSave');
                     return false;
                 });
+                el('LibraryName').addEventListener('input', function () { if (state.noteCause === 'rename') { saveNote(''); } });
             })();
         </script>
     </div>

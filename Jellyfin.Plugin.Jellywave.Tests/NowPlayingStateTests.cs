@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 
 public class NowPlayingStateTests
 {
-    private const string Origin = "http://station.example/";
+    private static readonly StationKey Origin = new("live", "http://station.example/");
 
     private static NowPlayingFeed Feed(string? artist, string? title, string? album = null, string? dj = null, string? show = null, bool online = true, string? coverId = null)
         => new()
@@ -20,7 +20,7 @@ public class NowPlayingStateTests
     [Fact]
     public void Empty_state_has_no_description()
     {
-        Assert.Null(new NowPlayingState().Description());
+        Assert.Null(new NowPlayingState().Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -28,8 +28,8 @@ public class NowPlayingStateTests
     {
         var state = new NowPlayingState();
         Assert.Equal(NowPlayingChange.Description, state.Update(Origin, Feed("Keith Kouna", "Rideau", "La Duchesse", "Bobby Tran", "The Ville"), DateTime.UtcNow));
-        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville", state.Description());
-        Assert.Equal("Keith Kouna – Rideau", state.TrackLine());
+        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville", state.Snapshot(Origin).Description);
+        Assert.Equal("Keith Kouna – Rideau", state.Snapshot(Origin).TrackLine);
     }
 
     [Fact]
@@ -39,17 +39,17 @@ public class NowPlayingStateTests
         feed.Context = new ContextInfo { ShowHandover = new ShowHandoverInfo { NextShow = new NextShowInfo { Name = "The Ville", Presenter = "Bobby Tran", StartsAt = "eight in the morning" } } };
         var state = new NowPlayingState();
         state.Update(Origin, feed, DateTime.UtcNow);
-        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville with Bobby Tran at eight in the morning", state.Description());
+        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville with Bobby Tran at eight in the morning", state.Snapshot(Origin).Description);
 
         feed.Context.ShowHandover.NextShow.Presenter = null;
         feed.Context.ShowHandover.NextShow.StartsAt = "  ";
         state.Update(Origin, feed, DateTime.UtcNow);
-        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville", state.Description());
+        Assert.Equal("Now playing: A – B · Early Shift · Up next: The Ville", state.Snapshot(Origin).Description);
 
         // The station sometimes names the running show as "next"; that is noise.
         feed.Context.ShowHandover.NextShow.Name = "early shift";
         state.Update(Origin, feed, DateTime.UtcNow);
-        Assert.Equal("Now playing: A – B · Early Shift", state.Description());
+        Assert.Equal("Now playing: A – B · Early Shift", state.Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -66,11 +66,11 @@ public class NowPlayingStateTests
     {
         var state = new NowPlayingState();
         Assert.Equal(NowPlayingChange.Description | NowPlayingChange.Cover, state.Update(Origin, Feed("A", "B", coverId: "id-1"), DateTime.UtcNow));
-        Assert.Equal("id-1", state.CoverId());
+        Assert.Equal("id-1", state.Snapshot(Origin).CoverId);
         Assert.Equal(NowPlayingChange.Cover, state.Update(Origin, Feed("A", "B", coverId: "id-2"), DateTime.UtcNow));
         Assert.Equal(NowPlayingChange.Description, state.Update(Origin, Feed("A", "C", coverId: "id-2"), DateTime.UtcNow));
         Assert.Equal(NowPlayingChange.Cover, state.Update(Origin, Feed("A", "C"), DateTime.UtcNow));
-        Assert.Null(state.CoverId());
+        Assert.Null(state.Snapshot(Origin).CoverId);
     }
 
     [Fact]
@@ -78,8 +78,8 @@ public class NowPlayingStateTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, Feed("A", "B", online: false, coverId: "id-1"), DateTime.UtcNow);
-        Assert.Null(state.CoverId());
-        Assert.Null(state.TrackLine());
+        Assert.Null(state.Snapshot(Origin).CoverId);
+        Assert.Null(state.Snapshot(Origin).TrackLine);
     }
 
     [Theory]
@@ -96,7 +96,7 @@ public class NowPlayingStateTests
         Assert.Equal(valid, StationClient.IsValidId(id));
         var state = new NowPlayingState();
         state.Update(Origin, Feed("A", "B", coverId: id), DateTime.UtcNow);
-        Assert.Equal(valid ? id : null, state.CoverId());
+        Assert.Equal(valid ? id : null, state.Snapshot(Origin).CoverId);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class NowPlayingStateTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, Feed(null, null, online: false, dj: "Bobby"), DateTime.UtcNow);
-        Assert.Equal("Off air · DJ Bobby", state.Description());
+        Assert.Equal("Off air · DJ Bobby", state.Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -119,30 +119,30 @@ public class NowPlayingStateTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, Feed(null, "Station ident"), DateTime.UtcNow);
-        Assert.Equal("Now playing: Station ident", state.Description());
+        Assert.Equal("Now playing: Station ident", state.Snapshot(Origin).Description);
     }
 
     [Fact]
     public void Clear_forgets_the_feed_and_reports_whether_there_was_one()
     {
         var state = new NowPlayingState();
-        Assert.False(state.Clear());
+        Assert.False(state.Clear("live"));
         state.Update(Origin, Feed("A", "B"), DateTime.UtcNow);
-        Assert.True(state.Clear());
-        Assert.Null(state.Description());
+        Assert.True(state.Clear("live"));
+        Assert.Null(state.Snapshot(Origin).Description);
     }
 }
 
 public class NowPlayingStateSanitisingTests
 {
-    private const string Origin = "http://station.example/";
+    private static readonly StationKey Origin = new("live", "http://station.example/");
 
     [Fact]
     public void Off_air_wins_over_a_stale_track()
     {
         var state = new NowPlayingState();
         state.Update(Origin, new NowPlayingFeed { NowPlaying = new TrackInfo { Artist = "A", Title = "B" }, StreamOnline = false }, DateTime.UtcNow);
-        Assert.Equal("Off air", state.Description());
+        Assert.Equal("Off air", state.Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class NowPlayingStateSanitisingTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, new NowPlayingFeed { NowPlaying = new TrackInfo { Artist = "  ", Title = " \n\t " }, Dj = new DjInfo { Name = " " }, StreamOnline = true }, DateTime.UtcNow);
-        Assert.Null(state.Description());
+        Assert.Null(state.Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class NowPlayingStateSanitisingTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, new NowPlayingFeed { NowPlaying = new TrackInfo { Artist = "The\r\n  Band", Title = "A   Song\n" }, StreamOnline = true }, DateTime.UtcNow);
-        Assert.Equal("Now playing: The Band – A Song", state.Description());
+        Assert.Equal("Now playing: The Band – A Song", state.Snapshot(Origin).Description);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class NowPlayingStateSanitisingTests
     {
         var state = new NowPlayingState();
         state.Update(Origin, new NowPlayingFeed { NowPlaying = new TrackInfo { Title = new string('x', 10_000) }, StreamOnline = true }, DateTime.UtcNow);
-        var text = state.Description()!;
+        var text = state.Snapshot(Origin).Description!;
         Assert.Equal("Now playing: " + new string('x', NowPlayingState.MaxFieldLength - 1) + "…", text);
     }
 }

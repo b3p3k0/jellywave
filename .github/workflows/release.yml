@@ -1,14 +1,14 @@
 name: Release
 
-# Tag v<version> (e.g. v0.1.0.0, matching Directory.Build.props) to build that
-# tagged commit, attach the zip to a GitHub release, and commit the refreshed
-# manifest.json to main. Safe to re-run: release and asset uploads are idempotent.
-# Can also be started by hand for an existing tag (Actions > Release > Run workflow,
-# or `gh workflow run Release -f tag=v0.1.0.0`), e.g. when a tag was pushed before main existed.
+# Tag v<version> (e.g. v0.1.0.0, matching Directory.Build.props) to verify, build and publish that tagged commit and
+# commit its manifest entry to main. Can also be started by hand for an existing tag (Actions > Release > Run workflow,
+# or `gh workflow run Release -f tag=v0.1.0.0`), e.g. to finish a run that stopped part way.
 #
-# Two jobs so the write token never meets the build: `build` restores packages, runs the analyzers
-# and tests and stages the zip with a read-only token and no stored credentials; `publish` gets
-# contents: write and runs only gh, jq and scripts/update-manifest.sh against that zip.
+# The tag is resolved to one commit SHA, and that same SHA is verified (the shared checks in verify.yml) and built.
+# The write token never meets the build: `build` stages the zip with a read-only token and no stored credentials;
+# `publish` gets contents: write and runs only scripts/publish-release.sh (gh, jq, git, unzip, md5sum) against that zip,
+# and refuses a tag that moved since it was resolved. Re-running is safe: the release is created as a draft, the zip attached, then published, and a zip already
+# attached is reused, never replaced (see the script).
 # Actions are pinned to full commit SHAs (tag in the comment); Dependabot proposes updates.
 on:
   push:
@@ -22,14 +22,23 @@ on:
 
 permissions: {}
 
+# One release run at a time, and a waiting run queues instead of being cancelled (queue: max): two runs must not race
+# on a release or the manifest, and no tag may be dropped.
+concurrency:
+  group: release
+  cancel-in-progress: false
+  queue: max
+
 env:
   VERSION: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  build:
+  resolve:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - name: Check out the tagged commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -37,14 +46,35 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
 
+      - name: Resolve the tag to one commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: resolve
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  build:
+    needs: [resolve, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
 
-      - name: Unit tests
-        run: dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release --nologo
-
-      - name: Build and stage the tagged commit
+      - name: Build and stage the verified commit
         run: VERSION="${VERSION#v}" scripts/build.sh
 
       - name: Check metadata agreement
@@ -61,7 +91,7 @@ jobs:
             dist/Jellywave_*/meta.json
 
   publish:
-    needs: build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -78,36 +108,11 @@ jobs:
           name: release
           path: dist
 
-      - name: Create or update the GitHub release
+      - name: Publish the release and its manifest entry
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
-          V="${VERSION#v}"
-          NOTES="$(jq -r .changelog "dist/Jellywave_${V}/meta.json")"
-          gh release view "$VERSION" >/dev/null 2>&1 \
-            || gh release create "$VERSION" --verify-tag --title "Jellywave $V" --notes "$NOTES"
-          gh release upload "$VERSION" "dist/Jellywave_${V}.zip" --clobber
-
-      - name: Commit manifest.json to main
-        run: |
-          V="${VERSION#v}"
-          META="dist/Jellywave_${V}/meta.json"
-          # Changelog, timestamp and targetAbi come from the zip's own meta.json, so the entry describes that zip.
-          CHANGELOG="$(jq -r .changelog "$META")"
-          TIMESTAMP="$(jq -r .timestamp "$META")"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          TARGET_ABI="$(jq -r .targetAbi "$META")" scripts/update-manifest.sh "$V" "$CHANGELOG" "$TIMESTAMP"
-          # main's update-manifest.sh runs here; if it predates TARGET_ABI (a tag released before its branch
-          # was merged) it would write main's targetAbi. Refuse an entry that does not describe this zip.
-          jq -e --arg v "$V" --arg abi "$(jq -r .targetAbi "$META")" \
-            'any(.[0].versions[]; .version == $v and .targetAbi == $abi)' manifest.json >/dev/null \
-            || { echo "manifest entry for $V does not carry the zip's targetAbi; merge the release's branch into main first" >&2; exit 1; }
-          git add manifest.json
-          git diff --cached --quiet && { echo "manifest already current"; exit 0; }
-          git commit -m "chore: manifest for ${VERSION}"
-          for attempt in 1 2 3; do
-            git push origin HEAD:main && exit 0
-            git pull --rebase origin main
-          done
-          echo "could not push manifest after 3 attempts" >&2; exit 1
+          scripts/publish-release.sh "$VERSION"

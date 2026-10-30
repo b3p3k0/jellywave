@@ -60,7 +60,7 @@ public class AccessGranterPassTests
     }
 
     private static AccessGranter Granter(FakeStore store, FakeLocator locator)
-        => new(store, locator, NullLogger<AccessGranter>.Instance, () => new PluginConfiguration { StationBaseUrl = "http://radio.example" });
+        => new(store, locator, NullLogger<AccessGranter>.Instance, () => new PluginConfiguration { Stations = { new StationDefinition { BaseUrl = "http://radio.example" } } });
 
     [Fact]
     public async Task No_configuration_writes_nothing()

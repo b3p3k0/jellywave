@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
 namespace Jellyfin.Plugin.Jellywave.Services;
 
 /// <summary>
-/// The latest now-playing snapshot, shared between the poller and the channel. Thread-safe.
-/// Everything here comes from one station: the feed carries its origin (<see cref="StationUrls.Origin"/>), and a feed
-/// from another origin drops what was learned from the previous station's <c>/api/state</c>.
+/// The latest now-playing data of every polled SUB/WAVE station, shared between the poller, the channel and the station
+/// routes. Thread-safe. One entry per station id (card L4); each entry carries its station origin, so a feed under a key
+/// with another origin (the base URL changed under the same id) replaces the entry, and a reader asking with the new key
+/// gets <see cref="NowPlayingSnapshot.OtherStation"/> until the poller has heard the new origin (card 17). The poller
+/// drops the entries of stations that are no longer listed (<see cref="Retain"/>), so the map holds at most one entry per
+/// listed station.
 /// </summary>
 public sealed class NowPlayingState
 {
@@ -17,49 +21,32 @@ public sealed class NowPlayingState
     public const int MaxFieldLength = 120;
 
     private readonly object _gate = new();
-    private string? _origin;
-    private NowPlayingFeed? _feed;
-    private StationState? _stationState;
-    private DateTime _fetchedUtc;
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Gets the time of the last successful fetch, or <see cref="DateTime.MinValue"/>.
+    /// Stores a fresh feed and reports what the station's item would show differently. A feed under another origin than
+    /// the station's last one starts a new entry, so the new origin's feed never sits beside the old one's history.
     /// </summary>
-    public DateTime FetchedUtc
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _fetchedUtc;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Stores a fresh feed and reports what the live item would show differently. A feed from another origin than the
-    /// last one clears the station state first, so the new station's feed never sits beside the old one's history.
-    /// </summary>
-    /// <param name="origin">The station origin the feed came from (<see cref="StationUrls.Origin"/>).</param>
+    /// <param name="key">The station the feed came from.</param>
     /// <param name="feed">The feed just fetched.</param>
     /// <param name="nowUtc">The fetch time.</param>
-    /// <returns>Which of the description, track line and cover id differ from the previous feed.</returns>
-    public NowPlayingChange Update(string origin, NowPlayingFeed feed, DateTime nowUtc)
+    /// <returns>Which of the description, track line and cover id differ from the station's previous feed.</returns>
+    public NowPlayingChange Update(StationKey key, NowPlayingFeed feed, DateTime nowUtc)
     {
-        ArgumentNullException.ThrowIfNull(origin);
+        ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(feed);
         lock (_gate)
         {
-            if (!string.Equals(origin, _origin, StringComparison.Ordinal))
+            if (!_entries.TryGetValue(key.StationId, out var entry) || !string.Equals(entry.Origin, key.Origin, StringComparison.Ordinal))
             {
-                _stationState = null;
-                _origin = origin;
+                entry = new Entry(key.Origin);
+                _entries[key.StationId] = entry;
             }
 
-            var textBefore = Describe(_feed) + "\n" + TrackLineOf(_feed);
-            var coverBefore = CoverIdOf(_feed);
-            _feed = feed;
-            _fetchedUtc = nowUtc;
+            var textBefore = Describe(entry.Feed) + "\n" + TrackLineOf(entry.Feed);
+            var coverBefore = CoverIdOf(entry.Feed);
+            entry.Feed = feed;
+            entry.FetchedUtc = nowUtc;
 
             var change = NowPlayingChange.None;
             if (!string.Equals(textBefore, Describe(feed) + "\n" + TrackLineOf(feed), StringComparison.Ordinal))
@@ -77,116 +64,96 @@ public sealed class NowPlayingState
     }
 
     /// <summary>
-    /// Forgets the last feed (station unreachable or polling disabled).
+    /// Forgets one station's data (the station unreachable or answering with an empty feed).
     /// </summary>
-    /// <returns>True when there was a feed to forget.</returns>
-    public bool Clear()
+    /// <param name="stationId">The station id.</param>
+    /// <returns>True when there was data to forget.</returns>
+    public bool Clear(string stationId)
     {
         lock (_gate)
         {
-            var had = _feed is not null;
-            _origin = null;
-            _feed = null;
-            _stationState = null;
-            return had;
+            return _entries.Remove(stationId);
         }
     }
 
     /// <summary>
-    /// Gets the one-line description of what is on air, or null when nothing is known.
+    /// Forgets every station's data (polling switched off).
     /// </summary>
-    /// <returns>For example "Now playing: Artist – Title (Album) · DJ Bobby · The Ville".</returns>
-    public string? Description()
+    public void Clear()
     {
         lock (_gate)
         {
-            return Describe(_feed);
+            _entries.Clear();
         }
     }
 
     /// <summary>
-    /// Stores the last station state (history, upcoming, flags). Kept across failed state fetches from the same station;
-    /// dropped by <see cref="Clear"/> and by a feed from another origin. A state from another origin than the current
-    /// feed's is not stored.
+    /// Drops the data of every station not in <paramref name="stationIds"/> (removed, disabled or no longer listed).
     /// </summary>
-    /// <param name="origin">The station origin the state came from (<see cref="StationUrls.Origin"/>).</param>
+    /// <param name="stationIds">The ids of the stations the poller polls now.</param>
+    public void Retain(IReadOnlySet<string> stationIds)
+    {
+        ArgumentNullException.ThrowIfNull(stationIds);
+        lock (_gate)
+        {
+            foreach (var id in new List<string>(_entries.Keys))
+            {
+                if (!stationIds.Contains(id))
+                {
+                    _entries.Remove(id);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stores a station's last station state (history, upcoming, flags). Kept across failed state fetches from the same
+    /// station; dropped by <see cref="Clear(string)"/> and by a feed from another origin. A state under another key than
+    /// the station's current feed is not stored.
+    /// </summary>
+    /// <param name="key">The station the state came from.</param>
     /// <param name="state">The state just fetched.</param>
     /// <returns>True when it was stored.</returns>
-    public bool UpdateStationState(string origin, StationState state)
+    public bool UpdateStationState(StationKey key, StationState state)
     {
-        ArgumentNullException.ThrowIfNull(origin);
+        ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(state);
         lock (_gate)
         {
-            if (!string.Equals(origin, _origin, StringComparison.Ordinal))
+            if (!_entries.TryGetValue(key.StationId, out var entry) || !string.Equals(entry.Origin, key.Origin, StringComparison.Ordinal))
             {
                 return false;
             }
 
-            _stationState = state;
+            entry.StationState = state;
             return true;
         }
     }
 
     /// <summary>
-    /// Gets the last station state, or null. Callers must not modify it.
+    /// Reads one station's feed, station state and the values derived from the feed under one lock, so a caller never
+    /// pairs one station's feed with another's history. An entry under another origin than the key's is not served.
     /// </summary>
-    /// <returns>The state.</returns>
-    public StationState? StationState()
+    /// <param name="key">The station.</param>
+    /// <returns>The snapshot; <see cref="NowPlayingSnapshot.Nothing"/> when nothing is known of the station, and
+    /// <see cref="NowPlayingSnapshot.OtherStation"/> when its entry is another origin's.</returns>
+    public NowPlayingSnapshot Snapshot(StationKey key)
     {
+        ArgumentNullException.ThrowIfNull(key);
         lock (_gate)
         {
-            return _stationState;
-        }
-    }
+            if (!_entries.TryGetValue(key.StationId, out var entry))
+            {
+                return NowPlayingSnapshot.Nothing;
+            }
 
-    /// <summary>
-    /// Reads the feed, the station state, their origin and the values derived from the feed under one lock, so a caller
-    /// never pairs one station's feed with another's history.
-    /// </summary>
-    /// <returns>The snapshot.</returns>
-    public NowPlayingSnapshot Snapshot()
-    {
-        lock (_gate)
-        {
-            return new NowPlayingSnapshot(_origin, _feed, _stationState, _fetchedUtc, CoverIdOf(_feed), TrackLineOf(_feed), Describe(_feed));
-        }
-    }
+            if (!string.Equals(entry.Origin, key.Origin, StringComparison.Ordinal))
+            {
+                return NowPlayingSnapshot.OtherStation;
+            }
 
-    /// <summary>
-    /// Gets the last feed as fetched, or null when nothing is known. Callers must not modify it.
-    /// </summary>
-    /// <returns>The feed.</returns>
-    public NowPlayingFeed? Feed()
-    {
-        lock (_gate)
-        {
-            return _feed;
-        }
-    }
-
-    /// <summary>
-    /// Gets the short "Artist – Title" line for the playing bar, or null when nothing is on air.
-    /// </summary>
-    /// <returns>For example "Artist – Title".</returns>
-    public string? TrackLine()
-    {
-        lock (_gate)
-        {
-            return TrackLineOf(_feed);
-        }
-    }
-
-    /// <summary>
-    /// Gets the station id of the current track's cover art, or null when there is no track, the stream is
-    /// reported off air, or the id is not a valid station id.
-    /// </summary>
-    /// <returns>The cover id for <see cref="StationClient.GetCoverAsync"/>.</returns>
-    public string? CoverId()
-    {
-        lock (_gate)
-        {
-            return CoverIdOf(_feed);
+            var feed = entry.Feed;
+            return new NowPlayingSnapshot(feed, entry.StationState, entry.FetchedUtc, CoverIdOf(feed), TrackLineOf(feed), Describe(feed), false);
         }
     }
 
@@ -312,5 +279,19 @@ public sealed class NowPlayingState
         }
 
         sb.Append(text);
+    }
+
+    /// <summary>What is known of one station, under one origin.</summary>
+    private sealed class Entry
+    {
+        public Entry(string origin) => Origin = origin;
+
+        public string Origin { get; }
+
+        public NowPlayingFeed? Feed { get; set; }
+
+        public StationState? StationState { get; set; }
+
+        public DateTime FetchedUtc { get; set; }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -80,11 +81,16 @@ public class LiveItemArtworkOriginTests
 
         public List<string> Saved { get; } = new();
 
+        public Audio OtherItem { get; } = new();
+
         /// <summary>One poll's worth: prepare, then apply. Returns the prepared artwork.</summary>
-        public async Task<PreparedArtwork> PollAsync(Uri baseUrl, string coverId)
+        public Task<PreparedArtwork> PollAsync(Uri baseUrl, string coverId) => PollAsync("live", baseUrl, coverId);
+
+        /// <summary>One poll's worth for one station ("live" uses <see cref="Item"/>, any other <see cref="OtherItem"/>).</summary>
+        public async Task<PreparedArtwork> PollAsync(string stationId, Uri baseUrl, string coverId)
         {
-            var prepared = await Artwork.PrepareAsync(baseUrl, coverId, CancellationToken.None);
-            await Artwork.ApplyAsync(Item, prepared, CancellationToken.None);
+            var prepared = await Artwork.PrepareAsync(stationId, baseUrl, coverId, CancellationToken.None);
+            await Artwork.ApplyAsync(stationId == "live" ? Item : OtherItem, prepared, CancellationToken.None);
             return prepared;
         }
 
@@ -128,7 +134,7 @@ public class LiveItemArtworkOriginTests
         Assert.Equal("id-1", prepared.Key);
         Assert.NotNull(prepared.Image);
         Assert.Equal(2, h.Station.Seen.Count);
-        Assert.Equal("id-1", h.Artwork.Applied);
+        Assert.Equal("id-1", h.Artwork.Applied("live"));
     }
 
     [Fact]
@@ -161,13 +167,13 @@ public class LiveItemArtworkOriginTests
         h.Station.Art.Add("station-a.example/api/cover/id-1");
         h.Station.Art.Add("station-b.example/api/cover/id-1");
         await h.PollAsync(StationA, "id-1");
-        Assert.Equal(("id-1", StationUrls.Origin(StationA)), (h.Artwork.Applied, h.Artwork.AppliedOrigin));
+        Assert.Equal(("id-1", StationUrls.Origin(StationA)), (h.Artwork.Applied("live"), h.Artwork.AppliedOrigin("live")));
 
         var prepared = await h.PollAsync(StationB, "id-1");
 
         Assert.NotNull(prepared.Image);
         Assert.Equal(2, h.Saved.Count);
-        Assert.Equal(("id-1", StationUrls.Origin(StationB)), (h.Artwork.Applied, h.Artwork.AppliedOrigin));
+        Assert.Equal(("id-1", StationUrls.Origin(StationB)), (h.Artwork.Applied("live"), h.Artwork.AppliedOrigin("live")));
     }
 
     [Fact]
@@ -176,7 +182,70 @@ public class LiveItemArtworkOriginTests
         var h = new Harness();
         await h.PollAsync(StationA, "no-art");
 
-        Assert.Equal(LiveItemArtwork.LogoKey, h.Artwork.Applied);
-        Assert.Null(h.Artwork.AppliedOrigin);
+        Assert.Equal(LiveItemArtwork.LogoKey, h.Artwork.Applied("live"));
+        Assert.Null(h.Artwork.AppliedOrigin("live"));
+    }
+
+    [Fact]
+    public async Task The_negative_cache_is_per_station_so_another_station_with_the_same_id_asks_at_once()
+    {
+        // Card L4: (station, origin, cover id). Two stations on one origin play the same track; "live" learned it has no art.
+        var h = new Harness();
+        await h.PollAsync("live", StationA, "id-1");
+        h.Station.Art.Add("station-a.example/api/cover/id-1");
+
+        var other = await h.PollAsync("other", StationA, "id-1");
+        Assert.NotNull(other.Image);
+
+        // "live" keeps its own memory: not asked again while it holds.
+        h.Clock.Now += TimeSpan.FromSeconds(10);
+        Assert.Equal(LiveItemArtwork.LogoKey, (await h.PollAsync("live", StationA, "id-1")).Key);
+        Assert.Equal(2, h.Station.Seen.Count);
+        Assert.Equal((LiveItemArtwork.LogoKey, "id-1"), (h.Artwork.Applied("live"), h.Artwork.Applied("other")));
+    }
+
+    [Fact]
+    public async Task One_station_s_missing_cover_does_not_replace_another_station_s()
+    {
+        // The memory is one entry per station, not one for the whole poller: "other" missing a cover keeps "live"'s.
+        var h = new Harness();
+        await h.PollAsync("live", StationA, "id-1");
+        await h.PollAsync("other", StationB, "id-2");
+
+        h.Clock.Now += TimeSpan.FromSeconds(10);
+        await h.PollAsync("live", StationA, "id-1");
+        await h.PollAsync("other", StationB, "id-2");
+
+        Assert.Equal(new[] { "station-a.example/api/cover/id-1", "station-b.example/api/cover/id-2" }, h.Station.Seen);
+    }
+
+    [Fact]
+    public async Task The_applied_cover_is_per_station()
+    {
+        var h = new Harness();
+        h.Station.Art.Add("station-a.example/api/cover/id-1");
+        await h.PollAsync("live", StationA, "id-1");
+
+        var other = await h.PollAsync("other", StationA, "id-1");
+
+        Assert.NotNull(other.Image);
+        Assert.Equal(2, h.Saved.Count);
+        Assert.Equal(("id-1", StationUrls.Origin(StationA)), (h.Artwork.Applied("other"), h.Artwork.AppliedOrigin("other")));
+    }
+
+    [Fact]
+    public async Task Retain_drops_a_station_s_applied_cover_and_missing_cover()
+    {
+        var h = new Harness();
+        h.Station.Art.Add("station-a.example/api/cover/id-1");
+        await h.PollAsync("live", StationA, "id-1");
+        await h.PollAsync("other", StationB, "no-art");
+
+        h.Artwork.Retain(new HashSet<string>());
+
+        Assert.Null(h.Artwork.Applied("live"));
+        Assert.Null(h.Artwork.Applied("other"));
+        await h.PollAsync("other", StationB, "no-art");
+        Assert.Equal(2, h.Station.Seen.Count(s => s == "station-b.example/api/cover/no-art"));
     }
 }

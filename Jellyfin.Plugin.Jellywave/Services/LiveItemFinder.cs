@@ -21,11 +21,6 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// </summary>
 public sealed class LiveItemFinder
 {
-    /// <summary>
-    /// The prefix <c>ChannelManager.GetInternalChannelId</c> (Jellyfin 12.3) puts before the channel name.
-    /// </summary>
-    private const string ChannelKeyPrefix = "Channel ";
-
     private readonly ILibraryManager _libraryManager;
     private readonly Func<IEnumerable<IChannel>> _channels;
     private readonly ILogger<LiveItemFinder> _logger;
@@ -58,7 +53,7 @@ public sealed class LiveItemFinder
     }
 
     /// <summary>
-    /// Resolves the channel entity for the configured name, without creating it. The id is computed the way Jellyfin
+    /// Resolves the channel entity for the configured tile name (<see cref="PluginConfiguration.LibraryName"/>), without creating it. The id is computed the way Jellyfin
     /// computes it, <c>GetNewItemId("Channel " + name, typeof(Channel))</c>, so it follows the server's own case rule
     /// (<c>EnableCaseSensitiveItemIds</c>). Another registered channel whose name derives the same id is a collision:
     /// Jellyfin would serve both through one entity, so nothing is returned. One Warning per collision streak.
@@ -67,9 +62,9 @@ public sealed class LiveItemFinder
     /// <returns>The resolution.</returns>
     public ChannelResolution Resolve(PluginConfiguration? config)
     {
-        var name = JellywaveChannel.StationName(config ?? new PluginConfiguration());
-        var id = ChannelId(name);
-        var other = _channels().FirstOrDefault(c => c is not JellywaveChannel && ChannelId(c.Name) == id);
+        var name = ConfigMigration.TileName(config ?? new PluginConfiguration());
+        var id = DeriveChannelId(name);
+        var other = _channels().FirstOrDefault(c => c is not JellywaveChannel && DeriveChannelId(c.Name) == id);
         if (other is not null)
         {
             if (Interlocked.Exchange(ref _colliding, 1) == 0)
@@ -100,17 +95,24 @@ public sealed class LiveItemFinder
     public Channel? FindChannel(PluginConfiguration? config) => Resolve(config).Channel;
 
     /// <summary>
-    /// Finds the live item of a channel.
+    /// Finds a station's live item in a channel. The channel item's external id is the station id (card L2), and
+    /// Jellyfin stores it as the item's <c>ExternalId</c> (<c>ChannelManager.GetChannelItemEntityAsync</c>, 12.3).
     /// </summary>
     /// <param name="channel">The channel entity.</param>
-    /// <returns>The live Audio item, or null when it has not been created yet.</returns>
-    public BaseItem? FindLiveItem(Channel channel)
+    /// <param name="stationId">The station id; blank finds nothing.</param>
+    /// <returns>The live Audio item, or null when it has not been created yet or the id is blank.</returns>
+    public BaseItem? FindLiveItem(Channel channel, string? stationId)
     {
         ArgumentNullException.ThrowIfNull(channel);
+        if (string.IsNullOrWhiteSpace(stationId))
+        {
+            return null;
+        }
+
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             ChannelIds = [channel.Id],
-            ExternalId = JellywaveChannel.LiveItemId,
+            ExternalId = stationId,
             IncludeItemTypes = [BaseItemKind.Audio]
         });
         return items.Count > 0 ? items[0] : null;
@@ -123,5 +125,17 @@ public sealed class LiveItemFinder
         return () => channels.Value;
     }
 
-    private Guid ChannelId(string? name) => _libraryManager.GetNewItemId(ChannelKeyPrefix + name, typeof(Channel));
+    /// <summary>
+    /// Gets the ids Jellyfin derives for every other registered channel (this plugin's own excluded).
+    /// </summary>
+    /// <returns>The ids.</returns>
+    public IReadOnlyCollection<Guid> OtherChannelIds()
+        => _channels().Where(c => c is not JellywaveChannel).Select(c => DeriveChannelId(c.Name)).ToHashSet();
+
+    /// <summary>
+    /// Derives the channel id Jellyfin gives a channel of this name (<see cref="ChannelIds.Derive"/>).
+    /// </summary>
+    /// <param name="name">The channel name.</param>
+    /// <returns>The channel id.</returns>
+    public Guid DeriveChannelId(string? name) => ChannelIds.Derive(_libraryManager, name);
 }

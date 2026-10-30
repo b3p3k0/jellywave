@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 /// </summary>
 public class StationListNullEntryTests
 {
-    private const string Origin = "http://station.example/";
+    private static readonly StationKey Origin = new("live", "http://station.example/");
 
     private sealed class StubStation : HttpMessageHandler
     {
@@ -42,7 +42,7 @@ public class StationListNullEntryTests
     }
 
     [Fact]
-    public void Null_history_and_upcoming_entries_are_skipped()
+    public async Task Null_history_and_upcoming_entries_are_skipped()
     {
         var state = new NowPlayingState();
         state.Update(Origin, new NowPlayingFeed { NowPlaying = new TrackInfo { Artist = "A", Title = "B" }, StreamOnline = true }, DateTime.UtcNow);
@@ -51,23 +51,14 @@ public class StationListNullEntryTests
             History = new List<QueueTrack> { null!, new() { Artist = "Old", Title = "Song", RequestedBy = "Sam" } },
             Upcoming = new List<QueueTrack> { null! }
         });
-        var http = new DefaultHttpContext();
-        http.Items[StationAccess.ChannelItem] = new Channel { Id = Guid.NewGuid(), Name = "SUB/WAVE" };
         var library = FakeLibrary.Create();
-        var controller = new JellywaveWebController(
+        var controller = WebRoute.Controller(
+            () => new PluginConfiguration { Stations = { new StationDefinition { Id = "live", BaseUrl = "http://station.example" } } },
             state,
-            new LiveItemFinder(library.Manager, () => [], NullLogger<LiveItemFinder>.Instance),
-            null!,
-            new StationClient(null!),
-            new ScheduleCache(new StationClient(null!)),
-            new RequestReceipts(),
-            NullLogger<JellywaveWebController>.Instance,
-            () => new PluginConfiguration { StationBaseUrl = "http://station.example" })
-        {
-            ControllerContext = new ControllerContext { HttpContext = http }
-        };
+            finder: new LiveItemFinder(library.Manager, () => [], NullLogger<LiveItemFinder>.Instance),
+            channel: new Channel { Id = Guid.NewGuid(), Name = "SUB/WAVE" });
 
-        var feed = controller.Feed().Value!;
+        var feed = WebRoute.Value<FeedResponse>(await WebRoute.RunAsync(controller, nameof(JellywaveWebController.Feed)));
 
         Assert.Equal(new[] { "Old – Song · requested by Sam" }, feed.Recent);
         Assert.Equal(string.Empty, feed.UpNext);
@@ -77,17 +68,9 @@ public class StationListNullEntryTests
     public async Task Null_lyric_lines_are_skipped()
     {
         var client = new StationClient(new StubFactory(new StubStation { Json = """{"songId":"s1","synced":false,"lines":[null,{"text":"La la"}]}""" }));
-        var controller = new JellywaveWebController(
-            new NowPlayingState(),
-            new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance),
-            null!,
-            client,
-            new ScheduleCache(client),
-            new RequestReceipts(),
-            NullLogger<JellywaveWebController>.Instance,
-            () => new PluginConfiguration { StationBaseUrl = "http://station.example" });
+        var controller = WebRoute.Controller(() => new PluginConfiguration { Stations = { new StationDefinition { Id = "live", BaseUrl = "http://station.example" } } }, client: client);
 
-        var lyrics = (await controller.Lyrics("s1", CancellationToken.None)).Value!;
+        var lyrics = WebRoute.Value<LyricsResponse>(await WebRoute.RunAsync(controller, nameof(JellywaveWebController.Lyrics), ("songId", "s1")));
 
         Assert.Equal("ok", lyrics.Status);
         Assert.Equal(new[] { "La la" }, lyrics.Lines);

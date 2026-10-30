@@ -10,7 +10,10 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 /// </summary>
 public sealed class FeedResponse
 {
-    /// <summary>Gets or sets the station name (tile name).</summary>
+    /// <summary>Gets or sets the id of the station this feed is for (card L5), so the page can drop a reply for another station.</summary>
+    public string StationId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the station name.</summary>
     public string StationName { get; set; } = string.Empty;
 
     /// <summary>Gets or sets a value indicating whether the stream is online; null when unknown.</summary>

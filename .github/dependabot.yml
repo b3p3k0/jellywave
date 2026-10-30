@@ -5,3 +5,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # NuGet packages of the plugin and its tests. The Jellyfin packages are left out: they must name targetAbi
+  # (check-manifest.sh), so moving them is a release decision with build.yaml, not a Dependabot PR.
+  - package-ecosystem: nuget
+    directories:
+      - /Jellyfin.Plugin.Jellywave
+      - /Jellyfin.Plugin.Jellywave.Tests
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "Jellyfin.*"

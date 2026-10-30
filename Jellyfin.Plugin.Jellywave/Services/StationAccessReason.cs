@@ -17,6 +17,12 @@ public enum StationAccessReason
     /// <summary>The user id does not name an existing user.</summary>
     UnknownUser,
 
+    /// <summary>
+    /// The user's block list names the id of an earlier tile name (the rename bridge, card L1): a block on the old tile
+    /// keeps applying after a rename. The filter answers 403.
+    /// </summary>
+    PreviousChannelBlocked,
+
     /// <summary>The channel entity does not exist (yet), so visibility cannot be decided. The filter answers 404.</summary>
     NoChannel,
 

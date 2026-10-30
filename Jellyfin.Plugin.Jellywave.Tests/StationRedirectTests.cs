@@ -90,27 +90,11 @@ public class StationRedirectTests
 
         public RequestReceipts Receipts { get; } = new();
 
-        public JellywaveWebController Web()
-        {
-            var http = new DefaultHttpContext();
-            http.Items[StationAccess.UserIdItem] = Alice;
-            return new JellywaveWebController(
-                new NowPlayingState(),
-                new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance),
-                null!,
-                Client,
-                new ScheduleCache(Client),
-                Receipts,
-                NullLogger<JellywaveWebController>.Instance,
-                () => new PluginConfiguration { StationBaseUrl = "http://station.example" })
-            {
-                ControllerContext = new ControllerContext { HttpContext = http }
-            };
-        }
+        public PluginConfiguration Config { get; } = new() { Stations = { new StationDefinition { Id = "live", BaseUrl = "http://station.example" } } };
 
-        // The probe touches only the station client and the logger.
-        public JellywaveController Admin()
-            => new(Client, null!, new NowPlayingState(), new PollerHealth(), null!, new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance), NullLogger<JellywaveController>.Instance);
+        public async Task<T> Run<T>(string action, params (string Name, object? Value)[] args)
+            => WebRoute.Value<T>(await WebRoute.RunAsync(WebRoute.Controller(() => Config, client: Client, receipts: Receipts, user: Alice), action, args));
+
     }
 
     [Fact]
@@ -163,11 +147,11 @@ public class StationRedirectTests
     public async Task Request_post_is_not_reported_as_accepted_and_records_no_receipt()
     {
         var h = new Harness();
-        var outcome = (await h.Web().SubmitRequest(new RequestSubmission { Text = "something with horns", Name = "A" }, CancellationToken.None)).Value!;
+        var outcome = await h.Run<RequestOutcome>(nameof(JellywaveWebController.SubmitRequest), ("submission", new RequestSubmission { Text = "something with horns", Name = "A" }));
         Assert.False(outcome.Accepted);
         Assert.Null(outcome.RequestId);
         Assert.NotEqual("pending", outcome.Status);
-        Assert.Equal(ReceiptOwnership.Unknown, h.Receipts.Check("req_x", Alice));
+        Assert.Equal(ReceiptOwnership.Unknown, h.Receipts.Check("req_x", Alice, out _));
         Assert.Equal(new[] { "POST http://station.example/api/request" }, h.Station.Seen);
     }
 
@@ -175,7 +159,7 @@ public class StationRedirectTests
     public async Task Like_post_is_a_refusal_not_a_like()
     {
         var h = new Harness();
-        var outcome = (await h.Web().Like(new LikeSubmission { SongId = "song-1" }, CancellationToken.None)).Value!;
+        var outcome = await h.Run<LikeOutcome>(nameof(JellywaveWebController.Like), ("submission", new LikeSubmission { SongId = "song-1" }));
         Assert.False(outcome.Liked);
         Assert.Equal(0, outcome.Count);
         Assert.Null(outcome.SongId);
@@ -186,7 +170,7 @@ public class StationRedirectTests
     public async Task Like_status_shows_no_heart()
     {
         var h = new Harness();
-        var outcome = (await h.Web().LikeStatus(CancellationToken.None)).Value!;
+        var outcome = await h.Run<LikeOutcome>(nameof(JellywaveWebController.LikeStatus));
         Assert.False(outcome.Liked);
         Assert.Null(outcome.SongId);
     }
@@ -195,7 +179,7 @@ public class StationRedirectTests
     public async Task Lyrics_are_unavailable_not_ok()
     {
         var h = new Harness();
-        var outcome = (await h.Web().Lyrics("song-1", CancellationToken.None)).Value!;
+        var outcome = await h.Run<LyricsResponse>(nameof(JellywaveWebController.Lyrics), ("songId", "song-1"));
         Assert.Equal("unavailable", outcome.Status);
         Assert.True(outcome.Lines is null || outcome.Lines.Count == 0);
     }
@@ -204,60 +188,10 @@ public class StationRedirectTests
     public async Task Request_status_is_unavailable_and_the_body_is_not_shown()
     {
         var h = new Harness();
-        h.Receipts.Record("req_x", Alice);
-        var outcome = (await h.Web().RequestStatus("req_x", CancellationToken.None)).Value!;
+        var token = h.Receipts.Record(Alice, StationKey.Of("live", new Uri("http://station.example/")), "req_x")!;
+        var outcome = await h.Run<RequestOutcome>(nameof(JellywaveWebController.RequestStatus), ("requestId", token));
         Assert.Equal("unavailable", outcome.Status);
         Assert.Null(outcome.Ack);
         Assert.Equal(new[] { "GET http://station.example/api/request/req_x" }, h.Station.Seen);
-    }
-
-    [Fact]
-    public async Task Admin_probe_names_the_address_to_use_instead()
-    {
-        var h = new Harness();
-        var result = (await h.Admin().ProbeStation("http://station.example", CancellationToken.None)).Value!;
-        Assert.False(result.Ok);
-        Assert.Null(result.Name);
-        Assert.Equal("the station redirected to " + Elsewhere + "; use that address instead", result.Error);
-        Assert.Single(h.Station.Seen);
-    }
-
-    [Theory]
-    [InlineData("http://new.example:7700/api/state", "http://new.example:7700/")]
-    [InlineData("https://new.example/radio/api/now-playing?x=1", "https://new.example/radio/")]
-    [InlineData("https://new.example/", "https://new.example/")]
-    [InlineData("http://api/somewhere", "http://api/somewhere/")]
-    public void Suggested_base_drops_the_api_path(string location, string expected)
-        => Assert.Equal(expected, JellywaveController.SuggestedBase(new Uri(location)));
-
-    [Theory]
-    [InlineData("ftp://x/y")]
-    [InlineData("file:///etc/passwd")]
-    [InlineData("http://u:p@evil.example/")]
-    [InlineData("http://u:p@evil.example/api/state")]
-    [InlineData("http://@evil.example/api/state")]
-    public void Suggested_base_refuses_what_the_base_url_rules_refuse(string location)
-        => Assert.Null(JellywaveController.SuggestedBase(new Uri(location)));
-
-    [Fact]
-    public async Task Admin_probe_does_not_echo_an_unusable_redirect_target()
-    {
-        var h = new Harness { Target = "http://user:secret@evil.example/api/state" };
-        var result = (await h.Admin().ProbeStation("http://station.example", CancellationToken.None)).Value!;
-        Assert.False(result.Ok);
-        Assert.Equal("the station answered HTTP 302 (a redirect) to an address the plugin does not accept", result.Error);
-        Assert.DoesNotContain("secret", result.Error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("http://user:pw@station.example")]
-    [InlineData("http://station.example/?x=1")]
-    [InlineData("http://station.example/#f")]
-    public async Task Admin_probe_refuses_a_base_url_with_credentials_query_or_fragment(string baseUrl)
-    {
-        var h = new Harness();
-        var result = await h.Admin().ProbeStation(baseUrl, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
-        Assert.Empty(h.Station.Seen);
     }
 }

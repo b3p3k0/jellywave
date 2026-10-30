@@ -2,8 +2,8 @@
   {
     "guid": "6ca437a0-5b11-41c6-8fe7-92e5de66e2fe",
     "name": "Jellywave",
-    "description": "Adds a SUB/WAVE radio station tile to My Media on every Jellyfin client. Click the tile, press play, hear the station.",
-    "overview": "SUB/WAVE internet radio as a My Media entry.",
+    "description": "Adds a Live Radio tile to My Media. Each station is an item in it: SUB/WAVE stations with now playing, covers and the optional station page, and plain MP3, AAC or HLS streams. Open the tile, press play, hear the station.",
+    "overview": "Live Radio: SUB/WAVE stations and internet radio streams as a My Media tile.",
     "owner": "b3p3k0",
     "category": "General",
     "imageUrl": "https://raw.githubusercontent.com/b3p3k0/jellywave/main/Jellyfin.Plugin.Jellywave/Assets/logo.png",

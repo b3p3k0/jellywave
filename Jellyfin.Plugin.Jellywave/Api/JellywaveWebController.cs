@@ -7,12 +7,12 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Jellywave.Channels;
-using Jellyfin.Plugin.Jellywave.Configuration;
 using Jellyfin.Plugin.Jellywave.Services;
 using Jellyfin.Plugin.Jellywave.Web;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Drawing;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -25,7 +25,10 @@ namespace Jellyfin.Plugin.Jellywave.Api;
 /// <summary>
 /// Endpoints behind the station page: the injected assets (anonymous, like the web client itself), the station
 /// routes (signed-in users who can see the channel, see <see cref="StationAccessAttribute"/>; API keys are refused)
-/// and the injection status (administrators, for the configuration page).
+/// and the injection status (administrators, for the configuration page). Each station route serves one listed SUB/WAVE
+/// station, found by <see cref="StationRouteAttribute"/> (card L5) and read here only through <see cref="CallerStation"/>.
+/// The title route (card L6) serves one listed plain stream instead, found by the same filter's plain-stream variant and
+/// read only through <see cref="CallerPlainStation"/>, which holds its id alone.
 /// </summary>
 [ApiController]
 [Route("Jellywave")]
@@ -39,49 +42,35 @@ public class JellywaveWebController : ControllerBase
 
     private readonly NowPlayingState _state;
     private readonly LiveItemFinder _finder;
-    private readonly IImageProcessor _imageProcessor;
-    private readonly StationClient _stationClient;
     private readonly ScheduleCache _schedule;
     private readonly RequestReceipts _receipts;
+    private readonly StationList _stations;
+    private readonly StationTitles _titles;
+    private readonly StationCalls _calls;
     private readonly ILogger<JellywaveWebController> _logger;
-    private readonly Func<PluginConfiguration?> _configuration;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class (DI constructor).
+    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class.
     /// </summary>
     /// <param name="state">The shared now-playing state.</param>
     /// <param name="finder">The live item finder.</param>
-    /// <param name="imageProcessor">The image processor, for image tags.</param>
-    /// <param name="stationClient">The station client, for requests.</param>
     /// <param name="schedule">The schedule cache.</param>
-    /// <param name="receipts">Which user owns which listener request.</param>
+    /// <param name="receipts">Which user sent which listener request to which station.</param>
+    /// <param name="stations">The station list and image tags: ids, names, tags and header fields, never a station or a
+    /// stream URL (the routes' own station comes from <see cref="StationRouteAttribute"/>).</param>
+    /// <param name="titles">The plain streams' sampled titles, read only (card L6).</param>
+    /// <param name="calls">Card R2a: every user-driven station call, under the per-user budgets and the shared limiter.</param>
     /// <param name="logger">The logger.</param>
-    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger)
-        : this(state, finder, imageProcessor, stationClient, schedule, receipts, logger, () => Plugin.Instance?.Configuration)
-    {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="JellywaveWebController"/> class with an explicit configuration source (tests).
-    /// </summary>
-    /// <param name="state">The shared now-playing state.</param>
-    /// <param name="finder">The live item finder.</param>
-    /// <param name="imageProcessor">The image processor, for image tags.</param>
-    /// <param name="stationClient">The station client, for requests.</param>
-    /// <param name="schedule">The schedule cache.</param>
-    /// <param name="receipts">Which user owns which listener request.</param>
-    /// <param name="logger">The logger.</param>
-    /// <param name="configuration">Returns the current configuration, or null when the plugin is not ready.</param>
-    internal JellywaveWebController(NowPlayingState state, LiveItemFinder finder, IImageProcessor imageProcessor, StationClient stationClient, ScheduleCache schedule, RequestReceipts receipts, ILogger<JellywaveWebController> logger, Func<PluginConfiguration?> configuration)
+    public JellywaveWebController(NowPlayingState state, LiveItemFinder finder, ScheduleCache schedule, RequestReceipts receipts, StationList stations, StationTitles titles, StationCalls calls, ILogger<JellywaveWebController> logger)
     {
         _state = state;
         _finder = finder;
-        _imageProcessor = imageProcessor;
-        _stationClient = stationClient;
         _schedule = schedule;
         _receipts = receipts;
+        _stations = stations;
+        _titles = titles;
+        _calls = calls;
         _logger = logger;
-        _configuration = configuration;
     }
 
     /// <summary>
@@ -103,22 +92,43 @@ public class JellywaveWebController : ControllerBase
     public IActionResult Style() => Asset(WebUiTransforms.StyleResource, "text/css");
 
     /// <summary>
-    /// What is on air, for the station page (users who can see the channel).
+    /// Every listed station for the station page, in grid order with its kind (users who can see the channel; card L8):
+    /// ids, names, item ids, image tags and the header fields. Never a stream or station URL; a plain stream's website is
+    /// the one link. The SUB/WAVE station routes still refuse a plain stream's id (404).
     /// </summary>
-    /// <returns>The feed.</returns>
-    [HttpGet("Feed")]
+    /// <returns>The channel and its stations.</returns>
+    [HttpGet("Stations")]
     [Authorize]
     [StationAccess]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<FeedResponse> Feed()
+    public ActionResult<StationsResponse> Stations()
     {
-        var config = _configuration() ?? new PluginConfiguration();
-        var snapshot = _state.Snapshot();
-        var otherStation = FromOtherStation(snapshot, config);
-        var heard = otherStation ? NowPlayingSnapshot.Nothing : snapshot;
+        var channel = CallerChannel();
+        return new StationsResponse { ChannelId = channel.Id, ChannelName = channel.Name ?? string.Empty, Stations = _stations.Entries(channel) };
+    }
+
+    /// <summary>
+    /// What is on air on one station, for the station page (users who can see the channel).
+    /// </summary>
+    /// <param name="stationId">The station, from the station list; absent means the primary station. Read by <see cref="StationRouteAttribute"/>.</param>
+    /// <returns>The feed.</returns>
+    [HttpGet("Feed")]
+    [Authorize]
+    [StationAccess]
+    [StationRoute]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<FeedResponse> Feed([FromQuery] string? stationId)
+    {
+        // The station's own state (card L4). Until the poller has heard its current origin (its base URL changed), the
+        // snapshot says nothing; OtherOrigin says the item may still carry the previous origin's cover.
+        var station = CallerStation();
+        var heard = _state.Snapshot(KeyOf(station));
         var feed = heard.Feed;
         var stationState = heard.StationState;
         var next = feed?.Context?.ShowHandover?.NextShow;
@@ -131,7 +141,8 @@ public class JellywaveWebController : ControllerBase
             UpNext = TrackLineOf(upNext),
             Recent = (stationState?.History ?? []).Take(MaxRecent).Select(t => TrackLineOf(t) + (string.IsNullOrWhiteSpace(t?.RequestedBy) ? string.Empty : " · requested by " + t.RequestedBy.Trim())).Where(l => l.Length > 0).ToList(),
             LyricsEnabled = stationState?.Lyrics?.Enabled == true,
-            StationName = JellywaveChannel.StationName(config),
+            StationId = KeyOf(station).StationId,
+            StationName = NameOf(station),
             Online = feed?.StreamOnline,
             Title = feed?.NowPlaying?.Title,
             Artist = feed?.NowPlaying?.Artist,
@@ -150,145 +161,163 @@ public class JellywaveWebController : ControllerBase
 
         var channel = CallerChannel();
         response.ChannelId = channel.Id;
-        var item = _finder.FindLiveItem(channel);
+        var item = _finder.FindLiveItem(channel, KeyOf(station).StationId);
         if (item is not null)
         {
             response.ItemId = item.Id;
-
-            // Until the poller has heard the configured station, the item still carries the previous station's cover.
-            var image = otherStation ? null : item.GetImageInfo(ImageType.Primary, 0);
-            response.ImageTag = image is null ? null : _imageProcessor.GetImageCacheTag(item, image);
+            response.ImageTag = _stations.ImageTag(item, KeyOf(station), heard);
         }
 
         return response;
     }
 
     /// <summary>
+    /// The current title of one plain stream, for its header's "Now:" line (users who can see the channel; card L6). Reads
+    /// what the title sampler last recorded and never samples itself. Never a URL.
+    /// </summary>
+    /// <param name="stationId">A listed plain stream, from the station list; required. Read by <see cref="StationRouteAttribute"/>
+    /// (SUB/WAVE, disabled and unknown ids are 404).</param>
+    /// <returns>The title state.</returns>
+    [HttpGet("Title")]
+    [Authorize]
+    [StationAccess]
+    [StationRoute(PlainStream = true)]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<TitleResponse> Title([FromQuery] string? stationId)
+    {
+        var station = CallerPlainStation();
+        var heard = _titles.Snapshot(station.StationId);
+        return new TitleResponse { StationId = station.StationId, State = heard.State, Title = heard.Title, UpdatedUtc = heard.LastGoodUtc };
+    }
+
+    /// <summary>
     /// The DJ's portrait, proxied from the station (users who can see the channel). A transparent PNG when the persona has none.
     /// </summary>
     /// <param name="personaId">The persona id from the feed.</param>
+    /// <param name="stationId">The station, from the station list; absent means the primary station. Read by <see cref="StationRouteAttribute"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The image.</returns>
     [HttpGet("Avatar/{personaId}")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Avatar([FromRoute] string personaId, CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Avatar([FromRoute] string personaId, [FromQuery] string? stationId, CancellationToken cancellationToken)
     {
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(personaId))
+        var station = CallerStation();
+        if (!StationClient.IsValidId(personaId))
         {
             return NotFound();
         }
 
-        try
+        var call = await _calls.GetAvatarAsync(CallerId(), KeyOf(station), BaseUrlOf(station), personaId, cancellationToken).ConfigureAwait(false);
+        if (call.Refusal != 0)
         {
-            var image = await _stationClient.GetAvatarAsync(baseUrl, personaId, cancellationToken).ConfigureAwait(false);
-            if (image is null)
-            {
-                return NotFound();
-            }
-
-            Response.Headers[HeaderNames.CacheControl] = "private, max-age=" + (int)AvatarCacheLifetime.TotalSeconds;
-            return File(image.OpenStream(), image.MimeType);
+            return Refused(call.Refusal, call.RetryAfter);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+
+        var image = call.Value;
+        if (image is null)
         {
-            _logger.LogDebug("Avatar fetch failed: {Message}", ex.Message);
             return NotFound();
         }
+
+        Response.Headers[HeaderNames.CacheControl] = "private, max-age=" + (int)AvatarCacheLifetime.TotalSeconds;
+        return File(image.OpenStream(), image.MimeType);
     }
 
     /// <summary>
-    /// Like status of the track on air (users who can see the channel).
+    /// Like status of the track on air on one station (users who can see the channel).
     /// </summary>
+    /// <param name="stationId">The station, from the station list; absent means the primary station. Read by <see cref="StationRouteAttribute"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The status.</returns>
     [HttpGet("Like")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<LikeOutcome>> LikeStatus(CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<LikeOutcome>> LikeStatus([FromQuery] string? stationId, CancellationToken cancellationToken)
     {
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
+        var station = CallerStation();
+        // Card R2a: kept per song on air, so the poller's song id names it.
+        var call = await _calls.GetLikeAsync(CallerId(), KeyOf(station), BaseUrlOf(station), _state.Snapshot(KeyOf(station)).CoverId, cancellationToken).ConfigureAwait(false);
+        if (call.Refusal != 0)
         {
-            return new LikeOutcome { Enabled = false };
+            return Refused(call.Refusal, call.RetryAfter);
         }
 
-        try
-        {
-            return MapLike(await _stationClient.GetLikeAsync(baseUrl, cancellationToken).ConfigureAwait(false));
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogDebug("Like status failed: {Message}", ex.Message);
-            return new LikeOutcome { Enabled = false };
-        }
+        return call.Value is { } reply ? MapLike(reply) : new LikeOutcome { Enabled = false };
     }
 
     /// <summary>
     /// Likes the track on air (users who can see the channel). The station counts this server as one caller.
     /// </summary>
-    /// <param name="submission">The song id the listener saw.</param>
+    /// <param name="submission">The song id the listener saw and the station (absent: the primary station; read by <see cref="StationRouteAttribute"/>).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The result.</returns>
     [HttpPost("Like")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<LikeOutcome>> Like([FromBody] LikeSubmission submission, CancellationToken cancellationToken)
     {
+        var station = CallerStation();
         var songId = submission?.SongId?.Trim() ?? string.Empty;
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
+        if (!StationClient.IsValidId(songId))
         {
             return new LikeOutcome { Enabled = false, Message = "Nothing to like right now." };
         }
 
-        try
+        var call = await _calls.PostLikeAsync(CallerId(), KeyOf(station), BaseUrlOf(station), songId, cancellationToken).ConfigureAwait(false);
+        if (call.Refusal != 0)
         {
-            return MapLike(await _stationClient.PostLikeAsync(baseUrl, songId, cancellationToken).ConfigureAwait(false));
+            return Refused(call.Refusal, call.RetryAfter);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogDebug("Like failed: {Message}", ex.Message);
-            return new LikeOutcome { Enabled = true, Message = "The station did not answer." };
-        }
+
+        return call.Value is { } reply ? MapLike(reply) : new LikeOutcome { Enabled = true, Message = "The station did not answer." };
     }
 
     /// <summary>
-    /// Today's programme in the station's time zone (users who can see the channel; cached a few minutes server-side).
+    /// Today's programme on one station in its time zone (users who can see the channel; cached a few minutes server-side).
     /// </summary>
+    /// <param name="stationId">The station, from the station list; absent means the primary station. Read by <see cref="StationRouteAttribute"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The blocks.</returns>
     [HttpGet("Schedule")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ScheduleResponse>> Schedule(CancellationToken cancellationToken)
+    public async Task<ActionResult<ScheduleResponse>> Schedule([FromQuery] string? stationId, CancellationToken cancellationToken)
     {
-        var config = _configuration();
-        if (config is null)
-        {
-            return new ScheduleResponse();
-        }
-
+        var station = CallerStation();
+        var key = KeyOf(station);
         ScheduleInfo? info;
         try
         {
-            info = await _schedule.GetAsync(config, cancellationToken).ConfigureAwait(false);
+            info = await _schedule.GetAsync(key.StationId, BaseUrlOf(station), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
@@ -296,60 +325,65 @@ public class JellywaveWebController : ControllerBase
             return new ScheduleResponse();
         }
 
-        var snapshot = _state.Snapshot();
-        var feed = FromOtherStation(snapshot, config) ? null : snapshot.Feed;
+        var feed = _state.Snapshot(key).Feed;
         return info is null ? new ScheduleResponse() : BuildToday(info, DateTime.UtcNow, feed?.Context?.ActiveShow?.Id, feed?.Context?.ActiveShow?.Name ?? feed?.ActiveShow?.Name);
     }
 
     /// <summary>
-    /// Lyrics of the track on air (users who can see the channel).
+    /// Lyrics of the track on air on one station (users who can see the channel).
     /// </summary>
-    /// <param name="songId">The song id from the feed.</param>
+    /// <param name="songId">The song id from that station's feed.</param>
+    /// <param name="stationId">The station, from the station list; absent means the primary station. Read by <see cref="StationRouteAttribute"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The lines, or why there are none.</returns>
     [HttpGet("Lyrics")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<LyricsResponse>> Lyrics([FromQuery] string songId, [FromQuery] string? stationId, CancellationToken cancellationToken)
     {
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null || !StationClient.IsValidId(songId))
+        var station = CallerStation();
+        if (!StationClient.IsValidId(songId))
         {
             return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "No track to look up." };
         }
 
-        try
+        var call = await _calls.GetLyricsAsync(CallerId(), KeyOf(station), BaseUrlOf(station), songId, cancellationToken).ConfigureAwait(false);
+        if (call.Refusal != 0)
         {
-            var reply = await _stationClient.GetLyricsAsync(baseUrl, songId, cancellationToken).ConfigureAwait(false);
-            var body = reply.Body;
-            switch (reply.StatusCode)
-            {
-                case StatusCodes.Status403Forbidden:
-                    return new LyricsResponse { SongId = songId, Status = "off", Message = "The station has lyrics switched off." };
-                case StatusCodes.Status401Unauthorized:
-                    return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "The station is private; lyrics need its password." };
-                case StatusCodes.Status409Conflict:
-                    return new LyricsResponse { SongId = songId, Status = "ended", Message = "That track is no longer on air." };
-                case StatusCodes.Status200OK when body is not null:
-                    var lines = (body.Lines ?? []).Select(l => Collapse(l?.Text)).Where(t => t.Length > 0).ToList();
-                    if (lines.Count == 0)
-                    {
-                        return new LyricsResponse { SongId = songId, Status = body.Pending == true ? "pending" : "none", Message = body.Pending == true ? "Still looking…" : "No lyrics for this one." };
-                    }
-
-                    return new LyricsResponse { SongId = songId, Status = "ok", Synced = body.Synced == true, Lines = lines };
-                default:
-                    return new LyricsResponse { SongId = songId, Status = "unavailable", Message = body?.Error ?? "The station could not get lyrics right now." };
-            }
+            return Refused(call.Refusal, call.RetryAfter);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+
+        if (call.Value is not { } reply)
         {
-            _logger.LogDebug("Lyrics fetch failed: {Message}", ex.Message);
             return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "The station did not answer." };
+        }
+
+        var body = reply.Body;
+        switch (reply.StatusCode)
+        {
+            case StatusCodes.Status403Forbidden:
+                return new LyricsResponse { SongId = songId, Status = "off", Message = "The station has lyrics switched off." };
+            case StatusCodes.Status401Unauthorized:
+                return new LyricsResponse { SongId = songId, Status = "unavailable", Message = "The station is private; lyrics need its password." };
+            case StatusCodes.Status409Conflict:
+                return new LyricsResponse { SongId = songId, Status = "ended", Message = "That track is no longer on air." };
+            case StatusCodes.Status200OK when body is not null:
+                var lines = (body.Lines ?? []).Select(l => Collapse(l?.Text)).Where(t => t.Length > 0).ToList();
+                if (lines.Count == 0)
+                {
+                    return new LyricsResponse { SongId = songId, Status = body.Pending == true ? "pending" : "none", Message = body.Pending == true ? "Still looking…" : "No lyrics for this one." };
+                }
+
+                return new LyricsResponse { SongId = songId, Status = "ok", Synced = body.Synced == true, Lines = lines };
+            default:
+                return new LyricsResponse { SongId = songId, Status = "unavailable", Message = body?.Error ?? "The station could not get lyrics right now." };
         }
     }
 
@@ -357,19 +391,25 @@ public class JellywaveWebController : ControllerBase
     /// Submits a listener request to the station on behalf of the signed-in user. The station's own limits apply
     /// (a wait between requests and a few per hour, shared by everyone on this server, since the station sees one caller).
     /// </summary>
-    /// <param name="submission">The text and name.</param>
+    /// <param name="submission">The text, the name and the station (absent: the primary station; read by <see cref="StationRouteAttribute"/>).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The receipt or refusal; always 200 so the page can show the station's words.</returns>
+    /// <returns>The receipt or the station's refusal, 200 so the page can show the station's words; card R2a: 429 (over the
+    /// caller's request or call budget) or 503 (the receipt store is full and the caller owns no receipt, or too many station
+    /// calls in flight) with <c>Retry-After</c> when this server refuses before asking the station.</returns>
     [HttpPost("Request")]
     [Authorize]
     [StationAccess]
+    [StationRoute]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<RequestOutcome>> SubmitRequest([FromBody] RequestSubmission submission, CancellationToken cancellationToken)
     {
         var caller = CallerId();
+        var station = CallerStation();
         var text = Collapse(submission?.Text);
         var name = Collapse(submission?.Name);
         if (text.Length == 0)
@@ -387,29 +427,43 @@ public class JellywaveWebController : ControllerBase
             name = name[..MaxRequestName];
         }
 
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
-        {
-            return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
-        }
-
+        // Card R2a: the caller's budget first, then a receipt slot (reserved through the callback, so an over-budget send
+        // never evicts the caller's own oldest receipt), so a full store refuses before the station is asked.
+        string? receipt = null;
+        var recorded = false;
         try
         {
-            var reply = await _stationClient.SubmitRequestAsync(baseUrl, text, name, cancellationToken).ConfigureAwait(false);
-            var body = reply.Body;
-            if (reply.StatusCode == StatusCodes.Status202Accepted && body?.RequestId is not null)
+            var call = await _calls.SubmitRequestAsync(caller, KeyOf(station), BaseUrlOf(station), text, name, () => (receipt = _receipts.Reserve(caller)) is not null, cancellationToken).ConfigureAwait(false);
+            if (call.Refusal != 0)
             {
-                // One line per accepted request, never the text or the name: ties the station's id to the Jellyfin
-                // user, which the station cannot do (it sees this server as one caller). The receipt lets only that
-                // user poll the outcome.
-                _receipts.Record(body.RequestId, caller);
-                _logger.LogInformation("Listener request {RequestId} accepted for user {UserId}", body.RequestId, caller);
-                return new RequestOutcome { Accepted = true, RequestId = body.RequestId, Status = "pending", Message = "Sent. Waiting for the DJ…" };
+                return Refused(call.Refusal, call.RetryAfter);
+            }
+
+            if (call.Value is not { } reply)
+            {
+                return new RequestOutcome { Status = "unavailable", Message = "The station did not answer." };
+            }
+
+            var body = reply.Body;
+            if (reply.StatusCode == StatusCodes.Status202Accepted && StationClient.IsValidId(body?.RequestId))
+            {
+                // One line per accepted request, never the text or the name: ties the station's id (and the receipt token
+                // the page holds instead) to the Jellyfin user, which the station cannot do (it sees this server as one
+                // caller). The receipt lets only that user poll the outcome, and only at this station.
+                recorded = _receipts.Complete(receipt!, caller, KeyOf(station), body!.RequestId!);
+                if (recorded)
+                {
+                    _logger.LogInformation("Listener request {RequestId} (receipt {Receipt}) accepted for user {UserId} at station {StationId}", body.RequestId, receipt, caller, KeyOf(station).StationId);
+                    return new RequestOutcome { Accepted = true, RequestId = receipt, Status = "pending", Message = "Sent. Waiting for the DJ…" };
+                }
+
+                _logger.LogWarning("Listener request {RequestId} accepted for user {UserId} at station {StationId}, but its receipt slot was gone", body.RequestId, caller, KeyOf(station).StationId);
+                return new RequestOutcome { Status = "unavailable", Message = "The station took the request, but its progress cannot be followed." };
             }
 
             if (reply.StatusCode is >= StatusCodes.Status200OK and < StatusCodes.Status300MultipleChoices)
             {
-                // A success without a receipt is not something today's station sends; treat it as a failure, not a refusal.
+                // A success without a usable receipt is not something today's station sends; treat it as a failure, not a refusal.
                 return new RequestOutcome { Status = "unavailable", Message = "The station answered without a receipt." };
             }
 
@@ -420,80 +474,72 @@ public class JellywaveWebController : ControllerBase
                 RetryAfterSeconds = body?.RetryAfter
             };
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        finally
         {
-            _logger.LogWarning("Request to the station failed: {Message}", ex.Message);
-            return new RequestOutcome { Status = "unavailable", Message = "The station did not answer." };
+            if (!recorded && receipt is not null)
+            {
+                _receipts.Cancel(receipt);
+            }
         }
     }
 
     /// <summary>
-    /// Polls the outcome of a submitted request. Only the user who submitted it may poll it (403 for anyone else);
-    /// an id with no live receipt here is "unknown" without asking the station.
+    /// Polls the outcome of a submitted request at the station it went to (the receipt's, never one the caller names).
+    /// <see cref="StationRouteAttribute"/> answers first: 403 for another user's request, "unknown" without asking any
+    /// station when there is no live receipt here or its station is no longer listed.
     /// </summary>
-    /// <param name="requestId">The id from the receipt.</param>
+    /// <param name="requestId">The receipt token the request route answered with (card R2a: never the station's own id).</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The outcome so far.</returns>
     [HttpGet("Request/{requestId}")]
     [Authorize]
     [StationAccess]
+    [StationRoute(FromReceipt = true)]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<RequestOutcome>> RequestStatus([FromRoute] string requestId, CancellationToken cancellationToken)
     {
-        switch (_receipts.Check(requestId, CallerId()))
+        var station = CallerStation();
+        var stationRequestId = _receipts.StationRequestIdOf(requestId, CallerId(), KeyOf(station));
+        if (stationRequestId is null)
         {
-            case ReceiptOwnership.Owner:
-                break;
-            case ReceiptOwnership.OtherUser:
-                _logger.LogDebug("Request status refused: request {RequestId} belongs to another user", requestId);
-                return StatusCode(StatusCodes.Status403Forbidden);
-            case ReceiptOwnership.Unknown:
-                return LostTrack(requestId);
-            default:
-                throw new InvalidOperationException("Unknown receipt ownership");
+            // The filter found the receipt a moment ago; it expired or was evicted since.
+            return RequestOutcome.LostTrack(requestId);
         }
 
-        var config = _configuration();
-        if (config is null || !StationUrls.TryGetBaseUrl(config, out var baseUrl) || baseUrl is null)
+        var call = await _calls.GetRequestStatusAsync(CallerId(), KeyOf(station), BaseUrlOf(station), requestId, stationRequestId, cancellationToken).ConfigureAwait(false);
+        if (call.Refusal != 0)
         {
-            return new RequestOutcome { Status = "unavailable", Message = "The station is not configured." };
+            return Refused(call.Refusal, call.RetryAfter);
         }
 
-        try
+        if (call.Value is not { } reply || reply.StatusCode is >= StatusCodes.Status300MultipleChoices and < StatusCodes.Status400BadRequest)
         {
-            var reply = await _stationClient.GetRequestStatusAsync(baseUrl, requestId, cancellationToken).ConfigureAwait(false);
-            var body = reply.Body;
-            if (reply.StatusCode is >= StatusCodes.Status300MultipleChoices and < StatusCodes.Status400BadRequest)
-            {
-                // Not followed; the receipt stays, so a later poll can still reach the station.
-                return new RequestOutcome { RequestId = requestId, Status = "unavailable", Message = "The station did not answer." };
-            }
-
-            if (reply.StatusCode == StatusCodes.Status404NotFound || body is null)
-            {
-                return LostTrack(requestId);
-            }
-
-            var track = body.Track is null ? null : string.Join(" – ", new[] { body.Track.Artist, body.Track.Title }.Where(p => !string.IsNullOrWhiteSpace(p)));
-            return new RequestOutcome
-            {
-                RequestId = requestId,
-                Status = body.Status ?? "pending",
-                Outcome = body.Outcome,
-                Message = body.Message,
-                Ack = body.Ack,
-                Track = string.IsNullOrEmpty(track) ? null : track,
-                QueuePosition = body.QueuePosition
-            };
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogWarning("Request status from the station failed: {Message}", ex.Message);
+            // No answer, or a redirect (not followed): the receipt stays, so a later poll can still reach the station.
             return new RequestOutcome { RequestId = requestId, Status = "unavailable", Message = "The station did not answer." };
         }
+
+        var body = reply.Body;
+        if (reply.StatusCode == StatusCodes.Status404NotFound || body is null)
+        {
+            return RequestOutcome.LostTrack(requestId);
+        }
+
+        var track = body.Track is null ? null : string.Join(" – ", new[] { body.Track.Artist, body.Track.Title }.Where(p => !string.IsNullOrWhiteSpace(p)));
+        return new RequestOutcome
+        {
+            RequestId = requestId,
+            Status = body.Status ?? "pending",
+            Outcome = body.Outcome,
+            Message = body.Message,
+            Ack = body.Ack,
+            Track = string.IsNullOrEmpty(track) ? null : track,
+            QueuePosition = body.QueuePosition
+        };
     }
 
     /// <summary>
@@ -604,8 +650,8 @@ public class JellywaveWebController : ControllerBase
         return response;
     }
 
-    private static RequestOutcome LostTrack(string requestId)
-        => new() { RequestId = requestId, Status = "unknown", Message = "The station lost track of that request." };
+    private static string Seconds(TimeSpan delay)
+        => ((int)Math.Ceiling(Math.Max(1, delay.TotalSeconds))).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private static LikeOutcome MapLike(StationReply<LikeStatus> reply)
     {
@@ -664,15 +710,33 @@ public class JellywaveWebController : ControllerBase
             ? id
             : throw new InvalidOperationException("The station access filter did not run for this action.");
 
+    // The only members that open a StationSource (StationRouteIlTests): its key, its base URL and its name. Every other
+    // line handles the resolved station as an opaque value from CallerStation.
+    private static string NameOf(StationSource station) => JellywaveChannel.StationName(station.Station);
+
+    private static StationKey KeyOf(StationSource station)
+        => station.Key ?? throw new InvalidOperationException("A station route resolved a station without a key.");
+
+    private static Uri BaseUrlOf(StationSource station)
+        => station.BaseUrl ?? throw new InvalidOperationException("A station route resolved a station without a base URL.");
+
     /// <summary>
-    /// Whether the snapshot holds another station's data than the configured one (the station URL changed or was
-    /// cleared since the last poll). The routes then answer as if nothing has been heard until the poller has fetched
-    /// the configured station, instead of serving the old one's track, history and cover.
+    /// The station <see cref="StationRouteAttribute"/> resolved for this request: a listed SUB/WAVE station. Throws when
+    /// the filter did not run, so an action that forgot the attribute fails instead of serving some other station.
     /// </summary>
-    private static bool FromOtherStation(NowPlayingSnapshot snapshot, PluginConfiguration config)
-        => snapshot.Origin is not null
-            && !(StationUrls.TryGetBaseUrl(config, out var baseUrl) && baseUrl is not null
-                && string.Equals(snapshot.Origin, StationUrls.Origin(baseUrl), StringComparison.Ordinal));
+    private StationSource CallerStation()
+        => HttpContext.Items.TryGetValue(StationRouteAttribute.StationItem, out var value) && value is StationSource station
+            ? station
+            : throw new InvalidOperationException("The station route filter did not run for this action.");
+
+    /// <summary>
+    /// The plain stream the title route's filter resolved (card L6): its id only. Throws when the filter did not run, so an
+    /// action that forgot the attribute fails instead of serving some other station.
+    /// </summary>
+    private PlainStation CallerPlainStation()
+        => HttpContext.Items.TryGetValue(StationRouteAttribute.PlainStationItem, out var value) && value is PlainStation station
+            ? station
+            : throw new InvalidOperationException("The plain station route filter did not run for this action.");
 
     /// <summary>
     /// The channel entity <see cref="StationAccessAttribute"/> resolved for this request. Throws when the filter did not run.
@@ -681,6 +745,18 @@ public class JellywaveWebController : ControllerBase
         => HttpContext.Items.TryGetValue(StationAccess.ChannelItem, out var value) && value is Channel channel
             ? channel
             : throw new InvalidOperationException("The station access filter did not run for this action.");
+
+    /// <summary>
+    /// A refusal this server makes before it asks the station (card R2a): the status (429 over the caller's budget, 503 when
+    /// the server is busy) with a <c>Retry-After</c> in whole seconds, at least 1. <c>[ApiController]</c>'s client-error
+    /// mapping gives it a ProblemDetails body (<c>status</c>, <c>title</c>, <c>traceId</c>); the page reads the status and
+    /// the header, not the body.
+    /// </summary>
+    private StatusCodeResult Refused(int status, TimeSpan retryAfter)
+    {
+        Response.Headers[HeaderNames.RetryAfter] = Seconds(retryAfter);
+        return StatusCode(status);
+    }
 
     private IActionResult Asset(string resource, string contentType)
     {

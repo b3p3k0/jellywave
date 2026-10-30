@@ -50,10 +50,10 @@ public class LegacyConfigurationTests
             config = (PluginConfiguration)serializer.Deserialize(reader)!;
         }
 
-        Assert.Equal(new[] { "GrantAccessToAllUsers" }, unknown);   // seen and ignored, not an error
+        // Seen and ignored, not an error: the grant setting (card 15b) and the Direct fields (card L10).
+        Assert.Equal(new[] { "ClientStreamUrl", "Delivery", "GrantAccessToAllUsers" }, unknown);
         Assert.Equal("http://radio.example:7700", config.StationBaseUrl);
         Assert.Equal("Test Radio", config.StationName);
-        Assert.Equal(DeliveryMode.Direct, config.Delivery);
         Assert.False(config.NowPlayingEnabled);
         Assert.Equal(30, config.NowPlayingPollSeconds);
         Assert.Equal(128, config.StreamBitrateKbps);
@@ -67,5 +67,7 @@ public class LegacyConfigurationTests
         new XmlSerializer(typeof(PluginConfiguration)).Serialize(writer, new PluginConfiguration());
 
         Assert.DoesNotContain("GrantAccessToAllUsers", writer.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Delivery", writer.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("ClientStreamUrl", writer.ToString(), StringComparison.Ordinal);
     }
 }

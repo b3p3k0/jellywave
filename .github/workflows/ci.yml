@@ -1,7 +1,6 @@
 name: CI
 
-# Every push to a branch and every pull request: the same checks a card acceptance runs.
-# Read-only token, no stored credentials, actions pinned to full commit SHAs (tag in the comment).
+# Every push to a branch and every pull request: the shared checks in verify.yml.
 on:
   push:
     branches: ['**']
@@ -11,31 +10,5 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Build (warnings are errors)
-        run: dotnet build Jellyfin.Plugin.Jellywave.slnx -c Release --nologo
-
-      - name: Unit tests
-        run: dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release --no-build --nologo
-
-      - name: Formatting
-        run: dotnet format Jellyfin.Plugin.Jellywave.slnx --verify-no-changes --no-restore
-
-      - name: Page script syntax
-        run: node --check Jellyfin.Plugin.Jellywave/Web/ui.js
-
-      - name: Shell script syntax
-        run: for f in scripts/*.sh; do bash -n "$f"; done
-
-      - name: Metadata agreement
-        run: scripts/check-manifest.sh
+  verify:
+    uses: ./.github/workflows/verify.yml

@@ -92,17 +92,9 @@ public class ScheduleDuplicateIdTests
                 + "\"personas\":[{\"id\":\"p1\",\"name\":\"Host\"},{\"id\":\"p1\",\"name\":\"Other\"}],\"schedule\":{" + grid + "}}"
         };
         var client = new StationClient(new StubFactory(station));
-        var controller = new JellywaveWebController(
-            new NowPlayingState(),
-            new LiveItemFinder(null!, () => [], NullLogger<LiveItemFinder>.Instance),
-            null!,
-            client,
-            new ScheduleCache(client),
-            new RequestReceipts(),
-            NullLogger<JellywaveWebController>.Instance,
-            () => new PluginConfiguration { StationBaseUrl = "http://station.example" });
+        var controller = WebRoute.Controller(() => new PluginConfiguration { Stations = { new StationDefinition { Id = "live", BaseUrl = "http://station.example" } } }, client: client);
 
-        var r = (await controller.Schedule(CancellationToken.None)).Value!;
+        var r = WebRoute.Value<ScheduleResponse>(await WebRoute.RunAsync(controller, nameof(JellywaveWebController.Schedule)));
 
         Assert.True(r.Available);
         Assert.Equal(("First", "Host"), (r.Today.Single().Show, r.Today.Single().Host));

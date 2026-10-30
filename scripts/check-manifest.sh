@@ -36,7 +36,7 @@ else
     echo "FAIL targetAbi yaml $ABI_YAML is older than manifest[0]'s $ABI_MAN"; fail=1
 fi
 # targetAbi is the oldest server Jellyfin offers this build to, so it must name the Jellyfin packages the
-# assembly is compiled against (a 12.3 build references 12.3.0.0 assemblies, which a 12.0 server cannot load).
+# assembly is compiled against (a 12.4 build references 12.4.0.0 assemblies, which a 12.3 server cannot load).
 for proj in Jellyfin.Plugin.Jellywave/Jellyfin.Plugin.Jellywave.csproj Jellyfin.Plugin.Jellywave.Tests/Jellyfin.Plugin.Jellywave.Tests.csproj; do
     for pkg in Jellyfin.Controller Jellyfin.Model; do
         V_PKG="$(sed -n "s:.*<PackageReference Include=\"$pkg\" Version=\"\([^\"]*\)\".*:\1:p" "$ROOT/$proj")"

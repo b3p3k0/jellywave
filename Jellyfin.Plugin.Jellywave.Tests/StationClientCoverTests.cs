@@ -102,6 +102,20 @@ public class StationClientCoverTests
     }
 
     [Fact]
+    public async Task An_animated_image_counts_as_no_art_for_covers_avatars_and_logos()
+    {
+        // Card R2a (D9): all three come through the same image check, which now refuses a second frame.
+        var animated = ImageFixtures.Gif(64, 64, "89a", frames: 3);
+        var (client, _) = Client(_ => Response(HttpStatusCode.OK, animated, "image/gif"));
+        Assert.Null(await client.GetCoverAsync(Base, "x", CancellationToken.None));
+        Assert.Null(await client.GetAvatarAsync(Base, "dj_one", CancellationToken.None));
+        Assert.Null(await client.GetLogoAsync(new Uri("https://img.example/logo.gif"), CancellationToken.None));
+
+        (client, _) = Client(_ => Response(HttpStatusCode.OK, ImageFixtures.Gif(64, 64), "image/gif"));
+        Assert.Equal("image/gif", (await client.GetCoverAsync(Base, "x", CancellationToken.None))!.MimeType);
+    }
+
+    [Fact]
     public async Task Avatars_are_sniffed_too()
     {
         var (client, _) = Client(_ => Response(HttpStatusCode.OK, [0x3C, 0x73, 0x76, 0x67], "image/png"));

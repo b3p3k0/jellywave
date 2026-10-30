@@ -103,7 +103,9 @@ public sealed class StationHttpClientRegistrationTests : IDisposable
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         Assert.Equal(new Uri(_root, "landed"), response.Headers.Location);
         Assert.Equal(0, Volatile.Read(ref _landed));
-        Assert.StartsWith("Jellywave/", Volatile.Read(ref _userAgent), StringComparison.Ordinal);
+        // Card L9: product and version, then the project URL as a comment (Wikimedia's User-Agent policy asks for a contact).
+        var version = typeof(Plugin).Assembly.GetName().Version!.ToString();
+        Assert.Equal("Jellywave/" + version + " (+https://github.com/b3p3k0/jellywave)", Volatile.Read(ref _userAgent));
     }
 
     [Fact]

@@ -7,8 +7,10 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 /// <summary>
 /// Identifies a station image from its bytes (JPEG, PNG, GIF or WebP) and reads its size from the headers, so an
 /// image is only handed to Jellyfin's decoder when its type is known and its dimensions are bounded. Every read is
-/// bounds-checked; malformed or truncated input is "unknown", never an exception. Animation (GIF frames, APNG, the
-/// WebP VP8X animation flag) is not checked: an accepted risk, see DESIGN.md.
+/// bounds-checked; malformed or truncated input is "unknown", never an exception. Card R2a: an accepted image must also be
+/// one still image with a well-formed structure (<see cref="ImageStructure"/>): animated GIF, APNG and animated WebP are
+/// refused, because only the first frame's header is sized here, and so is a JPEG with more than
+/// <see cref="ImageStructure.MaxJpegScans"/> scans (each one a decode pass).
 /// </summary>
 public static class ImageSniffer
 {
@@ -68,8 +70,8 @@ public static class ImageSniffer
     /// <param name="data">The image bytes.</param>
     /// <param name="mimeType">The detected media type when accepted; the declared one plays no part.</param>
     /// <returns>
-    /// True when the type is known, both sides are at least 1 and at most <see cref="MaxImageDimension"/>, and the area
-    /// is at most <see cref="MaxImagePixels"/>.
+    /// True when the type is known, both sides are at least 1 and at most <see cref="MaxImageDimension"/>, the area is at
+    /// most <see cref="MaxImagePixels"/>, and the structure walk finds one still image (<see cref="ImageStructure"/>).
     /// </returns>
     public static bool TryAccept(ReadOnlySpan<byte> data, [NotNullWhen(true)] out string? mimeType)
     {
@@ -80,7 +82,8 @@ public static class ImageSniffer
             || height <= 0
             || width > MaxImageDimension
             || height > MaxImageDimension
-            || width * height > MaxImagePixels)
+            || width * height > MaxImagePixels
+            || !ImageStructure.IsOneStillImage(data, detected))
         {
             return false;
         }

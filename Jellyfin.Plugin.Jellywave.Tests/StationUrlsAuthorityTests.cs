@@ -6,12 +6,12 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 
 /// <summary>
 /// Card 14: the base URL carries no credentials, query or fragment; the server stream URL stays on the base's
-/// scheme, host, port and userinfo; the client stream URL carries no credentials but may name any host.
+/// scheme, host, port and userinfo. (The client stream URL went with Direct delivery in card L10.)
 /// </summary>
 public class StationUrlsAuthorityTests
 {
-    private static PluginConfiguration Config(string baseUrl, string streamPath = "/stream.mp3", string clientUrl = "")
-        => new() { StationBaseUrl = baseUrl, StreamPath = streamPath, ClientStreamUrl = clientUrl };
+    private static PluginConfiguration Config(string baseUrl, string streamPath = "/stream.mp3")
+        => new() { Stations = { new StationDefinition { Id = "live", BaseUrl = baseUrl, StreamPath = streamPath } } };
 
     [Theory]
     [InlineData("http://user:secret@radio.example:7700")]
@@ -50,25 +50,6 @@ public class StationUrlsAuthorityTests
     {
         Assert.True(StationUrls.TryGetServerStreamUrl(Config(baseUrl, path), out var url));
         Assert.Equal(expected, url!.ToString());
-    }
-
-    [Theory]
-    [InlineData("http://listener:secret@public.example/stream.mp3")]
-    [InlineData("https://token@public.example/stream.mp3")]
-    public void ClientStreamUrl_rejects_userinfo_and_counts_as_set_but_invalid(string raw)
-    {
-        var config = Config("http://radio.example", clientUrl: raw);
-        Assert.True(StationUrls.HasClientStreamUrl(config));
-        Assert.False(StationUrls.TryGetClientStreamUrl(config, out var url));
-        Assert.Null(url);
-    }
-
-    [Fact]
-    public void ClientStreamUrl_may_name_another_host_and_port()
-    {
-        var config = Config("http://radio.example:7700", clientUrl: "http://public.example:8443/stream.mp3");
-        Assert.True(StationUrls.TryGetClientStreamUrl(config, out var url));
-        Assert.Equal("http://public.example:8443/stream.mp3", url!.ToString());
     }
 
     [Fact]

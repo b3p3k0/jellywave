@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -27,6 +28,11 @@ public class StationClient
     private const long MaxResponseBytes = 256 * 1024;
 
     /// <summary>
+    /// Largest playlist (<c>.pls</c>, <c>.m3u</c>) the add-station probe reads (card L3). Real ones are a few hundred bytes.
+    /// </summary>
+    public const int MaxPlaylistBytes = 256 * 1024;
+
+    /// <summary>
     /// Largest cover image accepted. The station serves 512 px JPEGs; a few hundred KB at most.
     /// </summary>
     private const long MaxImageBytes = 4 * 1024 * 1024;
@@ -41,6 +47,22 @@ public class StationClient
     /// </summary>
     private const string ImageTypePrefix = "image/";
 
+    /// <summary>Request header asking an Icecast or Shoutcast server for its <c>icy-*</c> headers.</summary>
+    private const string IcyMetaDataHeader = "Icy-MetaData";
+
+    private const string IcyNameHeader = "icy-name";
+    private const string IcyBitrateHeader = "icy-br";
+    private const string IcySampleRateHeader = "icy-sr";
+    private const string IcyGenreHeader = "icy-genre";
+    private const string IcyDescriptionHeader = "icy-description";
+    private const string IcyUrlHeader = "icy-url";
+
+    /// <summary>Response header giving the audio bytes between two metadata blocks (card L6).</summary>
+    private const string IcyMetaIntHeader = "icy-metaint";
+
+    /// <summary>Largest chunk of audio read (and thrown away) at a time while a title sample skips to the metadata block.</summary>
+    private const int SkipChunkBytes = 16 * 1024;
+
     /// <summary>
     /// Whole-request budget (connect, headers and body) per call.
     /// </summary>
@@ -52,14 +74,26 @@ public class StationClient
     };
 
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly TimeSpan _requestTimeout;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StationClient"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     public StationClient(IHttpClientFactory httpClientFactory)
+        : this(httpClientFactory, RequestTimeout)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StationClient"/> class with another per-call budget (tests).
+    /// </summary>
+    /// <param name="httpClientFactory">The HTTP client factory.</param>
+    /// <param name="requestTimeout">The per-call budget, for the headers and for a body read on its own.</param>
+    internal StationClient(IHttpClientFactory httpClientFactory, TimeSpan requestTimeout)
     {
         _httpClientFactory = httpClientFactory;
+        _requestTimeout = requestTimeout;
     }
 
     /// <summary>
@@ -94,7 +128,7 @@ public class StationClient
     /// Transport failures (timeouts, a chunked body that overruns the cap) throw and are retried by the caller.
     /// </returns>
     public Task<StationImage?> GetCoverAsync(Uri baseUrl, string coverId, CancellationToken cancellationToken)
-        => IsValidId(coverId) ? GetImageAsync(baseUrl, "api/cover/" + coverId, cancellationToken) : Task.FromResult<StationImage?>(null);
+        => IsValidId(coverId) ? GetImageAsync(new Uri(baseUrl, "api/cover/" + coverId), cancellationToken) : Task.FromResult<StationImage?>(null);
 
     /// <summary>
     /// Gets a DJ portrait: <c>GET /api/persona-avatar/{id}</c>. The station answers a transparent PNG when none is set.
@@ -104,7 +138,158 @@ public class StationClient
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The image, or null when the id is invalid or the answer is unusable (the same rules as covers).</returns>
     public Task<StationImage?> GetAvatarAsync(Uri baseUrl, string personaId, CancellationToken cancellationToken)
-        => IsValidId(personaId) ? GetImageAsync(baseUrl, "api/persona-avatar/" + personaId, cancellationToken) : Task.FromResult<StationImage?>(null);
+        => IsValidId(personaId) ? GetImageAsync(new Uri(baseUrl, "api/persona-avatar/" + personaId), cancellationToken) : Task.FromResult<StationImage?>(null);
+
+    /// <summary>
+    /// Gets a plain stream's logo (card L2) from the whole URL the admin configured, with the same bounds as covers:
+    /// the no-redirect client, the 8 s budget, 4 MB, a declared type that is missing or <c>image/*</c>, and bytes that
+    /// <see cref="ImageSniffer"/> accepts. Never through Jellyfin's <c>ImageUrl</c>, which fetches with Jellyfin's own client.
+    /// </summary>
+    /// <param name="logoUrl">The logo URL, already checked by <see cref="StationUrls.TryParseLogoUrl"/>.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The image, or null when the answer is unusable (a redirect included); transport failures throw.</returns>
+    public Task<StationImage?> GetLogoAsync(Uri logoUrl, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(logoUrl);
+        return GetImageAsync(logoUrl, cancellationToken);
+    }
+
+    /// <summary>
+    /// Checks a stream address for the add-station probe (card L3): one <c>GET</c> with <c>Icy-MetaData: 1</c> through the
+    /// no-redirect client, completed at the headers (<see cref="HttpCompletionOption.ResponseHeadersRead"/>). An audio
+    /// stream never ends, so its body is never touched: the response is disposed, which closes the connection. Only when
+    /// <paramref name="readBody"/> says the answer is a playlist is the body read, at most <see cref="MaxPlaylistBytes"/>
+    /// under its own 8 s budget; a larger one is not read further.
+    /// </summary>
+    /// <param name="url">The address, already checked by <see cref="StationUrls.TryParseStreamUrl"/>.</param>
+    /// <param name="readBody">Given the declared media type of a 2xx answer, says whether to read the body (a playlist).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What the headers said, and the playlist body when one was read. Transport failures throw.</returns>
+    public async Task<StreamAnswer> ProbeStreamAsync(Uri url, Func<string?, bool> readBody, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        ArgumentNullException.ThrowIfNull(readBody);
+
+        using var client = CreateClient(MaxResponseBytes);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation(IcyMetaDataHeader, "1");
+
+        // ResponseHeadersRead: the client's Timeout ends at the headers and nothing of the body is buffered (card 3 lesson).
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+        var contentType = response.Content.Headers.ContentType?.MediaType;
+        var answer = new StreamAnswer
+        {
+            Status = status,
+            Location = IsRedirect(response.StatusCode) && response.Headers.Location is { } target ? new Uri(url, target) : null,
+            ContentType = contentType,
+            IcyName = HeaderValue(response, IcyNameHeader),
+            IcyBitrate = HeaderValue(response, IcyBitrateHeader),
+            IcySampleRate = HeaderValue(response, IcySampleRateHeader),
+            IcyGenre = HeaderValue(response, IcyGenreHeader),
+            IcyDescription = HeaderValue(response, IcyDescriptionHeader),
+            IcyUrl = HeaderValue(response, IcyUrlHeader)
+        };
+
+        if (!answer.IsSuccess || !readBody(contentType))
+        {
+            return answer;
+        }
+
+        if (response.Content.Headers.ContentLength > MaxPlaylistBytes)
+        {
+            return new StreamAnswer { Status = status, ContentType = contentType, BodyTooLarge = true };
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_requestTimeout);
+        var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            // One byte over the cap tells "larger" from "exactly the cap" without reading on.
+            var buffer = new byte[MaxPlaylistBytes + 1];
+            var total = 0;
+            int read;
+            while (total < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(total), timeout.Token).ConfigureAwait(false)) > 0)
+            {
+                total += read;
+            }
+
+            return total > MaxPlaylistBytes
+                ? new StreamAnswer { Status = status, ContentType = contentType, BodyTooLarge = true }
+                : new StreamAnswer
+                {
+                    Status = status,
+                    ContentType = contentType,
+                    IcyName = answer.IcyName,
+                    IcyBitrate = answer.IcyBitrate,
+                    IcySampleRate = answer.IcySampleRate,
+                    IcyGenre = answer.IcyGenre,
+                    IcyDescription = answer.IcyDescription,
+                    IcyUrl = answer.IcyUrl,
+                    // A UTF-8 byte order mark decodes to U+FEFF, which char.IsWhiteSpace does not count; drop it here.
+                    Body = Encoding.UTF8.GetString(buffer, 0, total).TrimStart('\uFEFF')
+                };
+        }
+    }
+
+    /// <summary>
+    /// Samples a plain stream's current title (card L6): one <c>GET</c> with <c>Icy-MetaData: 1</c> through the no-redirect
+    /// client, under one budget of 8 s (<see cref="RequestTimeout"/>) for the headers and the body together. Without an
+    /// accepted <c>icy-metaint</c> (<see cref="IcyMetadata.TryParseMetaInt"/>: missing, not a number, or over
+    /// <see cref="IcyMetadata.MaxMetaInt"/>) no body byte is read. Otherwise it reads <c>icy-metaint</c> audio bytes (thrown
+    /// away), the length byte and the one metadata block, never more than <see cref="IcyMetadata.ReadCap"/>, then disposes
+    /// the response, which closes the connection. The station sees a listener for that long.
+    /// </summary>
+    /// <param name="url">The stream's server URL, as <see cref="StationSources.Publish"/> listed it (the whole-URL rule passed).</param>
+    /// <param name="onAnswered">Called once the stream answered with a success status and its headers (card L13: the stream
+    /// is up even when its metadata block does not arrive in the budget); null when the caller does not ask.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The sample. A redirect (<see cref="StationRedirectException"/>, never followed), another non-success status
+    /// (<see cref="HttpRequestException"/>), a timeout and a stream that ends before the block (an <see cref="System.IO.IOException"/>)
+    /// throw.</returns>
+    public async Task<IcySample> SampleIcyTitleAsync(Uri url, Action? onAnswered, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+
+        // One budget for the whole sample: with ResponseHeadersRead the client's Timeout stops at the headers (card 3 lesson).
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_requestTimeout);
+        using var client = CreateClient(MaxResponseBytes);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation(IcyMetaDataHeader, "1");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budget.Token).ConfigureAwait(false);
+        if (IsRedirect(response.StatusCode))
+        {
+            // The target is not kept: it is station-chosen and nothing here would use it.
+            throw new StationRedirectException(response.StatusCode, null);
+        }
+
+        response.EnsureSuccessStatusCode();
+        onAnswered?.Invoke();
+        if (!IcyMetadata.TryParseMetaInt(HeaderValue(response, IcyMetaIntHeader), out var metaInt))
+        {
+            return IcySample.NoMetadata;
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(budget.Token).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            var skip = new byte[Math.Min(metaInt, SkipChunkBytes)];
+            for (var left = metaInt; left > 0;)
+            {
+                var chunk = Math.Min(left, skip.Length);
+                await stream.ReadExactlyAsync(skip.AsMemory(0, chunk), budget.Token).ConfigureAwait(false);
+                left -= chunk;
+            }
+
+            var length = new byte[1];
+            await stream.ReadExactlyAsync(length, budget.Token).ConfigureAwait(false);
+            var block = new byte[length[0] * IcyMetadata.BlockUnit];
+            await stream.ReadExactlyAsync(block, budget.Token).ConfigureAwait(false);
+            return IcySample.Read(IcyMetadata.StreamTitle(block));
+        }
+    }
 
     /// <summary>
     /// Reads the like status of the track on air: <c>GET /api/like</c>.
@@ -164,12 +349,12 @@ public class StationClient
         return await ReadReplyAsync<LyricsPayload>(response, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<StationImage?> GetImageAsync(Uri baseUrl, string relativePath, CancellationToken cancellationToken)
+    private async Task<StationImage?> GetImageAsync(Uri url, CancellationToken cancellationToken)
     {
         using var client = CreateClient(MaxImageBytes);
 
         // Headers first: a declared oversize or a wrong type is "no art", decided without reading the body.
-        using var response = await client.GetAsync(new Uri(baseUrl, relativePath), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;
@@ -191,7 +376,7 @@ public class StationClient
         // With ResponseHeadersRead the client's Timeout and buffer cap stop at the headers (card 3 lesson), so the
         // body gets its own budget: the same timeout, and LoadIntoBufferAsync's cap for chunked bodies.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(RequestTimeout);
+        timeout.CancelAfter(_requestTimeout);
         await response.Content.LoadIntoBufferAsync(MaxImageBytes, timeout.Token).ConfigureAwait(false);
         var bytes = await response.Content.ReadAsByteArrayAsync(timeout.Token).ConfigureAwait(false);
         return ImageSniffer.TryAccept(bytes, out var mimeType) ? new StationImage(mimeType, bytes) : null;
@@ -270,6 +455,11 @@ public class StationClient
         return new StationReply<T>(status, body);
     }
 
+    private static string? HeaderValue(HttpResponseMessage response, string name)
+        => response.Headers.TryGetValues(name, out var values) || response.Content.Headers.TryGetValues(name, out values)
+            ? string.Join(' ', values)
+            : null;
+
     private static bool IsRedirect(HttpStatusCode status)
         => (int)status is >= 300 and < 400;
 
@@ -312,7 +502,7 @@ public class StationClient
     private HttpClient CreateClient(long maxResponseBytes)
     {
         var client = _httpClientFactory.CreateClient(HttpClientName);
-        client.Timeout = RequestTimeout;
+        client.Timeout = _requestTimeout;
         client.MaxResponseContentBufferSize = maxResponseBytes;
         return client;
     }

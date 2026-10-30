@@ -203,4 +203,58 @@ public class StationAccessTests
             "Test"));
         Assert.Equal(StationAccessReason.Allowed, Access(store, TheChannel()).Check(principal).Reason);
     }
+
+    // ---- Card L14 fix round S2: the same gate for the users of Jellyfin's sessions (playback reports) ----
+
+    [Fact]
+    public void The_session_user_gate_passes_a_user_who_sees_the_tile_and_no_one_else()
+    {
+        var store = new FakeStore();
+        var sees = NewUser(allChannels: true);
+        var enabled = NewUser(enabled: [ChannelId]);
+        var blocked = NewUser(allChannels: true, blocked: [ChannelId]);
+        var none = NewUser();
+        var admin = NewUser(admin: true);   // not exempt, as in Jellyfin
+        foreach (var u in new[] { sees, enabled, blocked, none, admin })
+        {
+            store.Users[u.Id] = u;
+        }
+
+        var gate = Access(store, TheChannel()).SessionUserGate();
+
+        Assert.True(gate(sees.Id));
+        Assert.True(gate(enabled.Id));
+        Assert.False(gate(blocked.Id));
+        Assert.False(gate(none.Id));
+        Assert.False(gate(admin.Id));
+        Assert.False(gate(Guid.NewGuid()));   // unknown user
+        Assert.False(gate(Guid.Empty));
+    }
+
+    [Fact]
+    public void The_session_user_gate_refuses_everyone_without_the_channel_on_a_collision_or_with_a_block_on_an_earlier_tile()
+    {
+        var (store, user) = StoreWith(NewUser(allChannels: true));
+
+        Assert.False(Access(store, null).SessionUserGate()(user.Id));
+        Assert.False(new StationAccess(store, () => ChannelResolution.Collision("Other"), NullLogger<StationAccess>.Instance).SessionUserGate()(user.Id));
+        Assert.False(new StationAccess(store, () => ChannelResolution.Found(TheChannel()), _ => true, NullLogger<StationAccess>.Instance).SessionUserGate()(user.Id));
+        Assert.Throws<InvalidOperationException>(() => new StationAccess(store, () => throw new InvalidOperationException("locked"), NullLogger<StationAccess>.Instance).SessionUserGate());
+    }
+
+    [Fact]
+    public void The_session_user_gate_for_a_resolved_channel_applies_the_same_rules_and_resolves_nothing()
+    {
+        // Fix round 2: the poller and the title sampler pass the channel they resolved; the gate then looks up no channel.
+        var (store, user) = StoreWith(NewUser(allChannels: true));
+        var blocked = NewUser(allChannels: true, blocked: [ChannelId]);
+        store.Users[blocked.Id] = blocked;
+        var access = new StationAccess(store, () => throw new InvalidOperationException("no lookup expected"), NullLogger<StationAccess>.Instance);
+
+        Assert.True(access.SessionUserGate(TheChannel())(user.Id));
+        Assert.False(access.SessionUserGate(TheChannel())(blocked.Id));
+        Assert.False(access.SessionUserGate(TheChannel())(Guid.Empty));
+        Assert.False(access.SessionUserGate(null)(user.Id));
+        Assert.False(new StationAccess(store, () => ChannelResolution.Found(TheChannel()), _ => true, NullLogger<StationAccess>.Instance).SessionUserGate(TheChannel())(user.Id));
+    }
 }

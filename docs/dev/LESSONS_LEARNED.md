@@ -178,3 +178,342 @@ An external review of v0.3.4.0 (main de8d8dd) found that the trust model had not
 - Use the host app's own navigation signal before watching the whole DOM: jellyfin-web 12.3 dispatches a bubbling `viewshow` for legacy and React views alike, after the list controller has set `data-parentid`, so it can place the header for the shown view. The MutationObserver stays only as a debounced fallback whose callback arms one timer and queries nothing.
 - An async reply must prove it still belongs to the moment that asked: a captured song id for likes (both directions), a session key (`serverId|userId`, null without a token) plus an epoch for every request, and the request poll checks the session before each send. The RA's timing simulation found the one poll that slipped through between a token change and the next session check; a plain Node stub of `window`, `document` and `ApiClient` was enough to reproduce each race without a browser or a framework.
 - SPAs keep cached views in the document: a document-wide search must skip jellyfin-web's hidden `.mainAnimatedPage.hide` views or it re-points at, or writes into, a page the user is not looking at.
+
+## Card L1: station model, migration, rename bridge (68afb48..31521b1, acceptance pass 881846d)
+
+- Unit tests that build services through `internal` test constructors prove the logic, not the wiring. The RA removed the save hook, the constructor migration and three DI lambdas with all 400 tests green. For an authorization card, add tests that build the real `Plugin` (temp config folder, small `IXmlSerializer`) and resolve services through their public constructors, in a non-parallel collection because `Plugin.Instance` is static.
+- A plugin constructor must never throw in 12.3: `PluginManager.CreatePluginInstance` marks the plugin Malfunctioned and persists it. Wrap load and migration, log at Error, and degrade to a state that fails closed (unmigrated config still honours the 0.4.x tile name's blocks).
+- Every degraded path needs a save test, not only a load test: the "migration failed" path kept old blocks in memory but lost them at the admin's first page save (F-R1), because the posted body looked migrated.
+- Hold a concurrency test where the shared state is still the old object. `BasePlugin<T>.UpdateConfiguration` swaps `Configuration` before `SerializeToFile`, so a hold inside the serializer lets an ungated reader pass; holding inside `PrepareSave` exposes it.
+- `IsEnabledFor` (12.3 `ChannelManager.cs:221-237`) hides a channel per user in My Media, but `GetChannelItems` checks neither it nor `IsVisible`; hiding is not enforcement. Copying a block to the new id is what makes Jellyfin enforce it everywhere.
+- An earlier tile name can later belong to another plugin's channel; anything that widens access from earlier names (the carry-over) must skip ids owned by another registered channel, while the hiding side keeps them.
+- A mutation runner that resets its worktree between mutants also wipes uncommitted patches; commit (or copy) the change under test before running it.
+
+## Card L2: many items (be1ff54..2c7ceb5; fix rounds 283bb1c..7d1dac5)
+
+- Jellyfin 12.3 builds a remote ffmpeg input as `-i "<url>"` with no escaping, and `Uri.ToString()` turns `%22` back into `"`. Build every URL that reaches `Path` or `EncoderPath` with `Uri.AbsoluteUri`, and pin it with a test carrying `%22`, a raw quote and a backslash. The bug had been in every release since 0.1; only admin configuration could reach it.
+- "Primary" must mean "primary among what is published". A selector that ignores the validation applied elsewhere (`PrimaryStation()` vs `StationSources.Publish`) lets a refused station steer writes onto another station's item. Derive every role from the published list.
+- Jellyfin applies a channel item's `Name`, `Overview` and `ImageUrl` only when it creates the item. Whatever the plugin writes for one role (primary overview, cover) must be actively undone when the role moves, every poll, not only on change.
+- A budget that defers work must define what the user sees meanwhile. The logo budget first meant "nothing" (a blank card); "embedded logo now, real logo later" keeps the no-blank-cards rule.
+- Jellyfin gives a channel no way to order its items (`DefaultSortFields` is advisory; the grid sorts by `SortName`). The poller writes `ForcedSortName` ("rank name") and repairs it every poll; it is not part of the user-data key and survives channel refreshes, because audio items are not in the library cache.
+- HLS through Relay works because 12.3 forces an input format only for hardware-accelerated video files; Direct HLS is downgraded to Relay, which is what Jellyfin's own M3U tuner does. Playlist (`.pls`, `.m3u`) and DASH (`.mpd`) URLs are refused: ffmpeg cannot open the former, and the latter is a manifest.
+
+## Card L4: per-station state (522d08f..882e3f1; fix rounds a1ff4e5..d4866ba)
+
+- Shutdown is a behaviour, not an absence of behaviour: test it. Four mutants that turned a stop into "timed out" warnings, error lines or a 32 s hang survived 582 tests. A deterministic test cancels while requests are in flight (handler awaits `Task.Delay(Infinite, token)`) and asserts no log at Warning or above, no health record and no write; a second one cancels from inside the write phase.
+- `Parallel.ForEachAsync` cancels every other body when one throws. Per-item isolation therefore depends on a catch in each body that swallows everything except the stopping token, and a plain `OperationCanceledException` from an HTTP timeout must count as that item's failure, not as shutdown.
+- Moving a read earlier moves its failures too. The pre-fetch item lookup added to save a download put database errors inside the station's try, so a library lock looked like the station failing. Guard reads that only optimise, and treat their failure as "unknown".
+- 12.3 `ImageSaver.SaveImageToLocation` opens the target with `FileMode.Create` before it observes the token, so a cancelled save truncates the image. Check the token just before the save, then save with `CancellationToken.None`; the save is a bounded local write.
+- A health flag that resets on the first good sample flaps around its threshold. End a "slow" streak only below a lower ratio (0.8 of the interval).
+- A hidden tag beats a wrong tag: after a station URL change, Feed withholds the image tag while the applied cover belongs to the old origin, until the write phase saves the new image or the logo.
+- Concurrent `ILibraryManager.GetItemList` calls are safe in 12.3: the repository creates a `DbContext` per call (`BaseItemRepository.Querying.cs:68-104`). Verify that in the source; a locked test fake proves nothing about the real service.
+
+## Card L3: config page (7571fdd..aaf15fe; fix round 6544a65..8e29e7a)
+
+- An async answer in a dialog must prove it belongs to the dialog and the input that asked: a check number, the editor object and the URL still in the field. Without that, a 30-second probe answered after Cancel filled the next station's dialog and was saved. The card 18 lesson (stale replies) applies to admin pages too.
+- A page script without tests regresses silently. A dependency-free node harness with a small fake DOM, pending promises the scenario resolves by hand, and one CI step caught 26 of 30 page mutants. Its cost is the fake DOM: it supports only what the page uses and fails loudly on anything new.
+- A headers-only probe needs `HttpCompletionOption.ResponseHeadersRead` and tests whose audio bodies throw when read, plus one real socket serving an endless stream; otherwise "we never read the body" is a claim, not a property.
+- .NET 10 rejects Shoutcast v1's `ICY 200 OK` as `HttpRequestError.InvalidResponse`; the message is the only clue. Match narrowly, fall back to a generic category, and never echo the message.
+- Check the user-data claims in the source before warning users: 12.3 resolves user data by every key, including the external id and any row of the item, so favourites survive a rename even though `Name` is part of the first key.
+- Station-chosen URLs (a playlist entry, the feed's stream mount) are request targets; give each the same rule as the admin's own URL before any request, and keep every follow-up request on the host of an address that already passed.
+
+## Card L5: routes and station page per station (54e27a6..f54fac5; fix rounds 9dd4f1c..c45b105)
+
+- Resolve a caller-named resource in exactly one place that runs after authorization and before the action, and make the action unable to get it any other way (`CallerStation()` throws if the filter did not run). In ASP.NET Core an authorization filter (`[StationAccess]`) runs before model binding and an action filter (`[StationRoute]`) after it, so a refused caller gets 403 before any id is looked at; verify that against the host's own MVC setup (Jellyfin 12.3 registers no global filters), not only a test server.
+- A source-text ban list is not a rule: a fully qualified name split over a line, or a dependency that hands out the forbidden thing, gets past it. A reflection walk over held types is better but an exemption ("methods taking a `Uri`") reopened the hole. Scanning the IL of the class and its compiler-generated types (`MethodBody.GetILAsByteArray` + `Module.ResolveMember`) catches aliases, lambdas and async state machines; fail loudly on unknown opcodes and unresolved tokens. A deny-list scan still has limits (helpers outside the scanned types), so keep the behaviour tests that would catch a station mix-up.
+- Receipts and other tokens should remember the whole identity they were issued for (station id and origin), and the redeeming route must take it from the receipt, never from the caller.
+- A client that drops its UI on "gone" must also schedule its own way back. Two idle-page faults (after a feed 404, and after a second 404 inside the loop guard) only showed up in harness scenarios that did not nudge the DOM by hand; a test helper that simulates activity can hide exactly the path an idle user takes.
+- Old cached clients are a real compatibility surface: an absent `stationId` meaning "the primary station" kept a cached Android page working; check what the server returns for any asset version (`ui.js?v=` returns the current script) before claiming an old client was tested.
+
+## Card L7: docs and release candidate (1092ba3..37006e8; fix round bc87e41..5f1dbec)
+
+- Check every UI name you send an admin to against the host's own strings. "Refresh Internet Channels" came from the original plan and spread into README, the page, the changelog and the checklist; Jellyfin 12.3 shows the task as "Refresh Channels" (`TaskRefreshChannels`) under the category "Internet Channels".
+- A docs pass is a code review: reading every claim against the code found a real bug (F1: the channel entity was created only when a SUB/WAVE station existed, so a plain-stream-only list broke both admin buttons) and an overclaim (the `Items` rule blocked reads but DESIGN said it blocked writes).
+- A host checklist is a program: run it in your head against the code. Steps that depend on a later step, a policy POST that replaces the whole policy, and a "press it again after reload" step that the page makes impossible were all caught by checking each expected text against the page script.
+- `POST /Users/{id}/Policy` replaces the whole policy and needs the provider ids, so a checklist that sets one field must say GET, edit, POST the whole object (the card 5 lesson, again).
+
+## Host test v0.5.0.0 (2026-10-28)
+
+- A fake DOM that accepts what the browser accepts still misses what jellyfin-web changes. Its custom-elements polyfill replaces `document.createElement` and calls `toLowerCase()` on the second argument, so `createElement('button', { is: 'emby-button' })` threw inside `load()`: the spinner never cleared and the poller line stayed "checking…". Plain Firefox ran the same page fine. The harness now mimics the polyfill; when a page breaks only inside Jellyfin, read the browser console first.
+- Check write paths in the server source before writing a checklist step that depends on them. Jellyfin 12.3's `UpdatePolicyAsync` never writes `BlockedChannels`: a policy POST that sets, nulls or empties it answers 204 and stores nothing. The step "block user C through the API" could not work, and the docs' claim that an Access page save clears blocks was wrong too. Read the result back after every write, not only the status code.
+- A picker-driven header looked right in the mockup, but on the host users expected the header to follow what plays (card L5b). A static mockup shows one state; test the idle and the playing states with the HI before building controls such as a picker, a remembered pick and a Play button that the real flow makes unnecessary.
+- Shortening help text drops the qualifiers that kept it true. Card L5c's draft said "the station logo shows" for a track without art; on a SUB/WAVE item that is the embedded Jellywave logo (`LiveItemArtwork.Logo`), not the station's own, so a new admin would read it wrong. Check each fact a short text keeps against the code, not against the long text it replaces.
+
+## Card L8: header for plain streams
+
+- A "never called" check can pass by matching nothing. The harness's `urls()` returns `METHOD url`, and the new check's pattern was anchored on the bare url, so "no SUB/WAVE route is called for a plain stream" held even when the bar repaint asked `Feed?stationId=plain`. Mutating the code each check guards (one mutant per check) showed it; check against the raw request list, and run the mutant before trusting a negative check.
+- When two paths reach the same outcome, a scenario can prove the wrong one. A station re-checked into another kind was rebuilt by the feed's 404 (`stationGone`) even with the list-driven rebuild removed. Holding back the requests of the other path (`serve(keep)`) makes the scenario prove the path it names.
+- A field shown only for one kind still has a value for the other. Check fills a hidden Genre or Website on a station detected as SUB/WAVE; without a guard in the draft, the hidden value would be saved and shown later if the station became a plain stream. Decide per field what a hidden input means, and test that a hidden filled field is not saved.
+- Text the plugin writes into a Jellyfin field is rendered by Jellyfin's rules, not the plugin's: jellyfin-web shows an item overview as sanitized HTML and Markdown, so notes that the station page shows as text could become markup in the detail view (RA fix round). Ask of every written field who renders it and how, and strip what that renderer reads (`<` and `>`); Markdown links remain, and the threat model says so.
+- A link label that shows the host is only honest when the host is ASCII. Serve the IDN (punycode) form (`Uri.IdnHost`, which throws on hosts IDNA refuses) and make the page's own rule accept only an ASCII host, so a Cyrillic look-alike shows as `xn--…`.
+
+## Card S-b: IL scan allow-list
+
+- A deny rule that checks a call's declaring type, generic arguments and result does not see its parameters. `JellywaveChannel.TileName(null!)` (takes a `PluginConfiguration`, returns a string) passed every deny rule of the station route scan; only the allow-list caught it. Check new rules with a mutant that a plausible refactor would write, not only with the bypasses the rule was designed against.
+- A type's static constructor is a `ConstructorInfo` too (`Type.TypeInitializer`). The first walk treated it as "this type is constructed", walked every virtual method of `JellywaveChannel`, and reported sinks the helper never reaches; test `IsStatic` wherever a constructor means an instance.
+- Exempting auto-properties wholesale reopens the gap through shared state: a service's or a static auto-property can hold a value that other code filled from the configuration. Exempt only instance accessors of types listed as data, and prove "auto" from the IL (one backing-field token), not from `[CompilerGenerated]` alone.
+- (S-b fix round) An allow-list of types is only as strong as what it lets through unread. Listing data types by their auto-properties left property initializers, constructors the serializer or model binder runs, and getters only the serializer calls unseen; walk a listed type whole, and require that every plugin type handed to framework code (type tokens, generic arguments, parameter and return types) is listed. A reviewer's mutant harness (21 mutants, one per idea) found gaps of several kinds in a rule whose own controls all passed.
+- Removing a fix and rerunning the controls shows which control proves it. Dropping the value-type rule failed nothing: every way to run a struct's override (`initobj`, `box`, `constrained.`) already passes a type token, which the handed-type rule reads. Say so instead of claiming a control proves it.
+
+## Card L6: ICY titles for plain streams
+
+- A timer-driven state change needs a scenario where the regular tick cannot do it too. The page's 5 s tick starts when a header is built, so a plain stream started from a fresh page ticks at exactly 30 s and the "Delayed" text appeared with or without the line's own boundary timer. Starting the plain stream after a SUB/WAVE station (the interval keeps its phase, 2 s off) made the 30 s check fail when the timer was removed; check a timing rule with the other trigger out of phase.
+- "From playback start" on the page means when the page selects the station, which is after the list answers (the `playbackstart` handler re-reads the list first). A scenario that delayed the list by 20 s moved the 30 s mark with it. Name the event the clock starts on in the code and the docs, and test the delay that matters (the first title answer) rather than one that also moves the start.
+- (L6 fix round, RA R1) Disposing an `HttpResponseMessage` does not close an HTTP/1.1 connection at once: `SocketsHttpHandler` drains up to `MaxResponseDrainSize` (1 MB) of an unread chunked or declared-length body, for up to `ResponseDrainTimeout` (2 s), to reuse the connection. For an audio stream that is a megabyte read and a late close after a "headers only" or "one block" request. A fake handler cannot show it; a real socket whose server stalls after a short tail does (the close came at 2.0 s until `MaxResponseDrainSize = 0`).
+- (L6 fix round, RA R2) State that hangs off a DOM node dies with the node. The title polling was keyed to the header element, so when jellyfin-web evicted the cached view the bar the page had painted froze on an old title. Key ongoing work to what the user still sees (the bar this page painted), not to the element that started it.
+
+## Card L10: Relay only
+
+- Removing a delivery mode does not remove what clients can read. Without Direct no client is told to fetch a station, but the station URL is still the media source's `Path`, which PlaybackInfo returns to every user who can see the item. Write "relayed" in the docs, never "hidden", unless the field that carries the URL is gone too.
+- `MediaSourceSchemaDate` only re-saves stale sources when it is later than the configuration's `LastChangedUtc` (the item date is the larger of the two). A configuration saved with an older build after the new schema date keeps the old sources until the next save. The other way round, a schema date in the future swallows every save made before it (Jellyfin re-saves only when the date is strictly later than the stored one), so set it to the time of the change, neither earlier nor later, and expect the first save after an upgrade to finish the job.
+
+## Host run 2026-10-29 (v0.5.0.0 build with L10)
+
+- A check script that prints server answers prints whatever the server put in them. Jellyfin echoes the caller's key in every `TranscodingUrl` (`ApiKey=`), so `verify-jellyfin.sh` printed the admin key on every run. Redact credentials in anything a script echoes, and test it by counting the real key in the output (`grep -c -F -f <keyfile>`) rather than reading the output by eye.
+- A Jellyfin server can live under a base path. The test host answers `/System/Info/Public` with 302 at the root and 200 under `/emby`; with the root URL the script failed every check with no reason printed. The URL in a host step must include the base path.
+- jellyfin-web 12.3's playing bar already has a Stop button, wired to `playbackManager.stop`, but its CSS hides it at widths up to 80em, so most windows show only play/pause. Read the shipped bundle on the host before building a control the client may already have.
+
+## Card L11: first-run fixes and Stop instead of Pause
+
+- Read the whole media-query ladder before relying on a control the client hides. The bar's Stop is hidden up to 80em, but up to 56em jellyfin-web hides its whole centre group, so on phones (and the Android app) there is no Stop to show at all, and hiding play/pause alone would have left the bar with no control. A fact found for one width is not a fact for every width.
+- Listen where the event is fired, not where it is named. jellyfin-web 12.3's `playbackManager` re-fires `playbackstart`, `playbackstop` and `playerchange`, but turns a player's `pause` into a progress report; the script's listeners for `pause`, `unpause` and `statechange` on the manager had never fired. Grep the bundle for the trigger, not for the event name in an enum.
+- A fake that delivers every event regardless of its target hides that kind of bug: the station page harness put all events in one bucket by name, so a listener on the wrong object passed. Key fake events by target, as the real event bus does.
+- A negative rule ("never stop during a switch") is guarded by several checks at once (the station at pause time, the same player, the same station, still paused after the settle). Removing one guard at a time showed three of them were unproven; each needed its own scenario where only that guard stands in the way (another station, another item, another player current and paused within the settle).
+- An unsaved-changes guard needs to know whether its page is still the one shown: jellyfin-web keeps hidden views in the document, and its own navigation cannot be stopped, so a listener left on `window` would ask about changes the page already dropped. Track `pageshow`/`pagehide` and remove the listener on `viewdestroy`.
+- Compare what the user can change, not more. A normalised signature (sorted keys, blank equals missing, `SortOrder` left out) had parts no scenario could tell apart; the plain copy without the page-only key is what a mutant could prove.
+- (L11 fix round) A host step is code too: check that a correct build can pass it. (h)11 expected "not saved yet" after a reorder, but only an edited or toggled row is marked unsaved; the tester would have failed a correct build. Walk each expected text back to the line that writes it.
+- (L11 fix round) An event can mean more than its name. The cast player fires `pause` on every play-state change, so on cast "pause → stop" rests on the settle and the paused check alone. When a rule reacts to an event, read every place that fires it, per player.
+- (L11 fix round) A note that describes the page goes stale when the page reloads under it ("Your changes are still on this page" after the changes were dropped). Clear status notes where the state they describe is replaced.
+- (L11 fix round) Two codes that must agree (the page's and the server's blank-name rule) need a test with the input where they could differ: a non-http scheme. Equal outputs on the easy inputs proved nothing.
+
+## Card L13: first-run page layout, plain-stream health, who can see it
+
+- "The server already keeps it" needs reading against the state's lifetime, not only its fields. `StationTitles` had the outcome, but a failure stored no time and the entry went 45 s after the last listener, so the health line the sketch showed ("no answer 2 h ago") needed its own record with its own lifetime. Ask how long a value lives before building a view on it.
+- A record tied to a URL does not have to hold the URL. A per-process hash of it lets the reader ask "was this read of the URL the station has now?", so a changed URL shows nothing at once, and the "never the URL in the state" rule holds; a reflection test on the record's field types keeps it that way.
+- An attribute test proves the attribute is there, not that the pipeline enforces it. Running the admin controller in a real MVC host (a role claim standing in for Jellyfin's policy) showed the 403 for the new route and every old one; a mutant that only the pipeline can judge (`[AllowAnonymous]` on the method) is the one worth running there alone.
+- "Reuse the rule" is testable: the new count must equal what the grant pass calls "already visible" on the same users. A copy of `Classify` without the rename bridge would have passed every example built without an earlier tile; the equality test with a bridge-blocked user caught it.
+- A sketch approved "as drawn" can still differ from the card's text (column names, a heading). Build what the text lists, keep the rest as it was, and put each difference in front of HI rather than choosing silently.
+- Moving a field breaks host steps far from the card: (e)34 and (e)43 expected "✓ in the tile" on a station that had been played, which a correct L13 build shows as "✓ answered … ago". Search the checklist for every text the change can alter, not only the section that names the page.
+- (L13 fix round) A mutant runner must call any build failure a build failure. Mine looked for `error CS` only, so a mutant that StyleCop or an ASP.NET analyzer refused to build was reported as a survivor, and I called one "equivalent" without running it. Match `: error ` and treat a non-building mutant as not run.
+- (L13 fix round) Run mutants in a scratch worktree, never in the working tree: an interrupted runner leaves a mutant in a tracked file, and a commit can pick it up.
+- (L13 fix round) "Answered" needs a moment, not an outcome. A stream that sent its headers and then a slow title is up; a redirect is a third state the relay and the sampler disagree on. A callback at the exact point (after the status check) says more than any exception type caught later.
+- (L13 fix round) A field inside a closed fold cannot show the browser's validation bubble. When a form is split into folds, do the check in the save code (`novalidate`, `checkValidity`, open the fold, `reportValidity`) so every Save button behaves the same.
+- (L13 fix round) A banner that names something must name the saved value, not the field the admin is typing in; a check that types into the field between two reads is what tells them apart.
+
+## Card U1: stack refresh (Jellyfin 12.4)
+
+- A version bump has two kinds of "12.3" in the docs: what the server does now (re-date it, citing the release diff)
+  and where a fact was read (12.3 source line numbers, a bundle read on a 12.3 host). Re-dating the second kind would
+  claim a check that has not happened. Say the rule once at the top of the document and keep provenance as it was.
+- Bundle details (chunk numbers, module ids, a commit hash) can change with a rebuild even when the source does not;
+  jellyfin-web 12.4 changed only its package files, which can be enough to renumber chunks. Keep them tied to the build
+  they were read from and list them for the host re-check.
+- A harness check that a text has left the page records a decision (L5c: the repository URL lives in the README).
+  When a later card brings the text back, narrow the check (only in the grey line) instead of deleting it, so the
+  help text stays short.
+- Confirm the bump in the built assembly, not only in `project.assets.json`: the references read from the DLL
+  (12.4.0.0) are what `targetAbi` must cover, and a mutant with `targetAbi` 12.3.0.0 shows `AbiTests` catches it.
+
+## Card L9: starter stations
+
+- "Fresh install" needs a signal an upgrade cannot also give. A marker element in the file cannot be it: an element
+  missing from an older file reads as the constructor's default, so the marker's default would have to mean both
+  "fresh" and "old". The absence of the file, checked before the base class's lazy load writes defaults, is the only
+  signal Jellyfin leaves, and it has to be read first thing in the constructor.
+- `XmlSerializer` fills a collection the constructor made by appending, so seed data in a configuration constructor
+  doubles on every load and brings removed entries back. Seed after loading, and test against hand-written files as
+  well as round trips: a round trip through the same code can hide the shape an older build wrote.
+- Check a station's terms, not only its stream. Every URL answered and looked right; only the terms page (linked from
+  the site footer, not the FAQ) said "no third-party clients" and "no re-streaming". When a brief's list conflicts
+  with a rule the card already states, build the rule and put the change in its own revertable commit.
+- Probe the audio, not only the headers: one stream said `icy-br: 128` and nothing about its rate, and ffprobe found
+  48 kHz where every other starter is 44.1 kHz.
+- (L9 fix round) Reusing a failure flag for a new failure path carries its words along: "could not be read" and "blocks
+  on the old tile" were wrong for a fresh install that could not save. When a new path sets an existing flag, read the
+  text every consumer shows for it (log, Health, page), not only the behaviour it gates.
+- (L9 fix round) "Nothing was written" holds only if the write fails before it starts. `SerializeToFile` creates the
+  file first, so a failure midway leaves a truncated file; say which failure a guarantee covers.
+
+## Card L14: ask a SUB/WAVE station only while someone listens
+
+- A rule that narrows what a loop does breaks every old test of that loop at once, for a reason none of them is about.
+  Give the old tests an explicit "every station needed" demand (`StationDemand.EveryStation`, internal, never
+  registered) and test the rule with its own harness, instead of teaching every old harness about listeners.
+- "Ask only stations that are due" looked natural for a woken poll but changed the meaning of the public
+  `PollOnceAsync` (two polls in a row no longer asked twice). Splitting the poll kinds kept it: a regular poll asks every
+  needed station, a woken one only those not asked since they became needed, and the loop keeps the regular timing.
+- A wake is a signal, not work: releasing a one-slot semaphore from the event handler keeps fetches and item writes on
+  the one poll loop, bounds a burst to one extra poll, and cannot race the write phase.
+- "Idle" and "failing" both clear the state and show the logo; reusing the failure path would have reused its health
+  write and warning too. Reuse the look, not the path, and test that health stays as it was.
+- A mutant runner killed by a timeout leaves its last mutant in place, and the next run measures against it. Reset the
+  worktree (`git checkout -- .`) before each mutant, not only after.
+- (L14 fix round) A deadline that has passed must win over a pending signal. "Wait for a wake or the rest of the
+  interval" read fine, but with the rest at zero a waiting wake still answered first, so a steady trickle of wakes
+  replaced every regular poll. Test the loop itself, not only the poll it calls: no test ran `LoopAsync`, so the
+  timing variables were never exercised.
+- (L14 fix round) A clock that runs faster than real time (10×) lets a loop test cover a 5 s interval in half a second
+  while the loop's real-time waits (`Task.Delay`, a semaphore timeout) still pace it; poll for the expected count with
+  a deadline so the fixed code finishes fast and the broken one fails at the deadline instead of hanging.
+- (L14 fix round) A signal path that a user can drive needs the same gate as the route path. The station routes were
+  gated, but Jellyfin's playback report accepts any item id from any signed-in user, so the demand counted listeners
+  the tile refuses. When the host's code is not available to read, gate on what its event carries.
+- (L14 fix round) A mutant runner must check the build's exit code, not grep its tail: `if (false)` is a warning, so an
+  error here, and the run then tested the previous mutant's binaries and reported a kill. Same lesson as e8dea54, one
+  level up. Prefer a runtime-false condition (`x < 0`) so the mutant compiles.
+- (L14 fix round) A rejected promise that a page leaves unhandled ends a node harness before its checks run; record
+  `unhandledRejection` in the scenario that provokes it, so the failure is a named check.
+- (L14 fix round) "The page polls in a background tab" assumed the page polls when nothing plays. Read when the timer
+  runs before fixing its throttling: here it runs only while a station plays, and the playing session already keeps
+  the station needed.
+- (L14 fix round 2) An early return that skips "nothing to do" can also skip the bookkeeping of a state change the same
+  pass decided. The woken poll's "nobody new to ask" return came after `NeededStations` had already moved a station to
+  idle, so the idle look, the idle mark and the "asked" reset never happened. Ask of every early return: did anything
+  above it change state that only the code below records?
+- (L14 fix round 2) A loop test paced by real seconds needs a deadline sized for a starved thread pool, not for an idle
+  machine: three 1 s gaps fit 10 s alone but not always under the parallel run. Raise the deadline (a passing run still
+  ends early) and print the elapsed time, rather than shrinking the gap, which also thins the signal the R1 test needs.
+- (L14 fix round 2) A banned-substring check over JSON with random ids or timestamps is a lottery: a bare "8443" or
+  "7700" can turn up in a Guid or in a time's fraction (one failure in many runs). Ban a port with its colon, which an
+  id never has and a time cannot have before those digits.
+- (L14 fix round 2) A socket test that counts what the server sent before the client closed measures the scheduler:
+  on one core the client read its block and closed while the server was still writing (49152 of 81569). Assert the
+  premise (more was offered than the client may read) and the close timing, not an exact byte count. Pinning the run
+  to one core (`taskset -c 0`) reproduced it in eight runs where two cores did not in twelve.
+- (L14 fix round 2) Gate every consumer of the same user-driven signal, not only the one under review: the title
+  sampler read the same sessions as the demand and kept the gap the S2 fix closed for SUB/WAVE stations.
+- (R1) Read the base class before trusting a framework hook. `BasePlugin<T>.LoadConfiguration` writes defaults over a
+  file it cannot read, and `UpdateConfiguration` assigns before it saves; both looked harmless from the outside. Take
+  the load and the save over (deserialize and assign before the lazy getter runs; write, then assign) rather than
+  wrapping them.
+- (R1) "Write a temp file, then swap" needs every step behind a seam to be testable: create, write some bytes, swap
+  before, swap after. The "swap after" case (the rename happened, then an error) is the one that shows memory and
+  disk can still differ by one save; the guarantee is "a whole file", not "the file matches memory".
+- (R1) A plugin exception on Jellyfin's configuration POST reaches the browser as a status code only (the exception
+  middleware keeps the message back outside development mode), so a server-side refusal has to reach the page
+  another way (here Health). A change time the browser sets can go backwards; stamp it on the server,
+  and floor it at the date that already decides the item date, or a save can leave `DateModified` where it was.
+
+## Card R3 (release pipeline, 2026-10-30)
+
+- Check everything a release can be wrong about before it becomes public. The first version published the draft and
+  only then compared the manifest, so a conflicting entry left a public zip the catalog's checksum did not match
+  (RA). With immutable releases on, such bytes can never be fixed, only superseded.
+- GitHub's default concurrency (`queue: single`) cancels a *waiting* run when a newer one arrives;
+  `cancel-in-progress: false` only protects the running one. `queue: max` keeps them all.
+- A stand-in for an external CLI must fail both before and after its side effect: real `gh` can create a release or
+  land an upload and still report an error. Treat only the specific "not found" answer as absence.
+- Mutate the script before trusting its test: the first test passed with five of ten deliberate faults in place
+  (RA), including dropped version and ABI checks.
+
+- (R1 fix round) "Atomic replace" is atomic on Linux (one `rename`) but not on Windows: `ReplaceFile` can rename the
+  old file to the backup name and then fail, so a catch that only deletes the temp file leaves no settings file at
+  all. When a swap fails, look at what is on disk before cleaning up, and finish the swap from whatever complete file
+  is left.
+- (R1 fix round) A new file gets the process umask, not the old file's permissions: a save turned 0600 into 0664.
+  Copy the mode onto every file that replaces or copies the settings, before any byte is written.
+- (R1 fix round) A backup slot can destroy the evidence it is meant to keep: the first save after a failed load would
+  have pushed the unreadable file into `.previous`, over the last good file. Skip the backup when another copy already
+  holds what is being replaced.
+- (R1 fix round) Name the cause the admin can act on. "Check the folder is writable" was wrong when the file itself
+  could not be read (root-owned 0600); say both, read the file and write the folder.
+
+## Card R2a (server tightening, 2026-10-30)
+
+- An id that is "stable" across installs is also public. Jellyfin hashes the external id and the tile name into the
+  item id and streams items without sign-in, so a fixed seed id is a guessable stream URL on every install. Make seed
+  ids random and save them once; fix the old ones with a one-way re-key that is idempotent on its own output.
+- A count of "the page's normal use" has to be made against the page's real timers, then through the server's caches:
+  the page makes 35 requests in its busiest minute, the station sees 17. A 5 s request-status cache would have been 21
+  (a 3 s poll against a 5 s lifetime misses every second poll); 8 s gives one miss in three.
+- A limiter that never waits is simpler and safer than one that queues: with "refuse at once" there is no queue to
+  bound, nobody holds a global slot while waiting for a station slot, and cancellation only has to release what was
+  taken. The permit's scope is "until the answer is read and disposed", which `StationClient` already guarantees by
+  reading every body before it returns.
+- Concurrent misses that share one fetch must not share the first caller's cancellation token: give the fetch its own
+  source and cancel it when the last waiter leaves, outside the cache's lock (cancellation callbacks can run
+  continuations inline on the cancelling thread).
+- Walk image structure; do not count byte patterns. A frame count from searching for `0x2C` or `acTL` is fooled by pixel
+  data; a block and chunk walk that must reach the end marker also refuses truncated and contradictory files. Test
+  fixtures that were "header only" had to become whole files once the walk read past the header.
+- Hand the page a token of your own, not the upstream id. Two stations can hand out the same request id; keyed by
+  our random token, nothing crosses, and the station's id never needs to be trusted for uniqueness.
+
+- (R2a fix round) A refund rule written for the polite case is a free pass for the hostile one. "A station's refusal
+  does not use the quota" let one user loop made-up song ids, because SUB/WAVE answers 409 to any id not on air (RA,
+  500 calls, none refused). Give back only the window the refusal is about (request, like); keep the general slot
+  spent. Give everything back only when nothing left this server.
+- (R2a fix round) Ask what an attacker can make the upstream answer, then check what the cache keeps of it: a 409 per
+  made-up id would have pushed real lyrics out. Don't keep answers the caller can mint at will, and evict the entry
+  that expires soonest, not the oldest.
+- (R2a fix round) Order the checks so a refusal costs nothing it should not: the receipt slot was reserved before the
+  budget check, so an over-budget send evicted the caller's own oldest receipt and then said 429.
+- (R2a fix round) A key part nothing tests is a key part a refactor can drop: replacing the cache key's origin with a
+  constant left every test green (RA). One test per cache now changes only the base URL.
+- (R2a fix round) Every write path needs the same invariant: the startup re-key was undone by the next save from a
+  page opened before the restart.
+- (R2a fix round) A test that waits on a held answer hangs when a limit is raised. Derive counts from the constants and
+  run the suite under `timeout`.
+
+## Card R2b (page, 2026-10-30)
+
+- A retry callback needs the same guards as an answer, and the timer needs an owner. Three defences turned out to be
+  layered (the reset clears the timers, the timer checks session and epoch when it fires, the callback checks the
+  song or portrait it was for); with any two of them gone the old tests stayed green. Only a test that looks at the
+  armed timers, and one that fires a retry between two ticks with the DOM-change pass silenced, tells them apart.
+- In the fake page, the script's own DOM changes run the DOM-change pass, which checks the session too. A test of
+  "the retry checks the session" passed with that check removed until the fake `MutationObserver` was silenced.
+- `Retry-After` comes as seconds or as an HTTP date, and `Date.parse('-5')` is a valid date. Parse a date only when
+  the value has letters, and clamp everything else; the longest wait this server sends (an hour) needs minutes on
+  screen, not "Try again in 3412 s".
+- Say which request outcomes are certain. A 429 or 503 from this server means nothing left; a network failure or
+  another 5xx may have reached the station. The text stays in the box either way, so the page has to tell the listener
+  which case it is, and never press Send for them.
+- A Save handler wired straight to `addEventListener('click', save)` gets the event as its first argument. Giving
+  `save` an argument (the confirmed tile name) meant wrapping both callers.
+- (R2b fix round) "Retry after the server's wait" is not enough for a poll: a busy 503 says 2 s, so an open page asks
+  every 2 s for as long as the station is busy. Back off on consecutive refusals of the same thing, and start afresh on
+  an answer or a change of what is asked.
+- (R2b fix round) A wait is a state the screen must show honestly: during a refused portrait's wait the old DJ's face sat
+  next to the new name, and a tooltip-only notice is invisible on touch, TV and the Android app.
+- (R2b fix round) Some guards cannot be told apart by any test: `later()`'s epoch check only ever differs when its own
+  session check just reset the state, and then every callback's own check (cleared song id, removed header) refuses
+  too. Say so instead of writing a test that pretends otherwise; arm timers only for the current epoch so the reason
+  stays true.
+- (R2b fix round) "Named like a secret" needs the names people actually use: joined (`apikey`, `PHPSESSID`), acronyms
+  (`APIKey`, `XAuth`) and digits (`token2`), with negative tests (`monkey`, `keyboard`) to keep substring matching out.
+
+## Card R4 (threat model and DESIGN pass, 2026-10-30)
+
+- A setting name in a doc is a claim about the server too. "Withhold Allow audio playback that requires transcoding"
+  read like a lock; in 12.4 it shapes what PlaybackInfo and the media source lists offer, and on `/Audio/{id}/stream` it
+  only forces stream copy for a signed-in user (`EncodingHelper.TryStreamCopy`); nothing refuses the request. Name the
+  setting and say where Jellyfin applies it, and grep the encoder too, not only the controllers and helpers: the first
+  pass missed that check and stated the wrong reason.
+- "Probably; untested" can often be settled by reading the source instead of testing: ffmpeg's http input follows up to
+  `max_redirects` (8), and Jellyfin's static path uses its default client, which keeps redirects on.
+- A row that says "until the admin presses X" hides a stronger fact when X never closes it. Check what a control
+  closes route by route before writing that it closes a window.
+
+## Card R5 (README rewrite, 2026-10-30)
+
+- A README grown card by card answers "what changed"; a reader asks "what do I do first". Fix the order first (install,
+  first sound, then detail), and most of the length stops mattering.
+- Before cutting a fact from a README, grep the docs for it. Most had a home in DESIGN, but the limits of Stop instead of
+  Pause (SyncPlay, audio focus) lived only in the README, and THREAT-MODEL names several things "the README says".
+- The manifest header is outside every release path: `update-manifest.sh` writes only `.versions` and
+  `check-manifest.sh` does not compare `description` or `overview`, so the catalog said "SUB/WAVE tile" for a whole phase.
+
+## Device pass, tablet (2026-10-30)
+
+- A control hidden by a class does not show up in the media-query ladder. L11 read the CSS and concluded that width
+  decides the bar's centre group; the bar's script also hides it on any browser it calls mobile. When a page hides
+  something, search its script for the class as well as its stylesheet for the rule.
+- "Phones and the Android app" was two conditions treated as one, width and device, and a tablet has one without the
+  other. Test the combinations a rule splits: here a mobile device above 56em, which a tablet reaches and the Pixel 9
+  in landscape does not.
+- A force-close does not clear an Android WebView's cache. When the server's headers look right and a client still
+  behaves as if it runs old code, Clear cache is the cheap test to try before reading more source.
+- Check the installed build before reading a retest. One retest ran on the old build, because the deploy had not
+  happened. `md5sum` on the host caught it; without that, a correct fix would have looked wrong and sent the search
+  the wrong way. Make the checksum a step in the checklist, before the device steps.

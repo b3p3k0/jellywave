@@ -38,6 +38,7 @@ public sealed class StationAccessAttribute : Attribute, IAuthorizationFilter
             case StationAccessReason.ApiKey:
             case StationAccessReason.NoUser:
             case StationAccessReason.UnknownUser:
+            case StationAccessReason.PreviousChannelBlocked:
             case StationAccessReason.NotVisible:
                 // A plain 403: no X-Application-Error-Code, which jellyfin-web would treat as a parental-control logout.
                 context.Result = new StatusCodeResult(StatusCodes.Status403Forbidden);

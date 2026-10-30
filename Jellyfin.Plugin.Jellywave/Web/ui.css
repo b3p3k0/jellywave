@@ -12,6 +12,7 @@
 .jellywave-meta div{margin-top:.15em}
 .jellywave-actions{display:flex;gap:.6em;margin-top:.9em;flex-wrap:wrap}
 .jellywave-status{font-size:.85em;opacity:.6;margin-top:.5em}
+.jellywave-like-note{font-size:.85em;margin-top:.5em}
 @media (max-width:60em){.jellywave-header{grid-template-columns:11em minmax(0,1fr);grid-template-areas:"cover body" "request request" "panels panels"}}
 @media (max-width:40em){.jellywave-header{grid-template-columns:1fr;grid-template-areas:"cover" "body" "request" "panels"}.jellywave-cover{width:100%;height:auto;aspect-ratio:1/1}}
 .jellywave-request{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5em;margin-top:1em;align-items:center}
@@ -36,3 +37,11 @@
 .jellywave-schedule-when{flex:0 0 9em;opacity:.7;white-space:nowrap}
 .jellywave-schedule-now{font-weight:600}
 .jellywave-schedule-note{margin-top:.4em;font-size:.85em;opacity:.6}
+.jellywave-notes{opacity:.85;margin:.4em 0 0;overflow-wrap:anywhere}
+.jellywave-genre{opacity:.85;margin:.2em 0 0}
+.jellywave-format{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4em 1.2em;opacity:.7;font-size:.92em;margin:.7em 0 0}
+.jellywave-website{color:inherit;overflow-wrap:anywhere}
+.jellywave-header.jellywave-header-plain{grid-template-columns:11em minmax(0,1fr);grid-template-areas:"cover body"}
+@media (max-width:40em){.jellywave-header.jellywave-header-plain{grid-template-columns:1fr;grid-template-areas:"cover" "body"}}
+.jellywave-now{margin:.5em 0 0;overflow-wrap:anywhere}
+.jellywave-now-label{opacity:.7}

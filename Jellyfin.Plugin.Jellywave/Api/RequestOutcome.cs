@@ -32,4 +32,13 @@ public sealed class RequestOutcome
 
     /// <summary>Gets or sets how many seconds to wait before trying again (rate limit).</summary>
     public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>
+    /// The answer for a request this server has no live receipt for (never issued here, expired, evicted, lost in a
+    /// restart, or its station is no longer listed). No station is asked.
+    /// </summary>
+    /// <param name="requestId">The request id.</param>
+    /// <returns>The outcome.</returns>
+    internal static RequestOutcome LostTrack(string requestId)
+        => new() { RequestId = requestId, Status = "unknown", Message = "The station lost track of that request." };
 }

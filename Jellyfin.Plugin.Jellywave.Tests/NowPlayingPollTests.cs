@@ -54,7 +54,11 @@ public class NowPlayingPollTests
         {
             var host = request.RequestUri!.Host;
             var path = request.RequestUri.AbsolutePath;
-            Seen.Add(host + path);
+            lock (Seen)
+            {
+                Seen.Add(host + path);
+            }
+
             if (Broken.Contains(host + path))
             {
                 throw new HttpRequestException("timed out");
@@ -92,7 +96,12 @@ public class NowPlayingPollTests
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-            => Entries.Add((logLevel, formatter(state, exception)));
+        {
+            lock (Entries)
+            {
+                Entries.Add((logLevel, formatter(state, exception)));
+            }
+        }
     }
 
     private sealed class StubFactory : IHttpClientFactory
@@ -118,8 +127,10 @@ public class NowPlayingPollTests
                 client,
                 State,
                 Artwork,
+                new StationLogos(client, SaveImageAsync, NullLogger<StationLogos>.Instance, TimeProvider.System),
                 finder,
                 Health,
+                new ScheduleCache(client),
                 Library.Manager,
                 null!,
                 Log,
@@ -136,9 +147,9 @@ public class NowPlayingPollTests
 
         public PollerHealth Health { get; } = new();
 
-        public Audio LiveItem { get; } = new();
+        public Audio LiveItem { get; } = new() { ExternalId = "live" };
 
-        public PluginConfiguration Config { get; } = new() { StationName = Station, StationBaseUrl = "http://" + HostA };
+        public PluginConfiguration Config { get; } = new() { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://" + HostA } } };
 
         public NowPlayingService Poller { get; }
 
@@ -147,6 +158,12 @@ public class NowPlayingPollTests
         public List<string> ImagesSaved { get; } = new();
 
         public Task PollAsync() => Poller.PollOnceAsync(CancellationToken.None);
+
+        /// <summary>Gets the key of the configured station as the poller keys it (card L4).</summary>
+        public StationKey Key => StationSources.Primary(Config)!.Key!;
+
+        /// <summary>Gets what the state holds for the configured station.</summary>
+        public NowPlayingSnapshot Now => State.Snapshot(Key);
 
         private Task SaveImageAsync(BaseItem item, Stream stream, string mime, CancellationToken cancellationToken)
         {
@@ -162,7 +179,7 @@ public class NowPlayingPollTests
         var server = new Server();
         await server.PollAsync();
 
-        Assert.Equal("From A", server.State.StationState()?.History?[0].Title);
+        Assert.Equal("From A", server.Now.StationState?.History?[0].Title);
         Assert.StartsWith("Now playing: Artist A – Song A", server.LiveItem.Overview, StringComparison.Ordinal);
     }
 
@@ -171,13 +188,13 @@ public class NowPlayingPollTests
     {
         var server = new Server();
         await server.PollAsync();
-        server.Config.StationBaseUrl = "http://" + HostB;   // station B has no /api/state answer: 502
+        server.Config.Stations[0].BaseUrl = "http://" + HostB;   // station B has no /api/state answer: 502
 
         await server.PollAsync();
 
         Assert.Contains(HostB + "/api/state", server.Stations.Seen);
-        Assert.Equal("Song B", server.State.Feed()?.NowPlaying?.Title);
-        Assert.Null(server.State.StationState());
+        Assert.Equal("Song B", server.Now.Feed?.NowPlaying?.Title);
+        Assert.Null(server.Now.StationState);
     }
 
     [Fact]
@@ -189,7 +206,7 @@ public class NowPlayingPollTests
 
         await server.PollAsync();
 
-        Assert.Equal("From A", server.State.StationState()?.History?[0].Title);
+        Assert.Equal("From A", server.Now.StationState?.History?[0].Title);
     }
 
     [Fact]
@@ -212,7 +229,7 @@ public class NowPlayingPollTests
         server.Stations.Art.Add(HostA + "/api/cover/cov1");
         server.Stations.Art.Add(HostB + "/api/cover/cov1");
         await server.PollAsync();
-        server.Config.StationBaseUrl = "http://" + HostB;
+        server.Config.Stations[0].BaseUrl = "http://" + HostB;
 
         await server.PollAsync();
 
@@ -226,18 +243,18 @@ public class NowPlayingPollTests
         var server = new Server();
         server.Stations.Art.Add(HostA + "/api/cover/cov1");
         await server.PollAsync();
-        Assert.NotNull(server.State.StationState());
-        Assert.Equal(true, server.Health.Snapshot().Reachable);
+        Assert.NotNull(server.Now.StationState);
+        Assert.Equal(true, server.Health.Snapshot(server.Key).Reachable);
 
         server.Stations.NowPlaying[HostA] = "null";
         await server.PollAsync();
 
-        var health = server.Health.Snapshot();
+        var health = server.Health.Snapshot(server.Key);
         Assert.Equal(false, health.Reachable);
-        Assert.Equal(NowPlayingService.EmptyFeedMessage, health.LastError);
+        Assert.Equal(StationFailures.EmptyFeed, health.LastError);
         Assert.NotNull(health.LastErrorUtc);
-        Assert.Null(server.State.Feed());
-        Assert.Null(server.State.StationState());
+        Assert.Null(server.Now.Feed);
+        Assert.Null(server.Now.StationState);
         Assert.Equal(JellywaveChannel.DefaultOverview, server.LiveItem.Overview);
         Assert.Equal(new[] { "image/jpeg", "image/png" }, server.ImagesSaved);
     }
@@ -252,8 +269,8 @@ public class NowPlayingPollTests
 
         await server.PollAsync();
 
-        Assert.Equal(true, server.Health.Snapshot().Reachable);
-        Assert.Equal("Back", server.State.Feed()?.NowPlaying?.Title);
+        Assert.Equal(true, server.Health.Snapshot(server.Key).Reachable);
+        Assert.Equal("Back", server.Now.Feed?.NowPlaying?.Title);
     }
 
     [Fact]
@@ -262,14 +279,14 @@ public class NowPlayingPollTests
         var server = new Server();
         server.Stations.Art.Add(HostA + "/api/cover/cov1");
         await server.PollAsync();
-        server.Config.StationBaseUrl = "http://" + HostB;
+        server.Config.Stations[0].BaseUrl = "http://" + HostB;
         server.Stations.Broken.Add(HostB + "/api/cover/cov1");
 
         await server.PollAsync();
 
         Assert.StartsWith("Now playing: Artist B – Song B", server.LiveItem.Overview, StringComparison.Ordinal);
         Assert.Equal(new[] { "image/jpeg", "image/png" }, server.ImagesSaved);
-        Assert.Equal(LiveItemArtwork.LogoKey, server.Artwork.Applied);
+        Assert.Equal(LiveItemArtwork.LogoKey, server.Artwork.Applied("live"));
     }
 
     [Fact]
@@ -284,7 +301,7 @@ public class NowPlayingPollTests
         await server.PollAsync();
 
         Assert.Equal(new[] { "image/jpeg" }, server.ImagesSaved);
-        Assert.Equal("cov1", server.Artwork.Applied);
+        Assert.Equal("cov1", server.Artwork.Applied("live"));
     }
 
     [Fact]
@@ -296,7 +313,7 @@ public class NowPlayingPollTests
         await server.PollAsync();
         await server.PollAsync();
 
-        Assert.Equal(false, server.Health.Snapshot().Reachable);
+        Assert.Equal(false, server.Health.Snapshot(server.Key).Reachable);
         Assert.DoesNotContain(server.Log.Entries, e => e.Message.Contains("answering again", StringComparison.Ordinal));
         Assert.Single(server.Log.Entries, e => e.Level == LogLevel.Warning);
     }

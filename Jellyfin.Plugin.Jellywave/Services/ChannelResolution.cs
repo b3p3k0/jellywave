@@ -10,9 +10,10 @@ namespace Jellyfin.Plugin.Jellywave.Services;
 public sealed class ChannelResolution
 {
     /// <summary>
-    /// The fixed status text for a collision, shown on the configuration page (status line and grant result).
+    /// The fixed status text for a collision, shown on the configuration page (status line and grant result). Card L11:
+    /// the page says "tile", not "channel" (Jellyfin shows a channel as a tile in My Media).
     /// </summary>
-    public const string CollisionStatus = "channel name collides with another plugin's channel";
+    public const string CollisionStatus = "another plugin's tile has the same name";
 
     private ChannelResolution(Channel? channel, string? collidesWith)
     {

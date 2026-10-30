@@ -7,8 +7,8 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 
 public class StationUrlsTests
 {
-    private static PluginConfiguration Config(string baseUrl, string streamPath = "/stream.mp3", string clientUrl = "")
-        => new() { StationBaseUrl = baseUrl, StreamPath = streamPath, ClientStreamUrl = clientUrl };
+    private static PluginConfiguration Config(string baseUrl, string streamPath = "/stream.mp3")
+        => new() { Stations = { new StationDefinition { Id = "live", BaseUrl = baseUrl, StreamPath = streamPath } } };
 
     [Theory]
     [InlineData("")]
@@ -63,33 +63,6 @@ public class StationUrlsTests
         Assert.False(StationUrls.TryGetServerStreamUrl(Config(string.Empty), out _));
     }
 
-    [Fact]
-    public void ClientStreamUrl_empty_means_unset()
-    {
-        var config = Config("http://radio.example", clientUrl: "  ");
-        Assert.False(StationUrls.HasClientStreamUrl(config));
-        Assert.False(StationUrls.TryGetClientStreamUrl(config, out _));
-    }
-
-    [Theory]
-    [InlineData("radio.example/stream.mp3")]
-    [InlineData("rtsp://radio.example/stream")]
-    public void ClientStreamUrl_set_but_invalid_is_reported_as_set_and_invalid(string raw)
-    {
-        var config = Config("http://radio.example", clientUrl: raw);
-        Assert.True(StationUrls.HasClientStreamUrl(config));
-        Assert.False(StationUrls.TryGetClientStreamUrl(config, out var url));
-        Assert.Null(url);
-    }
-
-    [Fact]
-    public void ClientStreamUrl_valid_is_returned_verbatim()
-    {
-        var config = Config("http://radio.example", clientUrl: " https://public.example/stream.mp3 ");
-        Assert.True(StationUrls.TryGetClientStreamUrl(config, out var url));
-        Assert.Equal("https://public.example/stream.mp3", url!.ToString());
-    }
-
     [Theory]
     [InlineData(0, 5)]
     [InlineData(4, 5)]
@@ -109,7 +82,7 @@ public class StationUrlsQueryAndFragmentTests
     [InlineData("stream.mp3#frag")]
     public void Query_and_fragment_are_kept_but_stay_under_the_base(string path)
     {
-        var config = new PluginConfiguration { StationBaseUrl = "http://radio.example/prefix", StreamPath = path };
+        var config = new PluginConfiguration { Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example/prefix", StreamPath = path } } };
         Assert.True(StationUrls.TryGetServerStreamUrl(config, out var url));
         Assert.StartsWith("http://radio.example/prefix/stream.mp3", url!.ToString(), StringComparison.Ordinal);
     }

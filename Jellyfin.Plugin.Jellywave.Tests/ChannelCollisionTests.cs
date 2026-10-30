@@ -67,7 +67,7 @@ public class ChannelCollisionTests
 
         public Channel Channel { get; }
 
-        public Audio LiveItem { get; } = new();
+        public Audio LiveItem { get; } = new() { ExternalId = "live" };
 
         public LiveItemFinder Finder { get; }
 
@@ -83,12 +83,14 @@ public class ChannelCollisionTests
                 station,
                 new NowPlayingState(),
                 artwork,
+                new StationLogos(station, SaveImageAsync, NullLogger<StationLogos>.Instance, TimeProvider.System),
                 Finder,
                 Health,
+                new ScheduleCache(station),
                 Library.Manager,
                 null!,
                 NullLogger<NowPlayingService>.Instance,
-                () => new PluginConfiguration { StationName = Station, NowPlayingEnabled = false });
+                () => new PluginConfiguration { LibraryName = Station, NowPlayingEnabled = false, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } });
         }
 
         private Task SaveImageAsync(BaseItem item, Stream stream, string mime, CancellationToken cancellationToken)
@@ -118,7 +120,7 @@ public class ChannelCollisionTests
             store,
             new LibraryChannelLocator(server.Finder, null!),   // the entity exists or collides, so the channel manager is never asked
             NullLogger<AccessGranter>.Instance,
-            () => new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" });
+            () => new PluginConfiguration { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } });
 
     [Fact]
     public async Task Control_without_a_collision_the_poller_writes_the_live_item()
@@ -178,7 +180,7 @@ public class ChannelCollisionTests
 
         var result = await granter.GrantAllAsync(CancellationToken.None);
 
-        Assert.Equal("channel name collides with another plugin's channel", result.Error);
+        Assert.Equal("another plugin's tile has the same name", result.Error);
         Assert.Equal(0, result.Granted);
         Assert.Empty(store.Saved);
         Assert.Empty(user.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels));
@@ -191,7 +193,7 @@ public class ChannelCollisionTests
         var store = new FakeStore();
         var user = NewUser(allChannels: true); store.Users[user.Id] = user;
 
-        var result = new StationAccess(store, server.Finder, NullLogger<StationAccess>.Instance).Check(Caller(user.Id));
+        var result = new StationAccess(store, () => server.Finder.Resolve(new PluginConfiguration { LibraryName = Station }), _ => false, NullLogger<StationAccess>.Instance).Check(Caller(user.Id));
 
         Assert.Equal(StationAccessReason.Allowed, result.Reason);
         Assert.Same(server.Channel, result.Channel);
@@ -204,7 +206,7 @@ public class ChannelCollisionTests
         var store = new FakeStore();
         var user = NewUser(allChannels: true); store.Users[user.Id] = user;
 
-        var result = new StationAccess(store, server.Finder, NullLogger<StationAccess>.Instance).Check(Caller(user.Id));
+        var result = new StationAccess(store, () => server.Finder.Resolve(new PluginConfiguration { LibraryName = Station }), _ => false, NullLogger<StationAccess>.Instance).Check(Caller(user.Id));
 
         Assert.Equal(StationAccessReason.NameCollision, result.Reason);
         Assert.Null(result.Channel);
@@ -222,13 +224,14 @@ public class ChannelCollisionTests
             new NowPlayingState(),
             server.Health,
             new LiveItemArtwork(station, (_, _, _, _) => Task.CompletedTask, NullLogger<LiveItemArtwork>.Instance),
+            new StationLogos(station, (_, _, _, _) => Task.CompletedTask, NullLogger<StationLogos>.Instance, TimeProvider.System),
             server.Finder,
             NullLogger<JellywaveController>.Instance,
-            () => new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" });
+            () => new PluginConfiguration { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } });
 
         var health = controller.Health().Value!;
 
-        Assert.Equal("channel name collides with another plugin's channel", health.ChannelStatus);
+        Assert.Equal("another plugin's tile has the same name", health.ChannelStatus);
         Assert.False(health.LiveItemExists);
     }
 
@@ -243,9 +246,10 @@ public class ChannelCollisionTests
             new NowPlayingState(),
             server.Health,
             new LiveItemArtwork(station, (_, _, _, _) => Task.CompletedTask, NullLogger<LiveItemArtwork>.Instance),
+            new StationLogos(station, (_, _, _, _) => Task.CompletedTask, NullLogger<StationLogos>.Instance, TimeProvider.System),
             server.Finder,
             NullLogger<JellywaveController>.Instance,
-            () => new PluginConfiguration { StationName = Station, StationBaseUrl = "http://radio.example" });
+            () => new PluginConfiguration { LibraryName = Station, Stations = { new StationDefinition { Id = "live", BaseUrl = "http://radio.example" } } });
 
         var health = controller.Health().Value!;
 

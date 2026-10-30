@@ -11,7 +11,9 @@ Please do not open a public issue for a vulnerability. There is no security emai
 GitHub form is the only private channel.
 
 A useful report names the plugin version, the Jellyfin version, whether File Transformation is
-installed, the delivery mode (Relay or Direct), and the steps or request that show the problem.
+installed, the kind of station involved (SUB/WAVE or plain stream; before 0.5.0.0 also its delivery
+mode, Relay or Direct), and the steps or request that show the problem. Leave real stream URLs and
+host names out of the report, or replace them with placeholders.
 
 ## Supported versions
 
@@ -23,12 +25,17 @@ repository in the Jellyfin dashboard.
 In scope, meaning code in this repository:
 
 - The plugin's HTTP endpoints under `/Jellywave` on the Jellyfin server: the station routes used by
-  the station page (feed, requests, likes, lyrics, schedule, DJ portrait), the admin routes used by
-  the configuration page, and the two anonymous assets `ui.js` and `ui.css`.
-- The plugin's outbound calls to the configured SUB/WAVE station: URL handling, redirect refusal,
-  body and image limits.
-- The script and stylesheet the plugin injects into jellyfin-web through File Transformation.
-- The access grant (the admin button "Add the station to every user now") and what it writes to user policies.
+  the station page (station list, feed, requests, likes, lyrics, schedule, DJ portrait), how they
+  pick a station, the admin routes used by the configuration page (including the add-station check,
+  `POST /Jellywave/Probe`), and the two anonymous assets `ui.js` and `ui.css`.
+- The plugin's outbound calls: to SUB/WAVE stations, for plain-stream logos, and the add-station
+  check. URL handling, redirect refusal, body and image limits.
+- The stream URLs the plugin hands to Jellyfin as media sources (what reaches ffmpeg or the client).
+- The script and stylesheet the plugin injects into jellyfin-web through File Transformation, and the
+  configuration page's script.
+- User policies: what the admin buttons "Add the tile to every user now" and "Give them access to the renamed tile"
+  write, and the rename bridge, which keeps blocks on earlier tile names without writing anything.
+- The configuration migration from 0.4.x.
 - The release pipeline in `.github/workflows/` and the published `manifest.json`.
 
 Out of scope, report these upstream:
@@ -36,6 +43,7 @@ Out of scope, report these upstream:
 - Jellyfin itself (server, jellyfin-web, the native clients):
   [jellyfin/jellyfin security policy](https://github.com/jellyfin/jellyfin/security).
 - SUB/WAVE itself: [perminder-klair/subwave](https://github.com/perminder-klair/subwave).
+- The radio streams you add, and the servers that host them.
 - The File Transformation plugin:
   [IAmParadox27/jellyfin-plugin-file-transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation).
 

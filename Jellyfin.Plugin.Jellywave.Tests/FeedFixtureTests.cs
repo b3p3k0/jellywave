@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.Jellywave.Tests;
 /// </summary>
 public class FeedFixtureTests
 {
-    private const string Origin = "http://station.example/";
+    private static readonly StationKey Origin = new("live", "http://station.example/");
 
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
@@ -55,8 +55,8 @@ public class FeedFixtureTests
 
         var state = new NowPlayingState();
         state.Update(Origin, feed, System.DateTime.UtcNow);
-        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville · Up next: Night Owl with Low Light at ten at night", state.Description());
-        Assert.Equal("abc123", state.CoverId());
+        Assert.Equal("Now playing: Keith Kouna – Rideau (La Duchesse) · DJ Bobby Tran · The Ville · Up next: Night Owl with Low Light at ten at night", state.Snapshot(Origin).Description);
+        Assert.Equal("abc123", state.Snapshot(Origin).CoverId);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class FeedFixtureTests
         Assert.Null(feed.StreamOnline);
         var state = new NowPlayingState();
         state.Update(Origin, feed, System.DateTime.UtcNow);
-        Assert.Equal("Now playing: A – T", state.Description());
+        Assert.Equal("Now playing: A – T", state.Snapshot(Origin).Description);
     }
 
     [Fact]

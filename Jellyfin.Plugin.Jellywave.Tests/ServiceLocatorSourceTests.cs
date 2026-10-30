@@ -19,6 +19,8 @@ public class ServiceLocatorSourceTests
     private static readonly (string File, string Type)[] Allowed =
     [
         ("StationAccessAttribute", "StationAccess"),   // an attribute filter cannot take constructor dependencies
+        ("StationRouteAttribute", "StationResolver"),   // the same, for the station route filter (card L5)
+        ("StationRouteAttribute", "StationDemand"),   // the same filter records a station's open page (card L14)
         ("LiveItemFinder", "IChannel"),   // registered channels resolved lazily (startup order)
     ];
 

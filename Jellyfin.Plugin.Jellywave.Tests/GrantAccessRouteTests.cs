@@ -71,6 +71,7 @@ public class GrantAccessRouteTests
             new NowPlayingState(),
             new PollerHealth(),
             new LiveItemArtwork(station, (_, _, _, _) => Task.CompletedTask, NullLogger<LiveItemArtwork>.Instance),
+            new StationLogos(station, (_, _, _, _) => Task.CompletedTask, NullLogger<StationLogos>.Instance, TimeProvider.System),
             new LiveItemFinder(FakeLibrary.Create().Manager, () => [], NullLogger<LiveItemFinder>.Instance),
             NullLogger<JellywaveController>.Instance,
             () => config);

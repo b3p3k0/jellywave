@@ -1,0 +1,52 @@
+name: Verify
+
+# The checks a card acceptance runs, shared by CI (every push and pull request) and the release (the tagged commit,
+# before anything is built or published). Read-only token, no stored credentials, actions pinned to full commit SHAs.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Full commit SHA to check; empty checks the commit that triggered the caller'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build (warnings are errors)
+        run: dotnet build Jellyfin.Plugin.Jellywave.slnx -c Release --nologo
+
+      - name: Unit tests
+        run: dotnet test Jellyfin.Plugin.Jellywave.Tests -c Release --no-build --nologo
+
+      - name: Formatting
+        run: dotnet format Jellyfin.Plugin.Jellywave.slnx --verify-no-changes --no-restore
+
+      - name: Page script syntax
+        run: node --check Jellyfin.Plugin.Jellywave/Web/ui.js
+
+      - name: Page tests (configuration page, station page)
+        run: node Jellyfin.Plugin.Jellywave.Tests/js/configPage.test.js && node Jellyfin.Plugin.Jellywave.Tests/js/stationPage.test.js
+
+      - name: Shell script syntax
+        run: for f in scripts/*.sh Jellyfin.Plugin.Jellywave.Tests/sh/*.sh Jellyfin.Plugin.Jellywave.Tests/sh/fake-gh; do bash -n "$f"; done
+
+      - name: Release publishing against a stand-in gh
+        run: bash Jellyfin.Plugin.Jellywave.Tests/sh/publishRelease.test.sh
+
+      - name: Metadata agreement
+        run: scripts/check-manifest.sh

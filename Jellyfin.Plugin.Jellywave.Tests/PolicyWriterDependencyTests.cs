@@ -26,7 +26,9 @@ public class PolicyWriterDependencyTests
     {
         [typeof(AccessGranter)] = [typeof(JellywaveController)],   // POST /Jellywave/GrantAccess, admin only
         [typeof(IUserStore)] = [typeof(AccessGranter), typeof(StationAccess)],   // StationAccess reads users for the route check
-        [typeof(IUserManager)] = [typeof(UserManagerStore)],
+        // UserManagerReader only calls GetUserById (the read-only IUserReader for the channel's IsEnabledFor, card L1); it is not an IUserStore.
+        [typeof(IUserManager)] = [typeof(UserManagerStore), typeof(UserManagerReader)],
+        [typeof(UserManagerStore)] = [],   // registered behind IUserStore only; never taken directly
         [typeof(IServiceProvider)] = [typeof(LiveItemFinder)],   // resolves the registered channels lazily; a new service locator could reach the granter unseen
     };
 
@@ -64,6 +66,13 @@ public class PolicyWriterDependencyTests
             .ToArray();
 
         Assert.True(offenders.Length == 0, string.Join("; ", offenders));
+    }
+
+    [Fact]
+    public void The_read_only_user_reader_cannot_write()
+    {
+        Assert.False(typeof(IUserStore).IsAssignableFrom(typeof(UserManagerReader)));
+        Assert.DoesNotContain(typeof(UserManagerReader).GetMethods(), m => m.Name.Contains("Save", StringComparison.Ordinal) || m.Name.Contains("Update", StringComparison.Ordinal));
     }
 
     [Fact]
